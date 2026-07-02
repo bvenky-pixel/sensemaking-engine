@@ -52,18 +52,24 @@ class ConversationStateSchema(BaseModel):
     emotion_intensity: int = Field(default=0, ge=0, le=10)
 
     urgency: Literal["low", "medium", "high"] = "low"
+    stakes: str = ""
 
     core_problem: str = ""
+    core_problem_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    surface_complaint: str = ""
 
     facts: List[str] = Field(default_factory=list)
     interpretations: List[str] = Field(default_factory=list)
     assumptions: List[str] = Field(default_factory=list)
     unknowns: List[str] = Field(default_factory=list)
+    biases: List[str] = Field(default_factory=list)
 
     stakeholders: List[str] = Field(default_factory=list)
 
     agency_level: float = Field(default=0.0, ge=0.0, le=1.0)
     clarity_level: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    phase: Literal["prepare", "discover", "discern", "challenge", "resolve", "commit"] = "prepare"
 
     decision: str = ""
 

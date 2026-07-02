@@ -1,63 +1,82 @@
+"""
+Deterministic judgment layer: converts one turn's Interpretation, plus the
+accumulated ConversationState, into a framing of where things stand and
+whether the conversation is ready to move to the next phase of the
+Confidant Method.
+
+This layer never advises. It only frames -- consistent with Principle 14:
+"The decision always belongs to the human."
+"""
+
 from src.interpretation.schema import Interpretation
 
+# Minimum core_question_confidence before we consider the "real question"
+# actually found (Phase 2 success: the conversation moves from "why is
+# this happening" to "what can I do").
+DISCOVER_TO_DISCERN_THRESHOLD = 0.6
 
-def run_judgment(interp: Interpretation):
+# Phase 3 success (partial, MVP heuristic): at least one assumption or
+# bias has been surfaced. The full success criterion in the constitution
+# also requires the user to *recognize* it, which this layer can't judge
+# on its own -- that needs a future turn's language, not this one.
+DISCERN_MIN_SIGNALS = 1
+
+
+def run_judgment(interp: Interpretation, state=None):
     """
-    Deterministic judgment layer:
-    Converts interpretation → prioritized understanding.
+    state is optional so this stays usable standalone (e.g. in tests) --
+    pass the accumulated ConversationState when available so phase
+    transitions can consider history, not just this one turn.
     """
 
-    # 1. Identify dominant hypothesis
-    dominant_hypothesis = None
-    if interp.hypotheses:
-        dominant_hypothesis = max(
-            interp.hypotheses,
-            key=lambda h: h.confidence
-        )
-
-    # 2. Identify emotional severity
-    max_emotion = None
+    dominant_emotion = None
     if interp.emotional_signals:
-        max_emotion = max(
-            interp.emotional_signals,
-            key=lambda e: e.intensity
-        )
+        dominant_emotion = max(interp.emotional_signals, key=lambda e: e.intensity)
 
-    # 3. Risk aggregation
-    risk_score = 0.0
-
-    if interp.risk_signals:
-        risk_score += min(1.0, len(interp.risk_signals) * 0.2)
-
-    if max_emotion:
-        risk_score += max_emotion.intensity * 0.4
-
+    # Phase 1 framing: urgency + stakes + emotional intensity, not a generic
+    # "risk score" -- named to match what the constitution actually asks
+    # Confidant to attend to before anything else.
+    attention_score = 0.0
+    if interp.urgency == "high":
+        attention_score += 0.4
+    elif interp.urgency == "medium":
+        attention_score += 0.2
+    if dominant_emotion:
+        attention_score += dominant_emotion.intensity * 0.4
     if interp.clarity_score < 0.4:
-        risk_score += 0.2
+        attention_score += 0.2
+    attention_score = min(attention_score, 1.0)
 
-    risk_score = min(risk_score, 1.0)
-
-    # 4. Decision framing (NOT advice, just framing)
-    if risk_score > 0.7:
+    if attention_score > 0.7:
         stance = "high_attention"
-    elif risk_score > 0.4:
+    elif attention_score > 0.4:
         stance = "uncertain_monitoring"
     else:
         stance = "stable_context"
 
-    # 5. Salience extraction
-    top_salience = None
-    if interp.salience_map:
-        top_salience = max(
-            interp.salience_map,
-            key=lambda s: s.importance
-        )
+    # Phase transition recommendation. This is advisory for the caller
+    # (e.g. a future response-generation layer) -- run_judgment itself
+    # doesn't mutate state.
+    next_phase = None
+    current_phase = getattr(state, "phase", "prepare") if state is not None else "prepare"
+
+    if current_phase == "prepare" and interp.surface_complaint:
+        next_phase = "discover"
+    elif current_phase == "discover" and interp.core_question_confidence >= DISCOVER_TO_DISCERN_THRESHOLD:
+        next_phase = "discern"
+    elif current_phase == "discern":
+        signal_count = len(interp.assumptions) + len(interp.biases)
+        if signal_count >= DISCERN_MIN_SIGNALS:
+            next_phase = "discern"  # stays; advancing to challenge is undrafted in the constitution
 
     return {
-        "dominant_hypothesis": dominant_hypothesis.hypothesis if dominant_hypothesis else None,
-        "dominant_hypothesis_confidence": dominant_hypothesis.confidence if dominant_hypothesis else None,
-        "max_emotion": max_emotion.emotion if max_emotion else None,
-        "risk_score": risk_score,
+        "dominant_emotion": dominant_emotion.emotion if dominant_emotion else None,
+        "attention_score": attention_score,
         "stance": stance,
-        "top_salience": top_salience.item if top_salience else None,
+        "core_question": interp.core_question,
+        "core_question_confidence": interp.core_question_confidence,
+        "assumptions_surfaced": len(interp.assumptions),
+        "biases_surfaced": len(interp.biases),
+        "current_phase": current_phase,
+        "recommended_next_phase": next_phase,
     }

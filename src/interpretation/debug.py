@@ -4,35 +4,34 @@ from src.interpretation.schema import Interpretation
 def analyze_interpretation(interp: Interpretation):
     print("\n=== INTERPRETATION DEBUG ===")
 
-    # 1. Hypothesis diversity
-    print("\n[Hypotheses]")
-    for h in interp.hypotheses:
-        print(f"- {h.hypothesis} ({h.confidence})")
-
-    # 2. Emotional spread
-    print("\n[Emotions]")
+    print("\n[Phase 1 -- Prepare]")
+    print(f"- urgency: {interp.urgency} | stakes: {interp.stakes}")
     for e in interp.emotional_signals:
-        print(f"- {e.emotion} | intensity={e.intensity} | conf={e.confidence}")
+        print(f"- emotion: {e.emotion} | intensity={e.intensity} | conf={e.confidence}")
 
-    # 3. Uncertainty check
-    print("\n[Uncertainties]")
-    for u in interp.uncertainties:
-        print(f"- {u}")
+    print("\n[Phase 2 -- Discover]")
+    print(f"- surface complaint: {interp.surface_complaint}")
+    print(f"- core question: {interp.core_question} (confidence={interp.core_question_confidence})")
 
-    # 4. Collapse detection
-    hypothesis_count = len(interp.hypotheses)
-    uncertainty_count = len(interp.uncertainties)
-    emotion_count = len(interp.emotional_signals)
+    print("\n[Phase 3 -- Discern]")
+    for f in interp.facts:
+        print(f"- fact: {f}")
+    for a in interp.assumptions:
+        flag = "TREATED AS FACT" if a.stated_as_fact else "acknowledged as belief"
+        print(f"- assumption: {a.assumption} [{flag}]")
+    for u in interp.unknowns:
+        print(f"- unknown: {u}")
+    for b in interp.biases:
+        print(f"- bias: {b.bias} (evidence: \"{b.evidence}\", conf={b.confidence})")
 
     print("\n[System Health]")
-    if hypothesis_count <= 1:
-        print("⚠️ Low hypothesis diversity (possible collapse)")
-    if uncertainty_count == 0:
-        print("⚠️ No uncertainty modeled")
-    if emotion_count == 0:
-        print("⚠️ No emotional signal detected")
-
-    if hypothesis_count > 1 and uncertainty_count > 0:
-        print("✅ Interpretation layer is healthy")
+    if interp.core_question_confidence < 0.3:
+        print("i  Real question not yet found -- still in Discover phase")
+    if not interp.assumptions and not interp.biases:
+        print("!  No assumptions or biases surfaced yet (expected early in a conversation)")
+    if interp.emotional_signals:
+        print("OK emotional state captured")
+    if interp.facts and interp.assumptions:
+        print("OK facts/assumptions distinguished -- discernment forming")
 
     print("============================\n")

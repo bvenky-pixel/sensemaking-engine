@@ -15,7 +15,7 @@ from engine.state_inspector import render
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
 from src.state.builder import update_state
-from judgment.engine import run_judgment
+from src.judgment.engine import run_judgment
 
 
 DIVIDER = "=" * 50
@@ -53,12 +53,15 @@ def run(model: str) -> None:
 
             analyze_interpretation(interp)
 
-            judgment = run_judgment(interp)
+            judgment = run_judgment(interp, state)
 
             print("\n--- JUDGMENT ---")
             print(judgment)
 
             state = update_state(state, interp)
+
+            if judgment["recommended_next_phase"]:
+                state.phase = judgment["recommended_next_phase"]
 
             # 3. Debug view
             print("\n--- INTERPRETATION ---")
