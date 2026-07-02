@@ -68,7 +68,8 @@ from typing import List
 
 from engine.state import ConversationState
 from engine.state_inspector import render
-from engine.state_updater import StateUpdater, StateUpdateError
+from engine.mock_state_updater import MockStateUpdater
+from engine.state_updater import StateUpdateError
 
 DIVIDER = "=" * 50
 EXIT_COMMANDS = {"exit", "quit"}
@@ -88,8 +89,9 @@ def run(model: str) -> None:
     try:
         updater = MockStateUpdater()
     except Exception as exc:
-    print(f"Failed to initialize MockStateUpdater: {exc}")
-    sys.exit(1)
+        print(f"Failed to initialize StateUpdater: {exc}")
+        print("Check that ANTHROPIC_API_KEY is set and 'anthropic'/'pydantic' are installed.")
+        sys.exit(1)
 
     state = ConversationState()
     transcript: List[str] = []
@@ -129,7 +131,7 @@ def run(model: str) -> None:
             continue
 
         print()
-        print(render(state))
+        render(state)
         print(DIVIDER)
 
 
