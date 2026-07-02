@@ -86,11 +86,10 @@ def run(model: str) -> None:
     print("-" * 50)
 
     try:
-        updater = StateUpdater(model=model)
+        updater = MockStateUpdater()
     except Exception as exc:
-        print(f"Failed to initialize StateUpdater: {exc}")
-        print("Check that ANTHROPIC_API_KEY is set and 'anthropic'/'pydantic' are installed.")
-        sys.exit(1)
+    print(f"Failed to initialize MockStateUpdater: {exc}")
+    sys.exit(1)
 
     state = ConversationState()
     transcript: List[str] = []
