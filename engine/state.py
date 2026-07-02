@@ -15,10 +15,12 @@ class ConversationState:
     core_problem_confidence: float = 0.0  # gates phase 2 -> 3 transition
     surface_complaint: str = ""
 
-    # Phase 3 -- Discern
-    facts: List[str] = field(default_factory=list)
-    interpretations: List[str] = field(default_factory=list)
+    # Phase 3 -- Discern (epistemic tiers -- see src/interpretation/schema.py)
+    observed_facts: List[str] = field(default_factory=list)
+    claims: List[str] = field(default_factory=list)
+    goals: List[str] = field(default_factory=list)
     assumptions: List[str] = field(default_factory=list)
+    inferences: List[str] = field(default_factory=list)
     unknowns: List[str] = field(default_factory=list)
     biases: List[str] = field(default_factory=list)
 

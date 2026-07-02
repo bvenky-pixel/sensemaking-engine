@@ -58,9 +58,11 @@ class ConversationStateSchema(BaseModel):
     core_problem_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     surface_complaint: str = ""
 
-    facts: List[str] = Field(default_factory=list)
-    interpretations: List[str] = Field(default_factory=list)
+    observed_facts: List[str] = Field(default_factory=list)
+    claims: List[str] = Field(default_factory=list)
+    goals: List[str] = Field(default_factory=list)
     assumptions: List[str] = Field(default_factory=list)
+    inferences: List[str] = Field(default_factory=list)
     unknowns: List[str] = Field(default_factory=list)
     biases: List[str] = Field(default_factory=list)
 

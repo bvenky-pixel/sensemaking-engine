@@ -13,12 +13,17 @@ def analyze_interpretation(interp: Interpretation):
     print(f"- surface complaint: {interp.surface_complaint}")
     print(f"- core question: {interp.core_question} (confidence={interp.core_question_confidence})")
 
-    print("\n[Phase 3 -- Discern]")
-    for f in interp.facts:
-        print(f"- fact: {f}")
+    print("\n[Phase 3 -- Discern: epistemic tiers]")
+    for f in interp.observed_facts:
+        print(f"- observed fact: {f}")
+    for c in interp.claims:
+        print(f"- claim: {c}")
+    for g in interp.goals:
+        print(f"- goal: {g}")
     for a in interp.assumptions:
-        flag = "TREATED AS FACT" if a.stated_as_fact else "acknowledged as belief"
-        print(f"- assumption: {a.assumption} [{flag}]")
+        print(f"- assumption: {a}")
+    for inf in interp.inferences:
+        print(f"- inference: {inf.reading} (confidence={inf.confidence})")
     for u in interp.unknowns:
         print(f"- unknown: {u}")
     for b in interp.biases:
@@ -29,9 +34,9 @@ def analyze_interpretation(interp: Interpretation):
         print("i  Real question not yet found -- still in Discover phase")
     if not interp.assumptions and not interp.biases:
         print("!  No assumptions or biases surfaced yet (expected early in a conversation)")
-    if interp.emotional_signals:
-        print("OK emotional state captured")
-    if interp.facts and interp.assumptions:
-        print("OK facts/assumptions distinguished -- discernment forming")
+    if interp.observed_facts and interp.claims:
+        print("OK observed facts and claims kept distinct")
+    if interp.inferences:
+        print("OK inferences carrying explicit confidence")
 
     print("============================\n")
