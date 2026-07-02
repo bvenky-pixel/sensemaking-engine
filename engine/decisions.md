@@ -259,3 +259,72 @@ information, not flattening everything into context" -- is a good
 compact description of why this schema is shaped the way it is, and
 worth keeping in mind for any future layer (Planner, Response) so they
 don't quietly re-flatten what Interpretation worked to keep separate.
+
+**2026-07-02 — v0.7: Decision Options tier, "sparse by default" as governing law, code-level backstops for bias fabrication and confidence calibration**
+
+Joint review (this codebase's own testing + external architecture review,
+both converging independently on the same diagnosis) identified a
+pattern across three consecutive rounds: prompt tightening was
+demonstrably NOT holding for two specific failures -- bias-evidence
+fabrication and inference confidence calibration -- even when the prompt
+included an almost word-for-word negative example of the exact failure
+(e.g. "optimism bias" named as the textbook bad example, then produced
+anyway on the next real run). That's meaningfully different information
+than earlier rounds, where tightening visibly narrowed the leaks. When a
+prompt fix demonstrably fails to hold across repeated identical tests,
+the fix belongs in code, not in more words.
+
+**New tier: Decision Options** (`decision_options: List[str]`). The
+prior version's Claims tier was absorbing the options a user is
+literally weighing ("should I leave or do something else?" -> claims:
+["leaving the company", "doing something else"]) -- but an option under
+consideration is not an assertion of truth, it's a different epistemic
+category entirely. Added as its own tier, grouped with Observed
+Facts/Claims/Goals under "Evidence" conceptually (all four are directly
+traceable to what the user said), distinct from the "Reasoning" tier
+(Assumptions/Inferences) and "Metacognition" (Biases).
+
+**"Sparse by default" elevated to an explicit governing law**, stated at
+the top of both the schema docstring and the prompt: every tier starts
+empty; a good Interpretation object has the LEAST unjustified
+information, not the most. This reframes what "correct" looks like --
+previously the prompt only said "don't invent," which still frames
+empty as a failure to fill in. Stating sparsity as the default,
+not a fallback, is a different instruction than "try not to guess."
+
+**Two code-level backstops added**, because prompt-only versions of both
+had already failed repeatedly:
+- `Inference` model_validator: if the reading itself contains hedge
+  language ("might", "may", "could", "possibly"...), confidence is
+  capped at 0.4 regardless of what the model output. The model's own
+  word choice is treated as more reliable evidence of its actual
+  uncertainty than its confidence number.
+- `engine.py` bias-evidence grounding filter: after parsing, any bias
+  whose evidence string doesn't have at least 60% word-overlap with the
+  user's actual text gets dropped before the Interpretation is returned.
+  Tested against the two real fabricated evidence strings from the
+  previous failing run: a composed summary sentence ("you've been trying
+  to pivot for a while, and it's not working out yet") is correctly
+  rejected, while a close paraphrase of what was actually said ("your
+  boss keeps side stepping the conversation" vs. the user's "he keeps
+  side stepping it") is correctly kept. This is deliberately a blunt
+  instrument (word-overlap, not semantic verification) -- it will not
+  catch every fabrication, but it reliably catches the specific pattern
+  observed repeatedly: a fluent, invented summary standing in for a
+  quote.
+
+**Also fixed**: entities never include the user themself ("you" is not
+a stakeholder in their own conversation) -- added to the existing
+possessive-stripping validator as a straight exclusion list. Claims,
+Goals, Assumptions, and Unknowns all got tightened prompt examples
+pulled directly from the failing transcript (see the "problem 1-5"
+review this entry responds to), same pattern as v0.5's hardening pass.
+
+**Standing note on method, worth keeping**: the right response to a
+prompt instruction not holding isn't always a better-worded prompt. Once
+a specific failure mode survives an explicit, concrete negative example
+and still recurs on the next test, that's a signal to move the fix into
+code if the failure is structurally detectable (as bias-evidence
+fabrication and confidence-hedging both are) -- reserving prompt
+iteration for failures that are genuinely about judgment rather than
+about a checkable pattern.

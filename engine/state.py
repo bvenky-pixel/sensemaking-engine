@@ -19,6 +19,7 @@ class ConversationState:
     observed_facts: List[str] = field(default_factory=list)
     claims: List[str] = field(default_factory=list)
     goals: List[str] = field(default_factory=list)
+    decision_options: List[str] = field(default_factory=list)
     assumptions: List[str] = field(default_factory=list)
     inferences: List[str] = field(default_factory=list)
     unknowns: List[str] = field(default_factory=list)

@@ -86,6 +86,7 @@ def update_state(state, interp: Interpretation):
     new_state.observed_facts = _merge_unique(state.observed_facts, interp.observed_facts)
     new_state.claims = _merge_unique(state.claims, interp.claims)
     new_state.goals = _merge_unique(state.goals, interp.goals)
+    new_state.decision_options = _merge_unique(state.decision_options, interp.decision_options)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
 
     kept_inferences = [

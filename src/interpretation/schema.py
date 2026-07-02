@@ -8,23 +8,29 @@ the constitution -- if it doesn't, it doesn't belong here. See
 engine/decisions.md for the record of that mapping.
 
 Phase 3 fields follow an epistemic hierarchy (see engine/decisions.md,
-2026-07-02 "epistemic tiers", 2026-07-02 "intent tier"): a user
-statement, a model inference, and an objective fact are never the same
-kind of thing, and this schema refuses to flatten them into one
-representation.
+2026-07-02 "epistemic tiers", "intent tier", "decision options tier"): a
+user statement, a user's motivation, a decision under consideration, and
+a model inference are never the same kind of thing, and this schema
+refuses to flatten them into one representation.
 
     Evidence
-      -> Observed Facts   (user explicitly stated -- meta-level: what was said)
-      -> Claims           (propositional content the user asserts as true)
-      -> Goals             (what the user is trying to achieve -- motivations, not facts or claims)
-      -> Assumptions      (unstated beliefs the user is implicitly relying on)
-      -> Inferences       (model's read, always with confidence)
-      -> Unknowns         (open questions preventing understanding)
+      -> Observed Facts    (user explicitly stated -- meta-level: what was said)
+      -> Claims             (propositional content the user asserts as true)
+      -> Goals               (what the user is trying to achieve)
+      -> Decision Options   (choices the user is explicitly weighing -- not beliefs)
+    Reasoning
+      -> Assumptions        (unstated beliefs the user is implicitly relying on)
+      -> Inferences          (model's read, always with confidence)
+    Missing Information
+      -> Unknowns            (open questions preventing understanding)
+    Metacognition
+      -> Biases                (deliberately rare -- see calibration guidance below)
 
-Biases stay as their own small evidence-backed bucket rather than folding
-into Inferences, since they carry a distinct evidence pointer. Biases
-are deliberately rare -- see prompt.py's calibration guidance and the
-"empty is preferable to invented" principle in engine/decisions.md.
+GOVERNING LAW (v0.7): The Interpretation Layer is sparse by default. A
+good Interpretation object is not the one with the most information --
+it's the one with the least unjustified information. Every tier starts
+empty; it gets populated only when the evidence earns it. See
+engine/decisions.md, "sparse by default", for the full rationale.
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -55,11 +61,27 @@ _POSSESSIVE_PREFIX = re.compile(
 def _strip_possessive(entity: str) -> str:
     """
     "your boss" -> "boss". The entity is the role/person, not the
-    grammatical form the user happened to use to refer to them. Code-level
-    normalization rather than relying on the prompt, since this is cheap
-    and deterministic to enforce regardless of model compliance.
+    grammatical form the user happened to use to refer to them.
     """
     return _POSSESSIVE_PREFIX.sub("", entity.strip())
+
+
+# First/second-person pronouns are never a valid entity on their own --
+# "you" showing up in entities is a category error (the user isn't a
+# stakeholder in their own conversation).
+_PRONOUN_ENTITIES = {"you", "i", "me", "user", "myself", "yourself"}
+
+# A speculative reading that reaches for an UNSTATED cause or motive
+# ("might be hesitant due to lack of resources") is inherently thin
+# evidence, no matter how fluent it sounds. Confidence calibration
+# guidance in the prompt has been repeatedly ignored across several
+# rounds (see engine/decisions.md 2026-07-02 "v0.7"), so this is now
+# enforced structurally as a backstop, not just requested.
+_HEDGE_WORDS = re.compile(
+    r"\b(might|may|could|possibly|perhaps|maybe|likely|probably)\b",
+    flags=re.IGNORECASE,
+)
+_HEDGED_CONFIDENCE_CAP = 0.4
 
 
 class EmotionalSignal(BaseModel):
@@ -90,7 +112,8 @@ class Inference(BaseModel):
     on what the evidence means, not the evidence itself. Every one
     carries a confidence so Judgment can decide how much weight to give
     it, rather than Interpretation silently deciding that on Judgment's
-    behalf.
+    behalf. An inference must never be a suggested action or behavior
+    change -- that's Planner's job, not Interpretation's (see prompt.py).
     """
     reading: str
     confidence: float = Field(ge=0.0, le=1.0)
@@ -99,6 +122,17 @@ class Inference(BaseModel):
     @classmethod
     def _rescale(cls, v):
         return _normalize_unit_interval(v)
+
+    @model_validator(mode="after")
+    def _cap_hedged_confidence(self):
+        # Structural backstop: if the reading itself uses hedge language
+        # ("might", "may", "could"...), that's the model's own admission
+        # of uncertainty -- confidence should already be low. Prompt-only
+        # calibration guidance has not reliably held (see
+        # engine/decisions.md 2026-07-02 "v0.7"), so cap it here too.
+        if _HEDGE_WORDS.search(self.reading) and self.confidence > _HEDGED_CONFIDENCE_CAP:
+            self.confidence = _HEDGED_CONFIDENCE_CAP
+        return self
 
 
 class Interpretation(BaseModel):
@@ -115,13 +149,14 @@ class Interpretation(BaseModel):
     # --- Phase 3: Build Discernment (epistemic tiers, see module docstring) ---
     observed_facts: List[str]        # meta-level: what was explicitly said/observed
     claims: List[str]                # propositional content the user asserts as true
-    goals: List[str]                 # what the user is trying to achieve (motivations, not facts/claims)
+    goals: List[str]                 # what the user is trying to achieve
+    decision_options: List[str]      # choices the user is explicitly weighing -- not beliefs
     assumptions: List[str]           # unstated beliefs implied but not directly said
     inferences: List[Inference]      # model's reads, each with confidence
-    unknowns: List[str]              # open questions still unresolved
+    unknowns: List[str]              # specific open questions, not broad/existential ones
     biases: List[Bias]               # deliberately rare -- see prompt.py calibration guidance
 
-    entities: List[str]              # people/orgs/stakeholders mentioned
+    entities: List[str]              # people/orgs/stakeholders mentioned (never the user themself)
     clarity_score: float = Field(ge=0.0, le=1.0)
     requires_clarification: bool
 
@@ -147,6 +182,9 @@ class Interpretation(BaseModel):
                 deduped_biases.append(b)
         self.biases = deduped_biases
 
-        self.entities = [_strip_possessive(e) for e in self.entities]
+        self.entities = [
+            _strip_possessive(e) for e in self.entities
+            if e.strip().lower() not in _PRONOUN_ENTITIES
+        ]
 
         return self

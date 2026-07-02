@@ -20,6 +20,8 @@ def analyze_interpretation(interp: Interpretation):
         print(f"- claim: {c}")
     for g in interp.goals:
         print(f"- goal: {g}")
+    for d in interp.decision_options:
+        print(f"- decision option: {d}")
     for a in interp.assumptions:
         print(f"- assumption: {a}")
     for inf in interp.inferences:

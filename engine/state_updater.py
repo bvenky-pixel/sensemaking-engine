@@ -61,6 +61,7 @@ class ConversationStateSchema(BaseModel):
     observed_facts: List[str] = Field(default_factory=list)
     claims: List[str] = Field(default_factory=list)
     goals: List[str] = Field(default_factory=list)
+    decision_options: List[str] = Field(default_factory=list)
     assumptions: List[str] = Field(default_factory=list)
     inferences: List[str] = Field(default_factory=list)
     unknowns: List[str] = Field(default_factory=list)
