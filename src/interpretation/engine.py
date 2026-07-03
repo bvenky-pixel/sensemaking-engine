@@ -24,13 +24,6 @@ OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2:3b"
 TEMPERATURE = 0.15  # low: this is extraction, not creative generation
 
-# Fraction of a bias's evidence-string words that must actually appear in
-# the user's own text for the bias to be kept. Bias-evidence fabrication
-# (the model writing its own summary sentence instead of quoting the
-# user) survived three consecutive rounds of prompt-only fixes -- see
-# engine/decisions.md 2026-07-02 "v0.5" through "v0.7". This is now a
-# hard code-level gate rather than another prompt request.
-_BIAS_EVIDENCE_OVERLAP_THRESHOLD = 0.6
 _WORD_RE = re.compile(r"[a-z']+")
 
 
@@ -38,21 +31,76 @@ def _word_set(text: str) -> set:
     return set(_WORD_RE.findall(text.lower()))
 
 
+def _word_overlap(text: str, user_text: str) -> float:
+    """
+    Fraction of `text`'s words that actually appear somewhere in the
+    user's own words. Cheap and deterministic -- won't catch every case
+    of paraphrase-as-fabrication, but reliably catches the pattern seen
+    repeatedly across every failure round: the model composing a fluent
+    sentence of its own instead of staying anchored to what was said.
+    """
+    text_words = _word_set(text)
+    if not text_words:
+        return 0.0
+    return len(text_words & _word_set(user_text)) / len(text_words)
+
+
+# Bias-evidence fabrication survived three consecutive rounds of
+# prompt-only fixes -- see engine/decisions.md 2026-07-02 "v0.5"-"v0.7".
+_BIAS_EVIDENCE_OVERLAP_THRESHOLD = 0.6
+
+# Decision Options must be STRICTLY EXTRACTIVE (explicit product decision,
+# 2026-07-02 recap) -- only the choices the user actually named. The
+# 5-run test showed real extractive options score 0.67-1.00 overlap while
+# every invented one (negotiate, HR mediation, internal roles...) scored
+# 0.00-0.33. 0.5 cleanly separates them with margin on both sides.
+_DECISION_OPTION_OVERLAP_THRESHOLD = 0.5
+
+# Goals: legit goals scored 0.50-1.00 in the 5-run test; fabricated
+# "helpfulness" additions ("find alternative solution", "move forward in
+# career") scored 0.00-0.33. 0.4 separates cleanly.
+_GOAL_OVERLAP_THRESHOLD = 0.4
+
+# Assumptions are the hardest case: whole-sentence overlap FAILED to
+# separate fabricated from real ones in the 5-run test (fabricated
+# assumptions scored 0.67-0.71 because the model prefixes the invented
+# reason with a restated version of the input, e.g. "my boss is not
+# willing to grant me the move because [fabricated reason]" -- the
+# restated preamble inflates the score and hides the fabrication in the
+# tail). This directly matches the "causal permission layer" diagnosis:
+# the fabrication specifically lives in the REASON the model invents for
+# another person's behavior, not the whole sentence. So for assumptions
+# containing a causal connector, only the clause AFTER it is checked --
+# isolating just the invented reason dropped fabricated scores from
+# 0.67-0.71 down to 0.00-0.43, cleanly separable at 0.45.
+_ASSUMPTION_OVERLAP_THRESHOLD = 0.45
+_CAUSAL_CONNECTOR = re.compile(
+    r"\b(because|since|due to|as he|as she|as they)\b", flags=re.IGNORECASE
+)
+
+
 def _is_evidence_grounded(evidence: str, user_text: str) -> bool:
+    return _word_overlap(evidence, user_text) >= _BIAS_EVIDENCE_OVERLAP_THRESHOLD
+
+
+def _is_option_grounded(option: str, user_text: str) -> bool:
+    return _word_overlap(option, user_text) >= _DECISION_OPTION_OVERLAP_THRESHOLD
+
+
+def _is_goal_grounded(goal: str, user_text: str) -> bool:
+    return _word_overlap(goal, user_text) >= _GOAL_OVERLAP_THRESHOLD
+
+
+def _is_assumption_grounded(assumption: str, user_text: str) -> bool:
     """
-    Rough but deterministic check: most of the evidence string's words
-    must actually appear somewhere in what the user said. This won't
-    catch every case of paraphrase-as-fabrication, but it reliably
-    catches the pattern we've seen repeatedly: the model composing a
-    fluent summary sentence instead of pointing at the user's actual
-    words.
+    If the assumption invokes a causal connector ("because", "since",
+    "due to"...), only the reason-clause after it needs to be grounded --
+    that's specifically where fabrication hides (see module-level note
+    above). Otherwise, check the whole string.
     """
-    evidence_words = _word_set(evidence)
-    if not evidence_words:
-        return False
-    user_words = _word_set(user_text)
-    overlap = len(evidence_words & user_words) / len(evidence_words)
-    return overlap >= _BIAS_EVIDENCE_OVERLAP_THRESHOLD
+    parts = _CAUSAL_CONNECTOR.split(assumption)
+    clause_to_check = parts[-1] if len(parts) > 1 else assumption
+    return _word_overlap(clause_to_check, user_text) >= _ASSUMPTION_OVERLAP_THRESHOLD
 
 
 class InterpretationError(Exception):
@@ -120,6 +168,15 @@ def run_interpretation(user_text: str) -> Interpretation:
 
     interp.biases = [
         b for b in interp.biases if _is_evidence_grounded(b.evidence, user_text)
+    ]
+    interp.assumptions = [
+        a for a in interp.assumptions if _is_assumption_grounded(a, user_text)
+    ]
+    interp.goals = [
+        g for g in interp.goals if _is_goal_grounded(g, user_text)
+    ]
+    interp.decision_options = [
+        d for d in interp.decision_options if _is_option_grounded(d, user_text)
     ]
 
     return interp

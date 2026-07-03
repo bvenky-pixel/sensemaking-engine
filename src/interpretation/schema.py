@@ -54,14 +54,15 @@ def _normalize_unit_interval(v):
 
 
 _POSSESSIVE_PREFIX = re.compile(
-    r"^(your|my|his|her|their|our)\s+", flags=re.IGNORECASE
+    r"^(your|my|his|her|their|our|the)\s+", flags=re.IGNORECASE
 )
 
 
 def _strip_possessive(entity: str) -> str:
     """
-    "your boss" -> "boss". The entity is the role/person, not the
-    grammatical form the user happened to use to refer to them.
+    "your boss" -> "boss", "The company" -> "company". The entity is the
+    role/person, not the grammatical form the user happened to use to
+    refer to them.
     """
     return _POSSESSIVE_PREFIX.sub("", entity.strip())
 
@@ -77,8 +78,12 @@ _PRONOUN_ENTITIES = {"you", "i", "me", "user", "myself", "yourself"}
 # guidance in the prompt has been repeatedly ignored across several
 # rounds (see engine/decisions.md 2026-07-02 "v0.7"), so this is now
 # enforced structurally as a backstop, not just requested.
+# NOTE (v0.8): the 5-run calibration test found "possibly" (adverb) does
+# not match "it's possible that..." (adjective) -- this was the single
+# biggest source of remaining 0.8-confidence speculative inferences.
+# Added "possible" as its own token.
 _HEDGE_WORDS = re.compile(
-    r"\b(might|may|could|possibly|perhaps|maybe|likely|probably)\b",
+    r"\b(might|may|could|possibly|possible|perhaps|maybe|likely|probably)\b",
     flags=re.IGNORECASE,
 )
 _HEDGED_CONFIDENCE_CAP = 0.4

@@ -1,0 +1,93 @@
+Conversation Runner -- Understanding Layer inspector
+Type a message and press Enter. Type 'exit' to quit.
+--------------------------------------------------
+
+You: 
+=== INTERPRETATION DEBUG ===
+
+[Phase 1 -- Prepare]
+- urgency: high | stakes: personal and professional
+- emotion: frustration | intensity=0.7 | conf=0.6
+- emotion: disappointment | intensity=0.5 | conf=0.4
+
+[Phase 2 -- Discover]
+- surface complaint: I've spoken to him many times but he keeps side stepping it.
+- core question: Should I leave or do something else? (confidence=0.5)
+
+[Phase 3 -- Discern: epistemic tiers]
+- observed fact: Hi I have been trying to pivot to the product team
+- observed fact: my boss is not willing to grant me the move
+- claim: I've spoken to him many times but he keeps side stepping it.
+- goal: get a response from my boss
+- goal: find a solution to pivot to the product team
+- decision option: leave the company
+- decision option: try to negotiate with my boss again
+- decision option: look for other job opportunities in the industry
+- assumption: my boss is not willing to grant me the move because he doesn't think I'm ready
+- assumption: I've spoken to him many times but he keeps side stepping it because he's afraid of confrontation
+- inference: it's possible that my boss is not willing to grant me the move because he has other priorities or concerns (confidence=0.8)
+- inference: I've spoken to him many times but he keeps side stepping it because he's trying to avoid a difficult conversation (confidence=0.6)
+- unknown: what my boss's true reasons for not granting me the move are
+- unknown: how long it will take to find another job opportunity
+- bias: optimism bias (evidence: "I've spoken to him many times but he keeps side stepping it.", conf=0.9)
+- bias: pessimistic bias (evidence: "my boss is not willing to grant me the move because he doesn't think I'm ready", conf=0.5)
+
+[System Health]
+OK observed facts and claims kept distinct
+OK inferences carrying explicit confidence
+============================
+
+
+--- JUDGMENT ---
+{'dominant_emotion': 'frustration', 'attention_score': 0.6799999999999999, 'stance': 'uncertain_monitoring', 'core_question': 'Should I leave or do something else?', 'core_question_confidence': 0.5, 'assumptions_surfaced': 2, 'biases_surfaced': 2, 'current_phase': 'prepare', 'recommended_next_phase': 'discover'}
+
+--- INTERPRETATION ---
+{'urgency': 'high', 'stakes': 'personal and professional', 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.7, 'confidence': 0.6}, {'emotion': 'disappointment', 'intensity': 0.5, 'confidence': 0.4}], 'surface_complaint': "I've spoken to him many times but he keeps side stepping it.", 'core_question': 'Should I leave or do something else?', 'core_question_confidence': 0.5, 'observed_facts': ['Hi I have been trying to pivot to the product team', 'my boss is not willing to grant me the move'], 'claims': ["I've spoken to him many times but he keeps side stepping it."], 'goals': ['get a response from my boss', 'find a solution to pivot to the product team'], 'decision_options': ['leave the company', 'try to negotiate with my boss again', 'look for other job opportunities in the industry'], 'assumptions': ["my boss is not willing to grant me the move because he doesn't think I'm ready", "I've spoken to him many times but he keeps side stepping it because he's afraid of confrontation"], 'inferences': [{'reading': "it's possible that my boss is not willing to grant me the move because he has other priorities or concerns", 'confidence': 0.8}, {'reading': "I've spoken to him many times but he keeps side stepping it because he's trying to avoid a difficult conversation", 'confidence': 0.6}], 'unknowns': ["what my boss's true reasons for not granting me the move are", 'how long it will take to find another job opportunity'], 'biases': [{'bias': 'optimism bias', 'evidence': "I've spoken to him many times but he keeps side stepping it.", 'confidence': 0.9}, {'bias': 'pessimistic bias', 'evidence': "my boss is not willing to grant me the move because he doesn't think I'm ready", 'confidence': 0.5}], 'entities': ['boss', 'the product team'], 'clarity_score': 0.7, 'requires_clarification': True}
+
+--- STATE ---
+                               Conversation State                               
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field                   ┃ Value                                              ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ emotion                 │ frustration                                        │
+│ emotion_intensity       │ 7                                                  │
+│ urgency                 │ high                                               │
+│ stakes                  │ personal and professional                          │
+│ core_problem            │ Should I leave or do something else?               │
+│ core_problem_confidence │ 0.5                                                │
+│ surface_complaint       │ I've spoken to him many times but he keeps side    │
+│                         │ stepping it.                                       │
+│ observed_facts          │ ['Hi I have been trying to pivot to the product    │
+│                         │ team', 'my boss is not willing to grant me the     │
+│                         │ move']                                             │
+│ claims                  │ ["I've spoken to him many times but he keeps side  │
+│                         │ stepping it."]                                     │
+│ goals                   │ ['get a response from my boss', 'find a solution   │
+│                         │ to pivot to the product team']                     │
+│ decision_options        │ ['leave the company', 'try to negotiate with my    │
+│                         │ boss again', 'look for other job opportunities in  │
+│                         │ the industry']                                     │
+│ assumptions             │ ["my boss is not willing to grant me the move      │
+│                         │ because he doesn't think I'm ready", "I've spoken  │
+│                         │ to him many times but he keeps side stepping it    │
+│                         │ because he's afraid of confrontation"]             │
+│ inferences              │ ["it's possible that my boss is not willing to     │
+│                         │ grant me the move because he has other priorities  │
+│                         │ or concerns (confidence=0.80)", "I've spoken to    │
+│                         │ him many times but he keeps side stepping it       │
+│                         │ because he's trying to avoid a difficult           │
+│                         │ conversation (confidence=0.60)"]                   │
+│ unknowns                │ ["what my boss's true reasons for not granting me  │
+│                         │ the move are", 'how long it will take to find      │
+│                         │ another job opportunity']                          │
+│ biases                  │ ['optimism bias', 'pessimistic bias']              │
+│ stakeholders            │ ['boss', 'the product team']                       │
+│ agency_level            │ 0.0                                                │
+│ clarity_level           │ 0.7                                                │
+│ phase                   │ discover                                           │
+│ decision                │                                                    │
+│ history_summary         │                                                    │
+└─────────────────────────┴────────────────────────────────────────────────────┘
+==================================================
+
+You: Session ended.

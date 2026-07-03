@@ -328,3 +328,85 @@ code if the failure is structurally detectable (as bias-evidence
 fabrication and confidence-hedging both are) -- reserving prompt
 iteration for failures that are genuinely about judgment rather than
 about a checkable pattern.
+
+**2026-07-02 — v0.8: causal permission rule + code-level grounding filters for assumptions/goals/decision_options, calibrated against the 5-run dataset**
+
+Direct product decisions from the end-of-day recap, both binding:
+1. Multi-pass architecture (Option B) is OFF THE TABLE unless explicitly
+   approved -- it has real pricing/cost implications once this moves off
+   free local inference, so it's a business decision, not just an
+   engineering one. This version stays single-pass (Option A: tighten
+   priors on the existing architecture).
+2. Decision Options must be STRICTLY EXTRACTIVE -- only choices the user
+   actually named, minimal room for hallucination.
+
+**Root-cause diagnosis, converged on independently by this session and
+external review**: a "causal permission" problem. Whenever another
+person is mentioned, the model treats reconstructing their hidden motive
+as mandatory, regardless of evidence. This is sharper than the earlier
+generic "admission control" framing -- it's specific enough to write a
+targeted rule and a targeted code filter against, both added this round.
+
+**The 5-run same-input experiment (this session's key empirical result)
+directly calibrated every threshold below** rather than guessing:
+
+- **Assumption fabrication is a majority, reproducible behavior**: 4/5
+  runs, same handful of invented motives recurring near-verbatim
+  ("boss doesn't value my skills," "boss is afraid of confrontation").
+  100% of assumptions produced across all 5 runs were fabricated -- zero
+  legitimate ones to calibrate a true-positive rate against.
+- Naive whole-sentence word-overlap grounding (the technique that
+  already worked for bias evidence) FAILED for assumptions: fabricated
+  ones scored 0.67-0.71 because the model prefixes the invented reason
+  with a restated version of the input ("my boss is not willing to grant
+  me the move because [fabrication]") -- the preamble inflates the
+  score. Fix: when a causal connector ("because"/"since"/"due to") is
+  present, only the clause AFTER it is checked for grounding -- this
+  isolates the actual fabrication and dropped scores to 0.00-0.43,
+  cleanly separable at a 0.45 threshold. Validated against all 9
+  assumptions across all 5 runs: 9/9 correctly dropped.
+- Goals and Decision Options: plain whole-string overlap worked cleanly
+  (0.4 and 0.5 thresholds respectively) -- validated against the full
+  real dataset: Decision Options kept exactly the 3 genuinely extractive
+  options across all 5 runs, dropped all 9 invented expansions
+  (negotiate again, HR mediation, internal roles, industry search...).
+  Goals: 5/10 kept (2 defensible borderline drops, e.g. "get a new role
+  in the product team" — erring toward dropping matches the "sparse by
+  default" philosophy), zero fabricated ones slipped through.
+- Confirmed a real regex gap: the v0.7 hedge-word cap matched "possibly"
+  but not "possible" -- missed "it's possible that..." which was the
+  construction behind several of the highest remaining confidence scores
+  (0.7-0.9) in the 5-run data. Fixed.
+- Confirmed entities weren't stripping "the" ("The company", "the
+  product team") -- possessive-strip regex extended.
+
+**New in prompt.py**: CAUSAL PERMISSION section, placed prominently near
+the top, with the exact four recurring fabricated motives from the real
+data marked as forbidden examples. Decision Options tightened to
+"STRICTLY EXTRACTIVE" with explicit instruction that a vague second
+option ("or do something else") should stay vague in the output, not
+get expanded into a menu. Claims tightened again for a new leak found
+this round (emotional content and garbled fact/goal fusions leaking into
+Claims). Inferences got an explicit anti-generic-truism example (the
+real "pivoting to a new team can be challenging" leak from run 1).
+
+**Deliberately did NOT add a grounding filter to Inferences.** Unlike
+assumptions/goals/decision_options, Inferences are explicitly designed
+to go beyond exactly what was said -- that's the tier's whole purpose.
+A hard grounding filter there would defeat it. Confidence calibration
+(hedge-cap, now fixed) and the causal-permission prompt rule are the
+intended controls for this tier; if generic-truism leakage or causal
+fabrication persists in Inferences specifically after this round, that's
+a signal this tier needs its own targeted mechanism, not a blanket
+grounding filter borrowed from a different tier's fix.
+
+**Also NOT fixed this round, logged as an accepted residual risk given
+the Option-A cost constraint**: bias LABEL mislabeling (evidence is real
+and grounded, but the bias name doesn't actually match what the
+evidence shows, e.g. "optimism bias" applied to a complaint about being
+sidestepped). The existing evidence-grounding filter can't catch this --
+it verifies the quote is real, not that the label is a true description
+of it. Would need either a small fixed vocabulary + rule-based label
+matching, or a second LLM call to verify -- the latter is exactly the
+kind of cost increase Option A rules out, so this stays prompt-only
+(reinforced guidance to only use well-understood terms) for now.

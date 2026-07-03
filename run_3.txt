@@ -1,0 +1,91 @@
+Conversation Runner -- Understanding Layer inspector
+Type a message and press Enter. Type 'exit' to quit.
+--------------------------------------------------
+
+You: 
+=== INTERPRETATION DEBUG ===
+
+[Phase 1 -- Prepare]
+- urgency: high | stakes: personal and professional
+- emotion: frustration | intensity=0.6 | conf=0.8
+- emotion: disappointment | intensity=0.5 | conf=0.7
+
+[Phase 2 -- Discover]
+- surface complaint: being unable to pivot to the product team
+- core question: should I leave or do something else? (confidence=0.6)
+
+[Phase 3 -- Discern: epistemic tiers]
+- observed fact: many times spoken to boss about the move
+- claim: boss is not willing to grant me the move
+- claim: keeps side stepping it
+- goal: get the move approved
+- goal: move to product team
+- decision option: leave the company
+- decision option: try to negotiate with boss again
+- decision option: look for other job opportunities in the industry
+- decision option: take a break and come back to it later
+- assumption: boss is not willing to grant me the move because he doesn't think I'm ready
+- assumption: boss is not willing to grant me the move because of some personal issue
+- inference: boss might be hesitant about granting you the move due to some concerns about your readiness or ability to handle the new role. (confidence=0.4)
+- inference: it's possible that boss is not willing to grant you the move because of personal issues, but it's also possible that he's just not ready to make a decision yet. (confidence=0.7)
+- unknown: what are the specific reasons behind boss's hesitation
+- unknown: how will leaving the company affect my career and finances
+
+[System Health]
+OK observed facts and claims kept distinct
+OK inferences carrying explicit confidence
+============================
+
+
+--- JUDGMENT ---
+{'dominant_emotion': 'frustration', 'attention_score': 0.64, 'stance': 'uncertain_monitoring', 'core_question': 'should I leave or do something else?', 'core_question_confidence': 0.6, 'assumptions_surfaced': 2, 'biases_surfaced': 0, 'current_phase': 'prepare', 'recommended_next_phase': 'discover'}
+
+--- INTERPRETATION ---
+{'urgency': 'high', 'stakes': 'personal and professional', 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.6, 'confidence': 0.8}, {'emotion': 'disappointment', 'intensity': 0.5, 'confidence': 0.7}], 'surface_complaint': 'being unable to pivot to the product team', 'core_question': 'should I leave or do something else?', 'core_question_confidence': 0.6, 'observed_facts': ['many times spoken to boss about the move'], 'claims': ['boss is not willing to grant me the move', 'keeps side stepping it'], 'goals': ['get the move approved', 'move to product team'], 'decision_options': ['leave the company', 'try to negotiate with boss again', 'look for other job opportunities in the industry', 'take a break and come back to it later'], 'assumptions': ["boss is not willing to grant me the move because he doesn't think I'm ready", 'boss is not willing to grant me the move because of some personal issue'], 'inferences': [{'reading': 'boss might be hesitant about granting you the move due to some concerns about your readiness or ability to handle the new role.', 'confidence': 0.4}, {'reading': "it's possible that boss is not willing to grant you the move because of personal issues, but it's also possible that he's just not ready to make a decision yet.", 'confidence': 0.7}], 'unknowns': ["what are the specific reasons behind boss's hesitation", 'how will leaving the company affect my career and finances'], 'biases': [], 'entities': ['boss', 'product team'], 'clarity_score': 0.7, 'requires_clarification': True}
+
+--- STATE ---
+                               Conversation State                               
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field                   ┃ Value                                              ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ emotion                 │ frustration                                        │
+│ emotion_intensity       │ 6                                                  │
+│ urgency                 │ high                                               │
+│ stakes                  │ personal and professional                          │
+│ core_problem            │ should I leave or do something else?               │
+│ core_problem_confidence │ 0.6                                                │
+│ surface_complaint       │ being unable to pivot to the product team          │
+│ observed_facts          │ ['many times spoken to boss about the move']       │
+│ claims                  │ ['boss is not willing to grant me the move',       │
+│                         │ 'keeps side stepping it']                          │
+│ goals                   │ ['get the move approved', 'move to product team']  │
+│ decision_options        │ ['leave the company', 'try to negotiate with boss  │
+│                         │ again', 'look for other job opportunities in the   │
+│                         │ industry', 'take a break and come back to it       │
+│                         │ later']                                            │
+│ assumptions             │ ["boss is not willing to grant me the move because │
+│                         │ he doesn't think I'm ready", 'boss is not willing  │
+│                         │ to grant me the move because of some personal      │
+│                         │ issue']                                            │
+│ inferences              │ ['boss might be hesitant about granting you the    │
+│                         │ move due to some concerns about your readiness or  │
+│                         │ ability to handle the new role.                    │
+│                         │ (confidence=0.40)', "it's possible that boss is    │
+│                         │ not willing to grant you the move because of       │
+│                         │ personal issues, but it's also possible that he's  │
+│                         │ just not ready to make a decision yet.             │
+│                         │ (confidence=0.70)"]                                │
+│ unknowns                │ ["what are the specific reasons behind boss's      │
+│                         │ hesitation", 'how will leaving the company affect  │
+│                         │ my career and finances']                           │
+│ biases                  │ []                                                 │
+│ stakeholders            │ ['boss', 'product team']                           │
+│ agency_level            │ 0.0                                                │
+│ clarity_level           │ 0.7                                                │
+│ phase                   │ discover                                           │
+│ decision                │                                                    │
+│ history_summary         │                                                    │
+└─────────────────────────┴────────────────────────────────────────────────────┘
+==================================================
+
+You: Session ended.

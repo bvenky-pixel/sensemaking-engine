@@ -1,0 +1,63 @@
+Type a message and press Enter. Type 'exit' to quit.
+--------------------------------------------------
+
+You: Hi my boss is toxic, he constantly shouts at me and berates me at every opportunity. I tried going to HR but he is too powerful and they have not been very supportive. I want to change jobs but the job market is weak. I am stressed out and don't know what to do. Please help.
+
+=== INTERPRETATION DEBUG ===
+
+[Phase 1 -- Prepare]
+- urgency: high | stakes: :[
+
+[Phase 2 -- Discover]
+- surface complaint: toxic boss
+- core question: change jobs due to toxic work environment (confidence=0.8)
+
+[Phase 3 -- Discern: epistemic tiers]
+- observed fact: shouting and berating
+- observed fact: HR not supportive
+- decision option: quit job
+- decision option: look for new job
+- decision option: seek support from friends or family
+- assumption: job market is weak
+- assumption: HR not supportive
+- unknown: new job opportunities
+- unknown: support system
+
+[System Health]
+============================
+
+
+--- JUDGMENT ---
+{'dominant_emotion': None, 'attention_score': 0.4, 'stance': 'stable_context', 'core_question': 'change jobs due to toxic work environment', 'core_question_confidence': 0.8, 'assumptions_surfaced': 2, 'biases_surfaced': 0, 'current_phase': 'prepare', 'recommended_next_phase': 'discover'}
+
+--- INTERPRETATION ---
+{'urgency': 'high', 'stakes': ':[', 'emotional_signals': [], 'surface_complaint': 'toxic boss', 'core_question': 'change jobs due to toxic work environment', 'core_question_confidence': 0.8, 'observed_facts': ['shouting and berating', 'HR not supportive'], 'claims': [], 'goals': [], 'decision_options': ['quit job', 'look for new job', 'seek support from friends or family'], 'assumptions': ['job market is weak', 'HR not supportive'], 'inferences': [], 'unknowns': ['new job opportunities', 'support system'], 'biases': [], 'entities': ['boss', 'HR', 'friends and family'], 'clarity_score': 0.8, 'requires_clarification': True}
+
+--- STATE ---
+                                         Conversation State                                          
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field                   ┃ Value                                                                   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ emotion                 │                                                                         │
+│ emotion_intensity       │ 0                                                                       │
+│ urgency                 │ high                                                                    │
+│ stakes                  │ :[                                                                      │
+│ core_problem            │ change jobs due to toxic work environment                               │
+│ core_problem_confidence │ 0.8                                                                     │
+│ surface_complaint       │ toxic boss                                                              │
+│ observed_facts          │ ['shouting and berating', 'HR not supportive']                          │
+│ claims                  │ []                                                                      │
+│ goals                   │ []                                                                      │
+│ decision_options        │ ['quit job', 'look for new job', 'seek support from friends or family'] │
+│ assumptions             │ ['job market is weak', 'HR not supportive']                             │
+│ inferences              │ []                                                                      │
+│ unknowns                │ ['new job opportunities', 'support system']                             │
+│ biases                  │ []                                                                      │
+│ stakeholders            │ ['boss', 'HR', 'friends and family']                                    │
+│ agency_level            │ 0.0                                                                     │
+│ clarity_level           │ 0.8                                                                     │
+│ phase                   │ discover                                                                │
+│ decision                │                                                                         │
+│ history_summary         │                                                                         │
+└─────────────────────────┴─────────────────────────────────────────────────────────────────────────┘
+==================================================
