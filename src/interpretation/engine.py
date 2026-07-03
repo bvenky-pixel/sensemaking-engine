@@ -86,15 +86,17 @@ _CAUSAL_CONNECTOR = re.compile(
 # structurally closed -- this filter is a backstop, not the primary fix.
 _ENTITY_OVERLAP_THRESHOLD = 0.5
 
-# v0.9: unknowns were consistently "career coach brainstorming next
-# steps" ("What kind of job would be a good fit?") rather than genuine
-# gaps in the situation as stated. Pattern-based backstop: reject
-# planning/advice-shaped questions outright, regardless of what the
-# prompt says, since this is the mirror image of the assumptions problem
-# and deserves the same defense-in-depth treatment.
+# v0.9->v1.0: unknowns were consistently "career coach brainstorming next
+# steps" rather than genuine gaps in the situation as stated. Pattern-
+# based backstop: reject planning/advice-shaped questions outright,
+# regardless of what the prompt says. Broadened after n=10 testing found
+# two more real leak shapes not caught by the original pattern: "how to
+# X" (no "I") and "what kind of X would be a good fit."
 _PLANNING_QUESTION = re.compile(
     r"^(how (can|do|should|will) i|what should i|what (can|steps) i|"
     r"how (can|will|do) (you|we)|"
+    r"how to\b|what to do\b|"
+    r"what kind of .*\b(good fit|fit for)\b|"
     r"what are the (best|potential|specific)\s*(steps|risks|challenges|options|ways)\b)",
     flags=re.IGNORECASE,
 )
@@ -108,7 +110,11 @@ _PLANNING_QUESTION = re.compile(
 # near-identical to something already in observed_facts or
 # surface_complaint (that content already has a home; duplicating it
 # into assumptions isn't surfacing a new belief).
-_DUPLICATE_OVERLAP_THRESHOLD = 0.8
+# v0.9->v1.0: lowered from 0.8 -- real n=10 data showed near-duplicate
+# rewordings ("job market is weak" vs a claim reading "weak job market")
+# scoring 0.75, just under the original threshold, letting an obvious
+# duplicate through.
+_DUPLICATE_OVERLAP_THRESHOLD = 0.7
 
 
 def _is_evidence_grounded(evidence: str, user_text: str) -> bool:
@@ -131,13 +137,19 @@ def _is_planning_question(unknown: str) -> bool:
     return bool(_PLANNING_QUESTION.match(unknown.strip()))
 
 
-def _is_duplicate_of_other_tier(assumption: str, observed_facts: list, surface_complaint: str) -> bool:
+def _is_duplicate_of_other_tier(assumption: str, observed_facts: list, claims: list, surface_complaint: str) -> bool:
     """
     True if `assumption` is basically the same content as something
-    already captured in observed_facts or surface_complaint -- a sign
-    it's misfiled, not a new belief.
+    already captured in observed_facts, claims, or surface_complaint --
+    a sign it's misfiled, not a new belief. Extended to check `claims`
+    after n=10 testing showed directly-stated content ("the job market
+    is weak" -- something the user said outright) oscillating between
+    claims and assumptions across runs on identical input. The root
+    issue: the tier definitions never explicitly ruled out directly-said
+    content from assumptions -- see the prompt's ASSUMPTIONS section for
+    the corresponding clarification.
     """
-    candidates = list(observed_facts) + [surface_complaint]
+    candidates = list(observed_facts) + list(claims) + [surface_complaint]
     return any(_word_overlap(assumption, c) >= _DUPLICATE_OVERLAP_THRESHOLD for c in candidates)
 
 
@@ -223,7 +235,7 @@ def run_interpretation(user_text: str) -> Interpretation:
         a for a in interp.assumptions
         if _is_assumption_grounded(a, user_text)
         and not a.strip().endswith("?")
-        and not _is_duplicate_of_other_tier(a, interp.observed_facts, interp.surface_complaint)
+        and not _is_duplicate_of_other_tier(a, interp.observed_facts, interp.claims, interp.surface_complaint)
     ]
     interp.goals = [
         g for g in interp.goals if _is_goal_grounded(g, user_text)

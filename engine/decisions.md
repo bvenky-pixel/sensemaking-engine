@@ -540,3 +540,77 @@ Interpretation v1.0 exit criteria (all six must hold):
    caught `agency_level` during v0.9 spec design ("what breaks if this
    disappears?"), applied one more time across the WHOLE schema right
    before freezing, not just the fields touched this round.
+
+**2026-07-03 — Final v1.0 iteration: "would a larger model still benefit" filter applied**
+
+n=10 test on TC2 scored against the v1.0 exit criteria. Result: strong
+confirmation of two structural fixes (impact_domains: 0/10 corruption,
+zero role violations across all 10 runs -- criterion #2 passed as a hard
+zero), plus two new real findings. Explicit decision on what to fix,
+using the rule: "would a larger model still benefit from this
+improvement? If yes, fix it. If no, don't optimize around today's
+implementation." This is the LAST iteration before freeze -- see the
+2026-07-02 "v1.0 exit criteria" entry for what freeze means.
+
+**Fixed (passes the test -- structural, benefits any model size):**
+- Unknowns planning-question regex: n=10 found 5 more real leak shapes
+  the v0.9 pattern missed ("how to X", "what kind of X would be a good
+  fit", "what to do next"). Regression-tested against all 17 real
+  examples seen across every test today (both TC1 and TC2 batches) --
+  all correctly classified after the fix, zero false positives on
+  legitimate unknowns.
+- Claims/assumptions cross-tier duplication: n=10 showed the SAME
+  directly-stated content ("the job market is weak," "HR has not been
+  supportive") landing in `claims` in some runs and `assumptions` in
+  others, on identical input. Root cause: the tier definitions never
+  explicitly ruled out directly-stated content from `assumptions` -- an
+  ambiguity in OUR instructions, not a 3B-specific limitation, so a
+  larger model would hit the same ambiguity (just guess right more
+  often by luck). Fixed two ways: (1) explicit prompt rule -- "if the
+  user stated something directly, it is NEVER an assumption," with a
+  worked bad example; (2) extended the existing cross-tier duplicate
+  filter (previously only checked observed_facts/surface_complaint) to
+  also check against `claims`. Threshold lowered 0.8 -> 0.7 after real
+  near-duplicate rewordings ("job market is weak" vs a claim reading
+  "weak job market") scored 0.75, just under the original threshold.
+  Verified the lowered threshold still correctly KEEPS a genuine
+  legitimate assumption (the "boss blocking career" example from the
+  spec itself) despite sharing vocabulary with an observed fact --
+  confirms the filter discriminates on real duplication, not just topic
+  overlap.
+
+**Explicitly NOT fixed (fails the test -- would be optimizing around
+today's specific model, not a structural gap):**
+- `emotional_signals` staying empty 10/10 despite explicit worked
+  examples and "if the user expresses ANY emotional content, this list
+  should not be empty." The "add examples, don't flatten" bet from the
+  v0.9 spec design did not pay off empirically. But flattening the
+  object now would be optimizing the domain model around a 3B model's
+  current capability ceiling -- exactly what the governing principle
+  ("never simplify the domain model to accommodate the current model's
+  limitations") exists to prevent. Explicitly deferred, not silently
+  dropped: documented here as a KNOWN, ACCEPTED limitation of the
+  Ollama/3B provider specifically. Revisit when the Claude swap happens
+  -- if a larger model still fails to populate this field given the
+  same schema and examples, that would be new information suggesting an
+  actual design problem; until then, this is provider-quality
+  variance, not an architecture defect.
+
+**Scoring against the six v1.0 exit criteria after this round:**
+1. Stable across runs -- impact_domains and surface_complaint fully
+   stable at n=10; claims/assumptions routing addressed above.
+2. Zero role violations -- PASSED, hard zero at n=10.
+3. No systematic fabrication -- PASSED for fabrication; the
+   claims/assumptions issue was misrouting of true content, not
+   invention, and is now addressed.
+4. Schema frozen except bug fixes -- this entry IS that freeze point,
+   pending final field-justification pass (#6) and live re-test.
+5. Judgment-ready without defensive prompting -- PASSED for every field
+   except emotional_signals, which is a known, documented, accepted gap
+   (see above), not a silent one.
+6. Every field justifies its existence -- final pass still pending
+   before formal freeze declaration.
+
+Next: apply this patch, re-run n=10 on TC2 (and ideally TC1) live to
+confirm the two fixes hold against real model output, do the final
+field-justification pass, then declare v1.0.

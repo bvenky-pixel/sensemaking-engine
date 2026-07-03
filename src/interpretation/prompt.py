@@ -124,11 +124,16 @@ inferred from what they implied -- never a prediction about the future,
 never a judgment about the user's own behavior they didn't make, and
 never simply repeating their own question or complaint back as if it
 were a new belief. An assumption is never phrased as a question.
+If the user stated something directly, it is NEVER an assumption -- it
+belongs in claims or observed_facts instead. Assumptions exist only for
+beliefs the user did not say outright.
     User: "He's blocking my career."
     GOOD: "User believes boss is intentionally preventing their career growth."
     User: "Should I leave or stay?" (no reason given for boss's resistance)
     BAD:  "Boss doesn't see value in the move." (invented motive)
     BAD:  "I am the only one who wants this change." (invented, unsupported)
+    User: "The job market is weak."
+    BAD:  assumptions=["the job market is weak"] (directly stated -- this is a claim, not an assumption)
 In most turns the honest answer is assumptions=[]. That's correct, not a gap.
 
 INFERENCES -- your own read on what the evidence means, with calibrated
