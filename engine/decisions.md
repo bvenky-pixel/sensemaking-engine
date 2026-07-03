@@ -695,3 +695,31 @@ the "would a larger model still benefit" rule agreed this session.
 Schema changes from here require deliberately reopening this process
 (spec update -> migration doc -> prompt), not ad hoc prompt patches.
 Next: State Builder.
+
+**2026-07-03 — Known limitation logged (post-v1.0): negation-blind grounding**
+
+Live n=10 re-test of the v1.0 assumptions fix confirmed the fix itself
+holds (zero recurrence of the bare-restatement pattern across 10 runs,
+30/30 zero role violations across all three n=10 batches today). But it
+surfaced a new, distinct gap: one run produced the assumption "HR will
+be supportive" -- directly contradicting the user's actual statement
+("they have not been very supportive"). This passed every existing
+filter because word-overlap grounding checks WHICH words appear, never
+whether polarity/negation matches -- "HR," "will," "supportive" all
+score as grounded even though the claim is inverted. Different failure
+class from anything fixed today: not a restatement (bare-restatement
+filter correctly ignored it) and not unrelated fabrication (which at
+least invents new content) -- it's wrong in a way that looks
+well-grounded by every current metric.
+
+One occurrence in 30 live runs today. Evaluated against this session's
+"would a larger model still benefit" rule: yes in principle, but a real
+fix needs actual negation/polarity detection, not a threshold
+adjustment -- materially larger scope than anything else patched today.
+
+**Decision: logged as a known, accepted v1.0 limitation, not fixed.**
+Consistent with the emotional_signals and paraphrase-grounding gaps
+already accepted in the v1.0 declaration above -- extraction-quality
+issue, not an architectural flaw, and out of scope for further patching
+under the agreed stopping discipline. Revisit if this pattern recurs at
+meaningful frequency in future testing, or when the Claude swap happens.
