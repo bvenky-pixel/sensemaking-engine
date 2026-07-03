@@ -5,9 +5,9 @@ def analyze_interpretation(interp: Interpretation):
     print("\n=== INTERPRETATION DEBUG ===")
 
     print("\n[Phase 1 -- Prepare]")
-    print(f"- urgency: {interp.urgency} | stakes: {interp.stakes}")
+    print(f"- urgency: {interp.urgency} | impact_domains: {interp.impact_domains}")
     for e in interp.emotional_signals:
-        print(f"- emotion: {e.emotion} | intensity={e.intensity} | conf={e.confidence}")
+        print(f"- emotion: {e.emotion} | intensity={e.intensity} | confidence={e.confidence} | source={e.source}")
 
     print("\n[Phase 2 -- Discover]")
     print(f"- surface complaint: {interp.surface_complaint}")

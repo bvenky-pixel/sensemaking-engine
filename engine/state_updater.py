@@ -50,9 +50,10 @@ DEFAULT_MAX_TOKENS = 1024
 class ConversationStateSchema(BaseModel):
     emotion: str = ""
     emotion_intensity: int = Field(default=0, ge=0, le=10)
+    emotion_source: Literal["", "explicit", "inferred"] = ""
 
     urgency: Literal["low", "medium", "high"] = "low"
-    stakes: str = ""
+    impact_domains: List[Literal["personal", "professional", "financial", "health", "legal", "safety", "other"]] = Field(default_factory=list)
 
     core_problem: str = ""
     core_problem_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -69,8 +70,9 @@ class ConversationStateSchema(BaseModel):
 
     stakeholders: List[str] = Field(default_factory=list)
 
-    agency_level: float = Field(default=0.0, ge=0.0, le=1.0)
     clarity_level: float = Field(default=0.0, ge=0.0, le=1.0)
+    # v0.9: agency_level removed -- was never wired to anything. See
+    # engine/specs/interpretation-spec-v0.9.md Part 4.
 
     phase: Literal["prepare", "discover", "discern", "challenge", "resolve", "commit"] = "prepare"
 
@@ -118,9 +120,8 @@ class StateUpdater:
         "user's or assistant's read on what facts mean. 'assumptions' are "
         "unstated beliefs being relied on. 'unknowns' are open questions "
         "still unresolved.\n"
-        "- agency_level and clarity_level are floats from 0.0 to 1.0 "
-        "representing how much control the user feels they have, and how "
-        "clearly the problem is understood, respectively.\n"
+        "- clarity_level is a float from 0.0 to 1.0 representing how "
+        "clearly the problem is understood.\n"
     )
 
     def __init__(

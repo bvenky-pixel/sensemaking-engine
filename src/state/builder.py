@@ -67,11 +67,12 @@ def update_state(state, interp: Interpretation):
 
     # --- Phase 1 ---
     new_state.urgency = interp.urgency
-    new_state.stakes = interp.stakes or state.stakes
+    new_state.impact_domains = _merge_unique(state.impact_domains, interp.impact_domains)
     if interp.emotional_signals:
         top = max(interp.emotional_signals, key=lambda e: e.intensity)
         new_state.emotion = top.emotion
         new_state.emotion_intensity = round(top.intensity * INTENSITY_SCALE)
+        new_state.emotion_source = top.source
 
     # --- Phase 2 ---
     new_state.surface_complaint = interp.surface_complaint or state.surface_complaint

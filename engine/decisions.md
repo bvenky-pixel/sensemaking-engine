@@ -452,3 +452,57 @@ Headline changes locked into the frozen spec (not yet implemented):
 
 Status: FROZEN. Next steps in order: migration document (v0.8 -> v0.9
 diff with rationale), then and only then the new prompt/code.
+
+**2026-07-02 — v0.9 implemented (from the frozen spec, not another prompt patch)**
+
+`schema.py`, `prompt.py`, `engine.py`, `state.py`, `state_updater.py`,
+`builder.py`, `debug.py`, `judgment/engine.py` (comment only) all updated
+to implement engine/specs/interpretation-spec-v0.9.md. Every change here
+traces to a specific line in that spec -- no new instructions were added
+that weren't already decided during spec design.
+
+Verified offline before shipping (all passed):
+- `urgency` and `impact_domains` correctly reject out-of-enum values
+  (Pydantic ValidationError) -- structural guarantee, not prompt-dependent.
+- Confirmed `model_json_schema()` encodes both as proper JSON Schema
+  `enum` -- the actual mechanism Ollama's grammar needs to honor. This
+  is still the one thing that can only be confirmed live: grammar
+  enforcing `enum` membership is a different (and more standard) kind of
+  constraint than the numeric `ge`/`le` ranges we already confirmed
+  Ollama does NOT enforce, but "different kind of constraint" is a
+  reasoned bet, not a guarantee -- first thing to check once real
+  Ollama output comes back.
+- New `assumptions` filters (ends-with-"?" check, cross-tier duplicate
+  check against observed_facts/surface_complaint) correctly reject the
+  exact real failure from the last test run (user's own full question
+  dumped into assumptions) -- confirmed it would have passed the old
+  grounding-only filter (100% word overlap, it's literally their words)
+  and is now caught by the new checks specifically.
+- New `unknowns` planning-question filter: first version missed two real
+  fabricated examples ("What are the best steps..." / "What are the
+  potential risks...") because the regex only caught "how can I"/"what
+  should I" openers, not "what are the best/potential X" phrasing.
+  Broadened and re-verified against all 5 real fabricated unknowns from
+  the last test batch -- all correctly caught, both legitimate unknowns
+  from that batch correctly kept.
+- New `entities` grounding filter: correctly drops all 5 real fabricated
+  entities from the last test ("career coach," "therapist," etc.,
+  pulled from the corrupted stakes-field leak) while keeping the 3 real
+  ones (boss, HR, job market).
+- Full state pipeline re-tested end to end: `impact_domains` correctly
+  ACCUMULATES across turns (list union) rather than overwriting -- same
+  merge-not-overwrite discipline established back in v0.1-v0.4, now
+  applied to a list-typed field for the first time.
+- `agency_level` removed from both `ConversationState` and the Claude-path
+  mirror; `state_inspector.render()` re-verified to still work cleanly
+  with the field gone.
+
+Not yet tested: live behavior against llama3.2:3b. Everything above is
+either a structural guarantee (Pydantic validation, which cannot fail
+regardless of model behavior) or a code-level filter tested against
+already-known real failure text -- but whether the PROMPT changes (the
+worked examples, the Governing Laws framing, the redefined unknowns/
+assumptions instructions) actually change what the model generates in
+the first place is still an open, real question. Next step: n=10 live
+test against the same test-case-2 input used for the v0.8 baseline, for
+a direct comparison.

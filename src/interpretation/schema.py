@@ -1,18 +1,20 @@
 """
 Interpretation schema for Confidant's Understanding Layer.
 
-Field names deliberately mirror the vocabulary of "The Confidant Thinking
-Method" (see engine/architecture.md and the product constitution) rather
-than generic NLP terms. Each field should trace back to a specific line in
-the constitution -- if it doesn't, it doesn't belong here. See
-engine/decisions.md for the record of that mapping.
+v0.9: implements engine/specs/interpretation-spec-v0.9.md, frozen before
+this file was written (schema-first process -- see decisions.md 2026-07-02
+"v0.9 Interpretation Specification frozen"). Do not add fields here
+without updating that spec first.
 
-Phase 3 fields follow an epistemic hierarchy (see engine/decisions.md,
-2026-07-02 "epistemic tiers", "intent tier", "decision options tier"): a
-user statement, a user's motivation, a decision under consideration, and
-a model inference are never the same kind of thing, and this schema
-refuses to flatten them into one representation.
+GOVERNING LAWS (stated in full in the spec doc):
+1. Sparse by default -- an empty field is correct, not a gap.
+2. Evidence before inference -- never blur observed/asserted/implied/inferred.
+3. Typed over prompted -- structural fixes over more prompt wording, once
+   a prompt-only fix has already been tried and failed to hold.
+4. Every field must justify its existence -- no downstream consumer, no field.
+5. Interpret, don't advise -- this layer never generates a response.
 
+Epistemic hierarchy (Phase 3 -- Discern):
     Evidence
       -> Observed Facts    (user explicitly stated -- meta-level: what was said)
       -> Claims             (propositional content the user asserts as true)
@@ -22,19 +24,13 @@ refuses to flatten them into one representation.
       -> Assumptions        (unstated beliefs the user is implicitly relying on)
       -> Inferences          (model's read, always with confidence)
     Missing Information
-      -> Unknowns            (open questions preventing understanding)
+      -> Unknowns            (gaps in the situation as stated, not brainstormed next steps)
     Metacognition
-      -> Biases                (deliberately rare -- see calibration guidance below)
-
-GOVERNING LAW (v0.7): The Interpretation Layer is sparse by default. A
-good Interpretation object is not the one with the most information --
-it's the one with the least unjustified information. Every tier starts
-empty; it gets populated only when the evidence earns it. See
-engine/decisions.md, "sparse by default", for the full rationale.
+      -> Biases                (deliberately rare)
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List
+from typing import List, Literal
 import re
 
 
@@ -78,10 +74,6 @@ _PRONOUN_ENTITIES = {"you", "i", "me", "user", "myself", "yourself"}
 # guidance in the prompt has been repeatedly ignored across several
 # rounds (see engine/decisions.md 2026-07-02 "v0.7"), so this is now
 # enforced structurally as a backstop, not just requested.
-# NOTE (v0.8): the 5-run calibration test found "possibly" (adverb) does
-# not match "it's possible that..." (adjective) -- this was the single
-# biggest source of remaining 0.8-confidence speculative inferences.
-# Added "possible" as its own token.
 _HEDGE_WORDS = re.compile(
     r"\b(might|may|could|possibly|possible|perhaps|maybe|likely|probably)\b",
     flags=re.IGNORECASE,
@@ -90,9 +82,17 @@ _HEDGED_CONFIDENCE_CAP = 0.4
 
 
 class EmotionalSignal(BaseModel):
+    """
+    v0.9: added `source`. NOTE: a `subject` field (who is experiencing the
+    emotion) was proposed during spec design and explicitly REMOVED after
+    failing its own "what breaks if this disappears" test -- nothing
+    consumes it, no multi-agent reasoning exists yet. Scope is the user's
+    own emotions only. Reintroduce `subject` only when that changes.
+    """
     emotion: str
     intensity: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
+    source: Literal["explicit", "inferred"]
 
     @field_validator("intensity", "confidence", mode="before")
     @classmethod
@@ -130,24 +130,28 @@ class Inference(BaseModel):
 
     @model_validator(mode="after")
     def _cap_hedged_confidence(self):
-        # Structural backstop: if the reading itself uses hedge language
-        # ("might", "may", "could"...), that's the model's own admission
-        # of uncertainty -- confidence should already be low. Prompt-only
-        # calibration guidance has not reliably held (see
-        # engine/decisions.md 2026-07-02 "v0.7"), so cap it here too.
         if _HEDGE_WORDS.search(self.reading) and self.confidence > _HEDGED_CONFIDENCE_CAP:
             self.confidence = _HEDGED_CONFIDENCE_CAP
         return self
 
 
+# v0.9: stakes -> impact_domains. Free string had an 80% (4/5) corruption
+# rate in real testing -- the model used it as an escape hatch for
+# therapist-voice prose, once a full 10-point advice list. Closed enum
+# makes that structurally impossible rather than just discouraged.
+ImpactDomain = Literal[
+    "personal", "professional", "financial", "health", "legal", "safety", "other"
+]
+
+
 class Interpretation(BaseModel):
     # --- Phase 1: Prepare the Thinker ---
-    urgency: str                     # "low" | "medium" | "high"
-    stakes: str                      # what's actually at risk if this goes wrong
+    urgency: Literal["low", "medium", "high"]   # v0.9: real Literal, was unenforced str
+    impact_domains: List[ImpactDomain]          # v0.9: renamed from `stakes`, multi-label
     emotional_signals: List[EmotionalSignal]
 
     # --- Phase 2: Discover the Real Question ---
-    surface_complaint: str           # what the user said the problem is
+    surface_complaint: str           # concise restatement -- see prompt.py, not a word-count rule
     core_question: str               # Confidant's current best read of the real question
     core_question_confidence: float = Field(ge=0.0, le=1.0)
 
@@ -158,7 +162,7 @@ class Interpretation(BaseModel):
     decision_options: List[str]      # choices the user is explicitly weighing -- not beliefs
     assumptions: List[str]           # unstated beliefs implied but not directly said
     inferences: List[Inference]      # model's reads, each with confidence
-    unknowns: List[str]              # specific open questions, not broad/existential ones
+    unknowns: List[str]              # gaps in the situation as stated -- not brainstormed next steps
     biases: List[Bias]               # deliberately rare -- see prompt.py calibration guidance
 
     entities: List[str]              # people/orgs/stakeholders mentioned (never the user themself)
@@ -176,8 +180,7 @@ class Interpretation(BaseModel):
         # tell that the model composed one summary sentence and reused it,
         # rather than pointing at distinct phrases for each bias -- see
         # engine/decisions.md 2026-07-02 "bias evidence fabrication". Keep
-        # only the first (highest-confidence-ordered, since we don't
-        # reorder) bias per unique evidence string.
+        # only the first bias per unique evidence string.
         seen_evidence = set()
         deduped_biases = []
         for b in self.biases:

@@ -78,6 +78,38 @@ _CAUSAL_CONNECTOR = re.compile(
     r"\b(because|since|due to|as he|as she|as they)\b", flags=re.IGNORECASE
 )
 
+# v0.9: entities never had a grounding filter at all -- only possessive-
+# stripping. A test run showed fabricated entities ("career coach,"
+# "therapist") pulled directly from a corrupted `stakes` field in the
+# same generation (see decisions.md 2026-07-02 "v0.8"). Now that stakes
+# is a closed enum (impact_domains), that specific leak vector should be
+# structurally closed -- this filter is a backstop, not the primary fix.
+_ENTITY_OVERLAP_THRESHOLD = 0.5
+
+# v0.9: unknowns were consistently "career coach brainstorming next
+# steps" ("What kind of job would be a good fit?") rather than genuine
+# gaps in the situation as stated. Pattern-based backstop: reject
+# planning/advice-shaped questions outright, regardless of what the
+# prompt says, since this is the mirror image of the assumptions problem
+# and deserves the same defense-in-depth treatment.
+_PLANNING_QUESTION = re.compile(
+    r"^(how (can|do|should|will) i|what should i|what (can|steps) i|"
+    r"how (can|will|do) (you|we)|"
+    r"what are the (best|potential|specific)\s*(steps|risks|challenges|options|ways)\b)",
+    flags=re.IGNORECASE,
+)
+
+# v0.9: found a new assumption failure shape -- the user's own full
+# question dumped whole into `assumptions`. Passes the causal-clause
+# grounding filter fine (it's ~100% grounded, it's literally their
+# words) because the filter checks "is this grounded," not "is this the
+# right tier." Two-part backstop: reject if it ends in "?" (a belief
+# statement is never phrased as a question), and reject if it's
+# near-identical to something already in observed_facts or
+# surface_complaint (that content already has a home; duplicating it
+# into assumptions isn't surfacing a new belief).
+_DUPLICATE_OVERLAP_THRESHOLD = 0.8
+
 
 def _is_evidence_grounded(evidence: str, user_text: str) -> bool:
     return _word_overlap(evidence, user_text) >= _BIAS_EVIDENCE_OVERLAP_THRESHOLD
@@ -89,6 +121,24 @@ def _is_option_grounded(option: str, user_text: str) -> bool:
 
 def _is_goal_grounded(goal: str, user_text: str) -> bool:
     return _word_overlap(goal, user_text) >= _GOAL_OVERLAP_THRESHOLD
+
+
+def _is_entity_grounded(entity: str, user_text: str) -> bool:
+    return _word_overlap(entity, user_text) >= _ENTITY_OVERLAP_THRESHOLD
+
+
+def _is_planning_question(unknown: str) -> bool:
+    return bool(_PLANNING_QUESTION.match(unknown.strip()))
+
+
+def _is_duplicate_of_other_tier(assumption: str, observed_facts: list, surface_complaint: str) -> bool:
+    """
+    True if `assumption` is basically the same content as something
+    already captured in observed_facts or surface_complaint -- a sign
+    it's misfiled, not a new belief.
+    """
+    candidates = list(observed_facts) + [surface_complaint]
+    return any(_word_overlap(assumption, c) >= _DUPLICATE_OVERLAP_THRESHOLD for c in candidates)
 
 
 def _is_assumption_grounded(assumption: str, user_text: str) -> bool:
@@ -170,13 +220,22 @@ def run_interpretation(user_text: str) -> Interpretation:
         b for b in interp.biases if _is_evidence_grounded(b.evidence, user_text)
     ]
     interp.assumptions = [
-        a for a in interp.assumptions if _is_assumption_grounded(a, user_text)
+        a for a in interp.assumptions
+        if _is_assumption_grounded(a, user_text)
+        and not a.strip().endswith("?")
+        and not _is_duplicate_of_other_tier(a, interp.observed_facts, interp.surface_complaint)
     ]
     interp.goals = [
         g for g in interp.goals if _is_goal_grounded(g, user_text)
     ]
     interp.decision_options = [
         d for d in interp.decision_options if _is_option_grounded(d, user_text)
+    ]
+    interp.entities = [
+        e for e in interp.entities if _is_entity_grounded(e, user_text)
+    ]
+    interp.unknowns = [
+        u for u in interp.unknowns if not _is_planning_question(u)
     ]
 
     return interp

@@ -33,7 +33,7 @@ def run_judgment(interp: Interpretation, state=None):
     if interp.emotional_signals:
         dominant_emotion = max(interp.emotional_signals, key=lambda e: e.intensity)
 
-    # Phase 1 framing: urgency + stakes + emotional intensity, not a generic
+    # Phase 1 framing: urgency + impact domains + emotional intensity, not a generic
     # "risk score" -- named to match what the constitution actually asks
     # Confidant to attend to before anything else.
     attention_score = 0.0
