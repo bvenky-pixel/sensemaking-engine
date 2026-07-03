@@ -506,3 +506,37 @@ assumptions instructions) actually change what the model generates in
 the first place is still an open, real question. Next step: n=10 live
 test against the same test-case-2 input used for the v0.8 baseline, for
 a direct comparison.
+
+**2026-07-02 — v1.0 exit criteria set (Interpretation layer freeze point)**
+
+Explicit decision: one more iteration after the current n=10 v0.9 test,
+then Interpretation freezes at v1.0 and work moves to Judgment/Planner.
+Not chasing perfection past this point -- deliberate stopping discipline,
+consistent with the whole day's approach of measuring rather than
+guessing when something is "done."
+
+Interpretation v1.0 exit criteria (all six must hold):
+1. Stable across repeated runs on the fixed benchmark conversations
+   (TC1: boss/product-team pivot; TC2: toxic boss/HR/weak job market).
+   "Stable" means no field flips between fundamentally different SHAPES
+   across runs (e.g. a field corrupting into prose vs. staying a clean
+   list) -- not zero wording variance, which is expected and fine.
+2. Zero major role violations across all runs on both benchmarks. Hard
+   zero, not a rate -- one instance of advice/comfort/therapist-voice
+   content anywhere in the output fails this criterion.
+3. No systematic fabrication -- and specifically, no NEW leak relocation
+   to an unguarded field. The recurring pattern all day has been "fix one
+   tier, fabrication moves to a different one" -- this criterion is about
+   confirming that stopped, not just that the old, already-fixed leaks
+   stay fixed.
+4. Schema frozen except bug fixes after v1.0 -- no new tiers/fields
+   without deliberately reopening the full spec process again.
+5. Good enough for Judgment to consume without defensive prompting --
+   concretely: judgment/engine.py should never need to duplicate a
+   grounding/sanity check that Interpretation is already supposed to
+   guarantee. If Judgment ever wants its own such filter, that's a sign
+   Interpretation isn't actually done.
+6. Every field justifies its existence -- final full pass, same test that
+   caught `agency_level` during v0.9 spec design ("what breaks if this
+   disappears?"), applied one more time across the WHOLE schema right
+   before freezing, not just the fields touched this round.
