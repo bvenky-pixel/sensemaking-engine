@@ -1,0 +1,66 @@
+You: Hi my boss is toxic, he constantly shouts at me and berates me at every opportunity. I tried going to HR but he is too powerful and they have not been very supportive. I want to change jobs but the job market is weak. I am stressed out and don't know what to do. Please help.
+
+=== INTERPRETATION DEBUG ===
+
+[Phase 1 -- Prepare]
+- urgency: high | stakes: }I can sense that you're feeling really overwhelmed and frustrated with your current situation. Dealing with a toxic boss can be emotionally draining, and it's even more challenging when HR isn't providing the support you need. It takes a lot of courage to acknowledge these issues and seek help.
+
+[Phase 2 -- Discover]
+- surface complaint: I'm feeling stressed out and unsure about what to do next.
+- core question: What are my options for addressing this situation or finding a new job? (confidence=0.0)
+
+[Phase 3 -- Discern: epistemic tiers]
+- observed fact: You've tried going to HR but haven't seen much support.
+- observed fact: The job market is currently weak.
+- observed fact: You're feeling stressed out and unsure about what to do next.
+- decision option: Explore new job opportunities despite the weak job market
+- unknown: What specific steps can I take to address my concerns?
+- unknown: How will I find a new job in this weak market?
+- unknown: Will seeking additional support from HR or a union representative be effective?
+
+[System Health]
+i  Real question not yet found -- still in Discover phase
+!  No assumptions or biases surfaced yet (expected early in a conversation)
+============================
+
+
+--- JUDGMENT ---
+{'dominant_emotion': None, 'attention_score': 0.6000000000000001, 'stance': 'uncertain_monitoring', 'core_question': 'What are my options for addressing this situation or finding a new job?', 'core_question_confidence': 0.0, 'assumptions_surfaced': 0, 'biases_surfaced': 0, 'current_phase': 'prepare', 'recommended_next_phase': 'discover'}
+
+--- INTERPRETATION ---
+{'urgency': 'high', 'stakes': "}I can sense that you're feeling really overwhelmed and frustrated with your current situation. Dealing with a toxic boss can be emotionally draining, and it's even more challenging when HR isn't providing the support you need. It takes a lot of courage to acknowledge these issues and seek help.", 'emotional_signals': [], 'surface_complaint': "I'm feeling stressed out and unsure about what to do next.", 'core_question': 'What are my options for addressing this situation or finding a new job?', 'core_question_confidence': 0.0, 'observed_facts': ["You've tried going to HR but haven't seen much support.", 'The job market is currently weak.', "You're feeling stressed out and unsure about what to do next."], 'claims': [], 'goals': [], 'decision_options': ['Explore new job opportunities despite the weak job market'], 'assumptions': [], 'inferences': [], 'unknowns': ['What specific steps can I take to address my concerns?', 'How will I find a new job in this weak market?', 'Will seeking additional support from HR or a union representative be effective?'], 'biases': [], 'entities': ['boss', 'HR', 'job market'], 'clarity_score': 0.0, 'requires_clarification': True}
+
+--- STATE ---
+                                                 Conversation State                                                  
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field                   ┃ Value                                                                                   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ emotion                 │                                                                                         │
+│ emotion_intensity       │ 0                                                                                       │
+│ urgency                 │ high                                                                                    │
+│ stakes                  │ }I can sense that you're feeling really overwhelmed and frustrated with your current    │
+│                         │ situation. Dealing with a toxic boss can be emotionally draining, and it's even more    │
+│                         │ challenging when HR isn't providing the support you need. It takes a lot of courage to  │
+│                         │ acknowledge these issues and seek help.                                                 │
+│ core_problem            │ What are my options for addressing this situation or finding a new job?                 │
+│ core_problem_confidence │ 0.0                                                                                     │
+│ surface_complaint       │ I'm feeling stressed out and unsure about what to do next.                              │
+│ observed_facts          │ ["You've tried going to HR but haven't seen much support.", 'The job market is          │
+│                         │ currently weak.', "You're feeling stressed out and unsure about what to do next."]      │
+│ claims                  │ []                                                                                      │
+│ goals                   │ []                                                                                      │
+│ decision_options        │ ['Explore new job opportunities despite the weak job market']                           │
+│ assumptions             │ []                                                                                      │
+│ inferences              │ []                                                                                      │
+│ unknowns                │ ['What specific steps can I take to address my concerns?', 'How will I find a new job   │
+│                         │ in this weak market?', 'Will seeking additional support from HR or a union              │
+│                         │ representative be effective?']                                                          │
+│ biases                  │ []                                                                                      │
+│ stakeholders            │ ['boss', 'HR', 'job market']                                                            │
+│ agency_level            │ 0.0                                                                                     │
+│ clarity_level           │ 0.0                                                                                     │
+│ phase                   │ discover                                                                                │
+│ decision                │                                                                                         │
+│ history_summary         │                                                                                         │
+└─────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────┘
+==================================================
