@@ -137,6 +137,27 @@ def _is_planning_question(unknown: str) -> bool:
     return bool(_PLANNING_QUESTION.match(unknown.strip()))
 
 
+# v1.0-candidate: the second n=10 batch showed the duplicate-tier check
+# above wasn't the actual dominant failure. In 5 of 6 misfiled cases
+# ("the job market is weak" landing in assumptions), there was no
+# matching claims/observed_facts entry THAT TURN to deduplicate against
+# at all -- the model just picked assumptions outright, with nothing to
+# compare it to. The real rule needed: an assumption with NO causal
+# connector (no "because"/"since"/"due to" -- i.e. no actual inference
+# being made) that's near-verbatim to the user's own raw words is a bare
+# restatement of a fact, not an implied belief, REGARDLESS of whether a
+# sibling field happens to duplicate it this turn. This checks against
+# the raw user_text directly, not sibling fields -- a genuinely different
+# (and more direct) test than _is_duplicate_of_other_tier above.
+_BARE_RESTATEMENT_THRESHOLD = 0.7
+
+
+def _is_bare_restatement(assumption: str, user_text: str) -> bool:
+    if _CAUSAL_CONNECTOR.search(assumption):
+        return False  # has a causal connector -- it's making an inference, not just restating
+    return _word_overlap(assumption, user_text) >= _BARE_RESTATEMENT_THRESHOLD
+
+
 def _is_duplicate_of_other_tier(assumption: str, observed_facts: list, claims: list, surface_complaint: str) -> bool:
     """
     True if `assumption` is basically the same content as something
@@ -236,6 +257,7 @@ def run_interpretation(user_text: str) -> Interpretation:
         if _is_assumption_grounded(a, user_text)
         and not a.strip().endswith("?")
         and not _is_duplicate_of_other_tier(a, interp.observed_facts, interp.claims, interp.surface_complaint)
+        and not _is_bare_restatement(a, user_text)
     ]
     interp.goals = [
         g for g in interp.goals if _is_goal_grounded(g, user_text)

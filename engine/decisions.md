@@ -614,3 +614,84 @@ today's specific model, not a structural gap):**
 Next: apply this patch, re-run n=10 on TC2 (and ideally TC1) live to
 confirm the two fixes hold against real model output, do the final
 field-justification pass, then declare v1.0.
+
+**2026-07-03 — v1.0 declared. Assumptions bare-restatement fix applied (final iteration).**
+
+Second n=10 batch on TC2 refined the diagnosis from the first: the
+claims/assumptions duplicate-tier fix (previous entry) only caught
+same-turn duplication. The dominant real pattern was different -- in 5
+of 6 misfiled cases, there was no matching claims/observed_facts entry
+that turn AT ALL to deduplicate against. The model just picked
+`assumptions` outright for directly-stated content, nothing to compare
+it to.
+
+**Fix**: `_is_bare_restatement()` -- an assumption with NO causal
+connector (no "because"/"since"/"due to", i.e. not actually making an
+inference) that scores >=0.7 word-overlap against the RAW user text
+directly (not sibling fields) is a bare restatement of a stated fact,
+not an implied belief, regardless of what's in claims/observed_facts
+this turn. Threshold started at 0.8, lowered to 0.7 after the same
+near-miss pattern as the earlier duplicate-tier fix ("HR was not
+supportive" vs the user's "have not been very supportive" scored 0.75).
+Regression-tested against every real assumption from both n=10 batches
+(11 total): all 4 real bare-restatement cases correctly dropped, all 5
+genuinely fabricated assumptions (a different, deliberately UNFIXED
+problem -- see below) correctly left alone.
+
+**Correction to a claim in this session's discussion, worth having on
+record precisely**: emotional content was characterized as "the model
+recognizes the evidence but fails to instantiate the object" (i.e.
+consistently captured in claims as a fallback). Checked against the
+actual 10-run data: emotional content landed in claims in only 5 of 10
+runs -- the other 5 don't capture it anywhere at all. Roughly a coin
+flip between misfiled and genuinely lost, not a consistent fallback.
+Doesn't change the decision (emotional_signals stays unflattened, fails
+the "would a larger model benefit" test to fix further) but the
+optimistic framing didn't hold up against the numbers and is corrected
+here rather than left standing.
+
+**Real finding, explicitly NOT fixed, logged for the record**: while
+building the bare-restatement fix, testing the spec's own "good"
+assumption worked example ("User believes boss is intentionally
+preventing their career growth," paired with "He's blocking my
+career.") against the actual filter chain showed it would be REJECTED
+by `_is_assumption_grounded` -- a filter that has existed since v0.8.
+Root cause: that filter requires 0.45 literal word-overlap even for
+non-causal-connector assumptions, but a legitimate PARAPHRASED inference
+("preventing career growth" for "blocking career") naturally has low
+literal overlap despite being well-grounded. This is a real gap in the
+original grounding design, not something introduced this round -- it
+was never caught because no real test conversation happened to produce
+a legitimate non-causal assumption phrased distinctly enough to trigger
+it. Not fixed now: it didn't surface in any of the 20 real runs across
+both n=10 batches, and chasing it now would be reopening scope past the
+agreed stopping point. Documented here so it's known, not silently
+carried forward as an undiscovered bug.
+
+**FINAL SCORING against the six v1.0 exit criteria:**
+1. Stable across runs -- PASS. impact_domains/surface_complaint fully
+   stable at n=20 (both batches); claims/assumptions routing addressed.
+2. Zero role violations -- PASS, hard zero across n=20 total runs now.
+3. No systematic fabrication -- PASS for genuine fabrication. Misrouting
+   of true content addressed; unknowns regex backstop accepted as
+   imperfect-by-design (see entry below), not fabrication.
+4. Schema frozen except bug fixes -- IN EFFECT AS OF THIS ENTRY.
+5. Judgment-ready without defensive prompting -- PASS except
+   emotional_signals (documented, accepted gap, not silent).
+6. Every field justifies its existence -- CONFIRMED. Re-checked against
+   the full field list from engine/specs/interpretation-spec-v0.9.md;
+   no field added since that audit lacks a downstream consumer. No
+   changes needed.
+
+**DECISION: Interpretation is v1.0.** Not complete, not perfect --
+stable, grounded, typed, and safe for Judgment to build on without
+defensive prompting except for the one documented emotional_signals
+gap. Remaining known limitations (unknowns regex coverage,
+emotional_signals recall, the pre-existing paraphrase-grounding gap
+above) are extraction-quality and small-model-capability issues, not
+architectural flaws, and are explicitly not being chased further per
+the "would a larger model still benefit" rule agreed this session.
+
+Schema changes from here require deliberately reopening this process
+(spec update -> migration doc -> prompt), not ad hoc prompt patches.
+Next: State Builder.
