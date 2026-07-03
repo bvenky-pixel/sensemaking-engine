@@ -410,3 +410,45 @@ of it. Would need either a small fixed vocabulary + rule-based label
 matching, or a second LLM call to verify -- the latter is exactly the
 kind of cost increase Option A rules out, so this stays prompt-only
 (reinforced guidance to only use well-understood terms) for now.
+
+**2026-07-02 — v0.9 Interpretation Specification frozen (schema-first, before any prompt written)**
+
+Per explicit process decision: v0.9 is being designed schema-first rather
+than as another round of prompt patching, specifically to avoid the
+"prompt accretion" problem (15 more instructions, more "don't do X"
+rules, becoming impossible to reason about) that the v0.5-v0.8 cycle was
+starting to exhibit. Full spec lives at
+`engine/specs/interpretation-spec-v0.9.md` -- every field justified
+against "what breaks if this disappears," five Governing Laws stated
+explicitly at the top (sparse by default, evidence before inference,
+typed over prompted, every field must justify its existence, interpret
+don't advise) rather than left scattered implicitly across prior
+decisions.md entries.
+
+Headline changes locked into the frozen spec (not yet implemented):
+- `stakes` (free string, 80% corruption rate in testing) renamed to
+  `impact_domains`: multi-label closed enum
+  (personal/professional/financial/health/legal/safety/other).
+- `emotional_signals` kept as a structured object (explicitly NOT
+  flattened to accommodate the 3B model's current limitations -- per
+  direct instruction, the domain model doesn't get simplified for the
+  model's sake, the prompt/examples get improved instead); added a
+  `source` field (explicit vs inferred). A `subject` field was proposed,
+  then removed after failing its own "what breaks if this disappears"
+  test -- nobody consumes it yet, no multi-agent reasoning exists for it
+  to plug into.
+- `surface_complaint` redefined as a concise-restatement objective,
+  deliberately NOT a hard word-count rule (word counting is fragile
+  across punctuation/contractions/languages) -- conciseness taught via
+  worked examples instead.
+- `assumptions` gets a new cross-field dedup validator (catches a new
+  failure shape found in testing: the user's own question dumped whole
+  into assumptions -- passes existing grounding filters since it's
+  technically "grounded," just in the wrong tier).
+- `unknowns` redefined away from "assistant brainstorming next steps"
+  toward genuine gaps in the situation as stated.
+- Schema-wide casing convention adopted: all scalar/enum values lowercase
+  snake_case, stated explicitly now while the schema is still small.
+
+Status: FROZEN. Next steps in order: migration document (v0.8 -> v0.9
+diff with rationale), then and only then the new prompt/code.
