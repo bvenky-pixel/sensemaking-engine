@@ -21,16 +21,15 @@ Repeat until you type "exit" (or "quit").
 REQUIREMENTS
 ------------
 - Python 3.9+
-- `anthropic` and `pydantic` installed (StateUpdater's dependencies)
-- ANTHROPIC_API_KEY set in your environment
+- `openai` and `pydantic` installed (StateUpdater's dependencies)
+- This script uses MockStateUpdater by default, so no API key is required to
+  run it. To exercise the real LLM-backed StateUpdater instead, see
+  engine/state_updater.py and .env.example for OPENROUTER_API_KEY / Ollama
+  configuration.
 
 RUNNING IT
 ----------
-    export ANTHROPIC_API_KEY=sk-ant-...
     python conversation_runner.py
-
-    # optionally pin a different model:
-    python conversation_runner.py --model claude-sonnet-5
 
 EXAMPLE SESSION
 ----------------
@@ -90,7 +89,7 @@ def run(model: str) -> None:
         updater = MockStateUpdater()
     except Exception as exc:
         print(f"Failed to initialize StateUpdater: {exc}")
-        print("Check that ANTHROPIC_API_KEY is set and 'anthropic'/'pydantic' are installed.")
+        print("Check that 'openai' and 'pydantic' are installed.")
         sys.exit(1)
 
     state = ConversationState()
