@@ -53,6 +53,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CONFIDANT_TRACK_USAGE: "1"
           LLM_PROVIDER_INPUT: ${{ github.event.inputs.llm_provider }}
+          # CPU-only runner, no GPU -- the 180s default (tuned for local dev
+          # hardware) timed out on the first real dispatch here. See
+          # engine/decisions.md.
+          OLLAMA_TIMEOUT: "600"
         run: |
           if [ -n "$LLM_PROVIDER_INPUT" ]; then
             export LLM_PROVIDER="$LLM_PROVIDER_INPUT"

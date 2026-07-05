@@ -238,9 +238,16 @@ def call_ollama(
     0.3.0) -- this is the exact call the v1.0 interpretation layer was
     calibrated against. Returns the raw assistant text content, or raises
     ProviderCallError -- see module docstring's robustness contract.
+
+    Timeout is configurable via OLLAMA_TIMEOUT (seconds, default 180) --
+    CPU-only environments (e.g. GitHub Actions runners with no GPU) can
+    take noticeably longer than a local dev machine for the same
+    schema-constrained generation; 180s was tuned for local hardware and
+    timed out on CI (see engine/decisions.md).
     """
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+    timeout = float(os.environ.get("OLLAMA_TIMEOUT", "180"))
 
     start = time.monotonic()
     try:
@@ -254,7 +261,7 @@ def call_ollama(
                 "format": schema,
                 "options": {"temperature": temperature},
             },
-            timeout=180,
+            timeout=timeout,
         )
     except requests.RequestException as exc:
         raise ProviderCallError(f"Ollama request failed: {exc}") from exc
