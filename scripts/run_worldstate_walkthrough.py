@@ -28,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.state_inspector import render
+from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
@@ -54,12 +55,14 @@ TRANSCRIPT = [
 def main() -> int:
     state = WorldState()
     failures = 0
+    tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
 
     for i, message in enumerate(TRANSCRIPT, start=1):
         print(f"\n{'=' * 70}\nTURN {i}: {message}\n{'=' * 70}")
+        turn_start = tracker.count()
 
         try:
-            interp = run_interpretation(message)
+            interp = run_interpretation(message, tracker=tracker)
         except InterpretationError as exc:
             failures += 1
             print(f"[FAIL] turn {i} (interpretation): {exc}")
@@ -79,7 +82,7 @@ def main() -> int:
         render(state)
 
         try:
-            judgment = run_judgment(state)
+            judgment = run_judgment(state, tracker=tracker)
         except JudgmentError as exc:
             failures += 1
             print(f"[FAIL] turn {i} (judgment): {exc}")
@@ -88,9 +91,34 @@ def main() -> int:
         print("\n--- JUDGMENT ---")
         print(judgment.model_dump())
 
+        if is_tracking_enabled():
+            print_turn_summary(tracker.since(turn_start))
+
     print(f"\n{'=' * 70}\nDone: {len(TRANSCRIPT) - failures}/{len(TRANSCRIPT)} turns succeeded.")
     print("Read through the WORLDSTATE output above turn by turn: does it read as an")
     print("increasingly faithful, coherent model of the user's world by turn 10?")
+
+    if is_tracking_enabled():
+        summary = tracker.summary()
+        print(f"\n{'=' * 70}\nCONVERSATION USAGE SUMMARY (all {len(TRANSCRIPT)} turns)")
+        print(f"- Calls: {summary['calls']}")
+        print(f"- Input tokens: {summary['input_tokens']:,}")
+        print(f"- Output tokens: {summary['output_tokens']:,}")
+        print(f"- Total tokens: {summary['total_tokens']:,}")
+        print(f"- Total latency: {summary['latency_ms'] / 1000:.1f} s")
+        cost = summary["estimated_cost_usd"]
+        cost_str = f"${cost:.4f}" if cost is not None else "unknown"
+        if not summary["cost_fully_known"]:
+            cost_str += " (partial -- some calls had no pricing entry)"
+        print(f"- Total cost: {cost_str}")
+        for component, stats in summary["by_component"].items():
+            comp_cost = stats["estimated_cost_usd"]
+            comp_cost_str = f"${comp_cost:.4f}" if comp_cost is not None else "unknown"
+            print(
+                f"  - {component}: {stats['calls']} calls, {stats['total_tokens']:,} tokens, "
+                f"{comp_cost_str}"
+            )
+
     return 1 if failures else 0
 
 

@@ -1185,3 +1185,69 @@ checking is trusted without human spot-validation first, and the real
 budget/call-volume implied by the recommended sample sizes.
 
 Status: design only. No harness, dataset, or experiment run yet.
+
+**2026-07-05 — Instrumentation layer added: token/cost/latency tracking for every LLM call, off by default**
+
+Ahead of actually running the Judgment v2 evaluation design above, added
+measurement-only instrumentation to both LLM call sites (Interpretation,
+Judgment). New shared module `src/instrumentation/` (`usage.py`:
+`LLMUsage`, `UsageTracker`, `print_turn_summary`; `pricing.py`: cost
+estimation) -- one reusable abstraction, not duplicated per component, per
+explicit instruction. Unlike `providers.py` (deliberately duplicated
+across `interpretation/` and `judgment/` to avoid coupling to frozen
+interpretation code), `src/instrumentation/` is new, independent
+infrastructure belonging to neither package, so both depending on one
+shared module doesn't reintroduce that coupling concern.
+
+**Wiring**: `call_openrouter`/`call_ollama`/`call_provider` in both
+`providers.py` files gained two new optional parameters (`component`,
+`tracker`) and now time the HTTP call and extract token counts from the
+response already being parsed (OpenRouter: `usage.prompt_tokens`/
+`completion_tokens`, already returned by default, no special request
+needed; Ollama: `prompt_eval_count`/`eval_count` from its native
+`/api/chat` response). `run_interpretation`/`run_judgment` gained a new
+optional `tracker` parameter, defaulting to a shared `default_tracker`.
+Every extraction/recording step is wrapped in a try/except that silently
+swallows failures -- instrumentation must never be able to break the
+actual LLM call, and this was verified directly, not assumed: confirmed
+byte-identical failure-path output before and after this change (no API
+key configured, same error text both times), and confirmed the success
+path still returns a valid `Interpretation`/`Judgment` object with
+tracking on via a mocked provider response.
+
+**Off by default, verified, not just asserted**: gated by
+`CONFIDANT_TRACK_USAGE` (unset/falsy = fully inert -- `UsageTracker.record()`
+no-ops even when a tracker is explicitly passed in). Test confirms zero
+records get created when the env var is unset even with a live (mocked)
+successful call and an explicit tracker passed to `run_interpretation`.
+
+**Cost estimation is honest about its own limits**: per-token pricing
+lives in a small, explicitly-labeled-as-approximate table
+(`src/instrumentation/pricing.py`) -- an unlisted model reports
+`estimated_cost_usd=None` (unknown), never a guessed number. Ollama is
+always exactly `$0.00` (a fact, not an estimate -- local inference has no
+API charge). The docstring flags that the table will go stale and must
+be checked against https://openrouter.ai/models before trusting cost
+figures in an actual evaluation run -- this matters specifically because
+the evaluation design this instrumentation exists to support depends on
+trustworthy cost comparisons.
+
+**Output format**: `print_turn_summary()` matches the requested console
+format exactly (per-component block, then Pipeline Total), verified
+against a mocked two-call turn (Interpretation + Judgment). Aggregation
+for the future experiment framework is structured, not console-text-based
+-- `UsageTracker.summary()` returns per-component and total token/cost/
+latency stats as a plain dict, and `.records` are Pydantic models
+(`.model_dump()`-able) -- the experiment harness should read these
+directly, never parse printed output.
+
+**Tests**: `tests/test_instrumentation.py`, 12 new tests, all
+deterministic (no LLM calls) -- disabled-by-default behavior, usage
+extraction from both provider response shapes (including missing-field
+cases, which must not crash), cost estimation for known/unknown/Ollama
+models, and tracker aggregation. All 24 tests across the branch
+(12 new + 12 existing) pass.
+
+No prompts, schemas, or pipeline logic changed. No architecture changed
+beyond the two new optional parameters threaded through the existing call
+chain.

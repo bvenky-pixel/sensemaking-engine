@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import List, Optional
 
 import requests
@@ -32,6 +33,13 @@ try:
     load_dotenv()
 except ImportError:  # pragma: no cover - python-dotenv is a soft dependency
     pass
+
+from src.instrumentation.usage import (
+    UsageTracker,
+    build_usage,
+    extract_openai_compatible_usage,
+    extract_ollama_usage,
+)
 
 
 class ProviderCallError(Exception):
@@ -46,7 +54,33 @@ def _first_env(*names: str) -> Optional[str]:
     return None
 
 
-def call_openrouter(system_prompt: str, messages: list, schema: dict, temperature: float) -> str:
+def _record_usage(
+    tracker: Optional[UsageTracker],
+    component: str,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: float,
+) -> None:
+    """Best-effort instrumentation -- must never affect the actual call.
+    Any failure here is swallowed, not raised."""
+    if tracker is None:
+        return
+    try:
+        tracker.record(build_usage(component, provider, model, input_tokens, output_tokens, latency_ms))
+    except Exception:
+        pass
+
+
+def call_openrouter(
+    system_prompt: str,
+    messages: list,
+    schema: dict,
+    temperature: float,
+    component: str = "unknown",
+    tracker: Optional[UsageTracker] = None,
+) -> str:
     """
     POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint.
     Uses plain JSON mode (response_format: json_object) rather than OpenAI's
@@ -72,6 +106,7 @@ def call_openrouter(system_prompt: str, messages: list, schema: dict, temperatur
         f"(no prose, no markdown fences):\n{json.dumps(schema)}"
     )
 
+    start = time.monotonic()
     try:
         response = requests.post(
             f"{base_url}/chat/completions",
@@ -86,6 +121,7 @@ def call_openrouter(system_prompt: str, messages: list, schema: dict, temperatur
         )
     except requests.RequestException as exc:
         raise ProviderCallError(f"OpenRouter request failed: {exc}") from exc
+    latency_ms = (time.monotonic() - start) * 1000
 
     if not response.ok:
         try:
@@ -95,12 +131,25 @@ def call_openrouter(system_prompt: str, messages: list, schema: dict, temperatur
         raise ProviderCallError(f"OpenRouter returned {response.status_code}: {detail}")
 
     try:
-        return response.json()["choices"][0]["message"]["content"].strip()
+        payload = response.json()
+        content = payload["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError, ValueError) as exc:
         raise ProviderCallError(f"Unexpected OpenRouter response shape: {exc}") from exc
 
+    input_tokens, output_tokens = extract_openai_compatible_usage(payload)
+    _record_usage(tracker, component, "openrouter", model, input_tokens, output_tokens, latency_ms)
 
-def call_ollama(system_prompt: str, messages: list, schema: dict, temperature: float) -> str:
+    return content
+
+
+def call_ollama(
+    system_prompt: str,
+    messages: list,
+    schema: dict,
+    temperature: float,
+    component: str = "unknown",
+    tracker: Optional[UsageTracker] = None,
+) -> str:
     """
     POSTs to a local Ollama's native /api/chat endpoint, passing the real
     JSON schema so generation is grammar-constrained (requires Ollama >=
@@ -110,6 +159,7 @@ def call_ollama(system_prompt: str, messages: list, schema: dict, temperature: f
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
+    start = time.monotonic()
     try:
         response = requests.post(
             f"{base_url}/api/chat",
@@ -125,6 +175,7 @@ def call_ollama(system_prompt: str, messages: list, schema: dict, temperature: f
         )
     except requests.RequestException as exc:
         raise ProviderCallError(f"Ollama request failed: {exc}") from exc
+    latency_ms = (time.monotonic() - start) * 1000
 
     if not response.ok:
         try:
@@ -134,9 +185,15 @@ def call_ollama(system_prompt: str, messages: list, schema: dict, temperature: f
         raise ProviderCallError(f"Ollama returned {response.status_code}: {detail}")
 
     try:
-        return response.json()["message"]["content"].strip()
+        payload = response.json()
+        content = payload["message"]["content"].strip()
     except (KeyError, ValueError) as exc:
         raise ProviderCallError(f"Unexpected Ollama response shape: {exc}") from exc
+
+    input_tokens, output_tokens = extract_ollama_usage(payload)
+    _record_usage(tracker, component, "ollama", model, input_tokens, output_tokens, latency_ms)
+
+    return content
 
 
 _PROVIDER_CALLERS = {
@@ -158,5 +215,15 @@ def resolve_provider_chain() -> List[str]:
     return chain
 
 
-def call_provider(name: str, system_prompt: str, messages: list, schema: dict, temperature: float) -> str:
-    return _PROVIDER_CALLERS[name](system_prompt, messages, schema, temperature)
+def call_provider(
+    name: str,
+    system_prompt: str,
+    messages: list,
+    schema: dict,
+    temperature: float,
+    component: str = "unknown",
+    tracker: Optional[UsageTracker] = None,
+) -> str:
+    return _PROVIDER_CALLERS[name](
+        system_prompt, messages, schema, temperature, component=component, tracker=tracker
+    )

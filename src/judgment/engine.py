@@ -29,6 +29,7 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
+from src.instrumentation.usage import UsageTracker, default_tracker
 from src.judgment.prompt import build_messages
 from src.judgment.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.judgment.schema import Judgment
@@ -57,7 +58,7 @@ class JudgmentError(Exception):
         self.raw_output = raw_output
 
 
-def run_judgment(state: WorldState) -> Judgment:
+def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> Judgment:
     """
     Calls an LLM to produce a Judgment from the given WorldState. Tries
     each configured provider in order (see src/judgment/providers.py),
@@ -68,15 +69,24 @@ def run_judgment(state: WorldState) -> Judgment:
     BEFORE calling this -- Judgment only ever sees WorldState, so if it's
     called against stale state, it has no way to know about anything just
     said this turn.
+
+    tracker: optional UsageTracker (src/instrumentation/usage.py) to record
+    token/cost/latency into. Defaults to the shared default_tracker if not
+    given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
+    is set, so this has no effect on normal runs either way.
     """
     world_state_json = state.model_dump_json(indent=2)
     system_prompt, messages = build_messages(world_state_json)
     schema = Judgment.model_json_schema()
+    tracker = tracker or default_tracker
 
     failures: List[str] = []
     for provider_name in resolve_provider_chain():
         try:
-            raw = call_provider(provider_name, system_prompt, messages, schema, TEMPERATURE)
+            raw = call_provider(
+                provider_name, system_prompt, messages, schema, TEMPERATURE,
+                component="Judgment", tracker=tracker,
+            )
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")
             continue

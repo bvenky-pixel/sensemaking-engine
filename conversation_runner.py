@@ -10,6 +10,7 @@ from typing import List
 
 from engine.state_inspector import render
 
+from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
 from src.state.builder import update_state
@@ -28,6 +29,7 @@ def run(model: str) -> None:
 
     state = WorldState()
     transcript: List[str] = []  # optional, currently unused
+    tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
 
     while True:
         try:
@@ -46,9 +48,10 @@ def run(model: str) -> None:
         # Keep transcript for future multi-turn reasoning (optional)
         transcript.append(f"User: {message}")
 
+        turn_start = tracker.count()
         try:
             # 1. Interpretation (LLM)
-            interp = run_interpretation(message)
+            interp = run_interpretation(message, tracker=tracker)
             analyze_interpretation(interp)
 
             # 2. State Builder -- WorldState must be updated with this
@@ -61,7 +64,7 @@ def run(model: str) -> None:
                 state.phase = next_phase
 
             # 3. Judgment (LLM, over the now-updated WorldState)
-            judgment = run_judgment(state)
+            judgment = run_judgment(state, tracker=tracker)
 
             print("\n--- INTERPRETATION ---")
             print(interp.model_dump())
@@ -71,6 +74,9 @@ def run(model: str) -> None:
 
             print("\n--- JUDGMENT ---")
             print(judgment.model_dump())
+
+            if is_tracking_enabled():
+                print_turn_summary(tracker.since(turn_start))
 
             print(DIVIDER)
 

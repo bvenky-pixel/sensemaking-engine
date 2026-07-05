@@ -18,6 +18,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.prompt import build_messages
 from src.interpretation.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.interpretation.schema import Interpretation
@@ -194,15 +195,25 @@ class InterpretationError(Exception):
         self.raw_output = raw_output
 
 
-def run_interpretation(user_text: str) -> Interpretation:
+def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -> Interpretation:
+    """
+    tracker: optional UsageTracker (src/instrumentation/usage.py) to record
+    token/cost/latency into. Defaults to the shared default_tracker if not
+    given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
+    is set, so this has no effect on normal runs either way.
+    """
     system_prompt, messages = build_messages(user_text)
     schema = Interpretation.model_json_schema()
+    tracker = tracker or default_tracker
 
     raw: Optional[str] = None
     failures = []
     for provider_name in resolve_provider_chain():
         try:
-            raw = call_provider(provider_name, system_prompt, messages, schema, TEMPERATURE)
+            raw = call_provider(
+                provider_name, system_prompt, messages, schema, TEMPERATURE,
+                component="Interpretation", tracker=tracker,
+            )
             break
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")
