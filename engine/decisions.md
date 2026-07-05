@@ -756,3 +756,35 @@ same rigor originally reserved for the eventual Claude swap this entry
 effectively front-runs. Until that happens, the OpenRouter path should be
 treated as MVP-quality, not v1.0-validated -- same status the Ollama path
 had before its own testing rounds.
+
+**2026-07-05 — OpenRouter call fixed: strict json_schema mode isn't viable, switched to json_object + text schema hint**
+
+First real CI run of the OpenRouter path (n=1 smoke test via the new
+benchmark workflow) failed both benchmark cases with the same error:
+`OpenRouter returned 400: "Invalid schema for response_format
+'Interpretation': 'additionalProperties' is required to be supplied and
+to be false."` -- OpenAI's `strict: true` json_schema mode requires every
+object in the schema, including nested ones (EmotionalSignal, Bias,
+Inference, ...), to explicitly declare `additionalProperties: false`.
+Pydantic's `model_json_schema()` doesn't set that, and fixing it properly
+would mean either touching the frozen `schema.py` (adding
+`model_config = ConfigDict(extra="forbid")` everywhere) or
+recursively rewriting the generated schema before every call.
+
+Took the simpler, already-proven path instead: dropped `strict`/
+`json_schema` entirely in favor of plain `response_format: {"type":
+"json_object"}`, with the schema appended as a text hint on the system
+message rather than passed as a real constraint. This is the same
+pattern `engine/state_updater.py` already uses on the main-line branch --
+JSON mode only guarantees syntactically valid JSON, not shape, so
+`engine.py`'s existing full Pydantic validation (already there
+regardless of provider) is the real enforcement, same as it's always
+been for the Ollama path when grammar constraints don't cover something
+(e.g. the confidence 0-10 vs 0-1 scale bug logged earlier, which grammar
+constraints didn't catch either).
+
+Practical effect: the OpenRouter path now has weaker structural
+constraints than Ollama's grammar-constrained `format` param -- worth
+factoring into the eventual n=10 validation pass, since a higher rate of
+shape drift (not just content fabrication) is plausible until/unless
+this gets upgraded to a properly `additionalProperties`-compliant schema.

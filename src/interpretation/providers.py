@@ -20,6 +20,7 @@ Ollama path is trusted.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import List, Optional
 
@@ -47,9 +48,17 @@ def _first_env(*names: str) -> Optional[str]:
 
 def call_openrouter(system_prompt: str, messages: list, schema: dict, temperature: float) -> str:
     """
-    POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint,
-    requesting a JSON Schema-constrained response (OpenAI Structured
-    Outputs format). Returns the raw assistant text content.
+    POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint.
+    Uses plain JSON mode (response_format: json_object) rather than OpenAI's
+    strict json_schema mode -- strict mode requires every object in the
+    schema (including nested ones) to explicitly set
+    `additionalProperties: false`, which Pydantic's model_json_schema()
+    doesn't add, and not every model routed through OpenRouter supports it
+    anyway. The schema is instead appended to the system prompt as a text
+    hint, and the caller (engine.py) already does full Pydantic validation
+    on the result -- same belt-and-suspenders pattern as
+    engine/state_updater.py on the main-line branch. Returns the raw
+    assistant text content.
     """
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
@@ -58,22 +67,20 @@ def call_openrouter(system_prompt: str, messages: list, schema: dict, temperatur
     if not api_key:
         raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")
 
+    schema_hint = (
+        "\n\nReturn ONLY a single JSON object matching this schema exactly "
+        f"(no prose, no markdown fences):\n{json.dumps(schema)}"
+    )
+
     try:
         response = requests.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": model,
-                "messages": [{"role": "system", "content": system_prompt}] + messages,
+                "messages": [{"role": "system", "content": system_prompt + schema_hint}] + messages,
                 "temperature": temperature,
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "Interpretation",
-                        "strict": True,
-                        "schema": schema,
-                    },
-                },
+                "response_format": {"type": "json_object"},
             },
             timeout=180,
         )
