@@ -1,0 +1,24 @@
+name: LLM smoke test
+
+# Manual only -- this makes a real, billable call to the configured LLM
+# provider, so it shouldn't run on every push/PR.
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run live StateUpdater smoke test
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: python scripts/smoke_test_llm.py
