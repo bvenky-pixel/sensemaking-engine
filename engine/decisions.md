@@ -1826,3 +1826,38 @@ point Planner's real usage becomes the evidence base for whatever comes
 next (including #4/#5 above), not another round of single-sample
 optimization. Any change before then requires deliberately reopening this
 process, same discipline as every other frozen component on this branch.
+
+**2026-07-05 — Evaluation smoke test re-dispatched post-refinement: 0/3
+conditions succeeded, same openrouter/free confound, no redispatch pursued**
+
+Re-ran `judgment-evaluation-smoketest.yml` against the re-frozen prompt
+(commit `5f6531c`, the calibration-review commit -- dispatched before the
+prompt-refinement push `3bea345` landed). Result: 0/3 conditions produced
+a Judgment output, so no side-by-side comparison was possible.
+
+- **Baseline A**: OpenRouter call succeeded, but the underlying model that
+  answered it returned all 6 list-typed fields (`key_blockers`,
+  `open_unknowns`, `active_decisions`, `contradictions`, `risks`,
+  `opportunities`) as single comma-joined strings instead of JSON arrays
+  -- same non-compliance mode logged in the earlier smoke-test entry, not
+  a new bug. Ollama fallback then failed (`Connection refused` -- no local
+  Ollama in CI, expected).
+- **Baseline B2 and Confidant**: both hit `content: null` from OpenRouter
+  (correctly caught as `ProviderCallError`, not a crash -- the provider
+  fix from the earlier entry held again), then the same expected Ollama
+  fallback failure in CI.
+
+**Confirms, rather than newly discovers**, the exact confound already
+documented in the `openrouter/free` decision entry: two different failure
+signatures (schema non-compliance vs. empty content) across three
+conditions in the same run means different calls answered by different
+underlying free models, not a code defect. No architectural or prompt
+conclusion is drawn from this run.
+
+**Explicit decision: no redispatch pursued.** Fixing this would mean
+pinning `OPENROUTER_MODEL` to one specific `:free` model (already the
+documented prerequisite for any controlled comparison) -- deliberately
+not done right now. Judgment stays RE-FROZEN per the entry above; this
+result doesn't reopen it, since nothing here points at a Judgment
+prompt/schema defect -- it's entirely a free-tier model-variance issue on
+the evaluation harness side.
