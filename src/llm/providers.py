@@ -70,6 +70,7 @@ except ImportError:  # pragma: no cover - python-dotenv is a soft dependency
     pass
 
 from src.instrumentation.usage import (
+    ParsedUsage,
     UsageTracker,
     build_usage,
     extract_openai_compatible_usage,
@@ -98,8 +99,8 @@ def _record_usage(
     component: str,
     provider: str,
     model: str,
-    input_tokens: int,
-    output_tokens: int,
+    parsed: ParsedUsage,
+    raw_usage: Optional[dict],
     latency_ms: float,
 ) -> None:
     """Best-effort instrumentation -- must never affect the actual call.
@@ -107,7 +108,19 @@ def _record_usage(
     if tracker is None:
         return
     try:
-        tracker.record(build_usage(component, provider, model, input_tokens, output_tokens, latency_ms))
+        tracker.record(
+            build_usage(
+                component,
+                provider,
+                model,
+                parsed.prompt_tokens,
+                parsed.completion_tokens,
+                latency_ms,
+                reasoning_tokens=parsed.reasoning_tokens,
+                cached_tokens=parsed.cached_tokens,
+                raw_usage=raw_usage,
+            )
+        )
     except Exception:
         pass
 
@@ -204,8 +217,9 @@ def call_openrouter(
 
     content = _extract_message_content(payload, ["choices", 0, "message", "content"], "OpenRouter")
 
-    input_tokens, output_tokens = extract_openai_compatible_usage(payload)
-    _record_usage(tracker, component, "openrouter", model, input_tokens, output_tokens, latency_ms)
+    parsed_usage = extract_openai_compatible_usage(payload)
+    raw_usage = payload.get("usage")
+    _record_usage(tracker, component, "openrouter", model, parsed_usage, raw_usage, latency_ms)
 
     return content
 
@@ -260,8 +274,15 @@ def call_ollama(
 
     content = _extract_message_content(payload, ["message", "content"], "Ollama")
 
-    input_tokens, output_tokens = extract_ollama_usage(payload)
-    _record_usage(tracker, component, "ollama", model, input_tokens, output_tokens, latency_ms)
+    parsed_usage = extract_ollama_usage(payload)
+    # Ollama's native /api/chat has no nested "usage" object -- the
+    # token/duration accounting fields (prompt_eval_count, eval_count,
+    # *_duration, etc.) live at the top level alongside "message". Drop
+    # "message" (the actual generated text, already returned as `content`
+    # above) so raw_usage captures everything usage-related without
+    # duplicating the full response body.
+    raw_usage = {k: v for k, v in payload.items() if k != "message"}
+    _record_usage(tracker, component, "ollama", model, parsed_usage, raw_usage, latency_ms)
 
     return content
 

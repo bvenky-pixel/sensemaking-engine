@@ -45,10 +45,15 @@ _VERIFIED_ZERO_COST_MODELS = {"openrouter/free"}
 
 
 def estimate_cost_usd(
-    provider: str, model: str, input_tokens: int, output_tokens: int
+    provider: str, model: str, prompt_tokens: int, completion_tokens: int
 ) -> Optional[float]:
     """Returns None when the model isn't in the pricing table and isn't a
-    known-free OpenRouter model -- never a guessed number."""
+    known-free OpenRouter model -- never a guessed number. Cost is based
+    on prompt_tokens/completion_tokens only -- this table has no per-
+    provider cached-token discount rate, so a cached-token-aware cost
+    would have to be guessed; better to slightly overstate cost on a
+    cache hit than invent a discount rate (see
+    src/instrumentation/usage.py's build_usage docstring)."""
     if provider == "ollama":
         return 0.0
 
@@ -60,6 +65,6 @@ def estimate_cost_usd(
         return None
 
     input_price_per_mtok, output_price_per_mtok = pricing
-    return (input_tokens / 1_000_000) * input_price_per_mtok + (
-        output_tokens / 1_000_000
+    return (prompt_tokens / 1_000_000) * input_price_per_mtok + (
+        completion_tokens / 1_000_000
     ) * output_price_per_mtok

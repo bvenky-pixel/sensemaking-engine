@@ -1,10 +1,11 @@
 """
 Instrumentation layer: token/cost/latency measurement for every LLM call
-in the pipeline (Interpretation, Judgment). Measurement only -- nothing
-in this module changes what a provider call sends or what it returns to
-its caller; see src/llm/providers.py for how it's wired in (a try/except
-around the recording step ensures an instrumentation failure can never
-break the actual LLM call).
+in the pipeline (Interpretation, Judgment -- Planner and Response will use
+the same abstraction unmodified once they exist). Measurement only --
+nothing in this module changes what a provider call sends or what it
+returns to its caller; see src/llm/providers.py for how it's wired in (a
+try/except around the recording step ensures an instrumentation failure
+can never break the actual LLM call).
 
 Disabled by default. Enable with CONFIDANT_TRACK_USAGE=1 (see
 .env.example). When disabled, recording is a no-op -- zero behavioral
@@ -12,15 +13,27 @@ footprint outside evaluation runs, per explicit constraint.
 
 Shared infrastructure, not duplicated: this module is new, independent
 infrastructure that belongs to neither the interpretation nor judgment
-package -- both (and, since it was consolidated, src/llm/providers.py
-itself) depending on one shared module here doesn't create any coupling
-concern.
+package -- both (and src/llm/providers.py itself) depending on one shared
+module here doesn't create any coupling concern.
+
+PROVIDER-AGNOSTIC NORMALIZATION (2026-07-05 redesign -- see
+engine/decisions.md "Comprehensive LLM usage tracking"): `LLMUsage` now
+carries the full set of fields providers can expose (prompt/completion/
+reasoning/cached tokens) plus the provider's own raw usage object,
+verbatim, in `raw_usage`. Field-name/shape verification for each provider
+below was done via web search against each provider's own API docs
+2026-07-05, not guessed -- see each extract_*_usage function's docstring
+for the source. `reasoning_tokens` and `cached_tokens` are `None` when a
+provider/model genuinely doesn't expose them (e.g. Ollama, or a non-
+reasoning model) -- NEVER estimated or defaulted to 0, per explicit
+instruction, since 0 would falsely claim "confirmed zero" where the truth
+is "unknown."
 """
 
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional
 
 from pydantic import BaseModel
 
@@ -32,47 +45,140 @@ def is_tracking_enabled() -> bool:
 
 
 class LLMUsage(BaseModel):
-    component: str  # e.g. "Interpretation", "Judgment"
-    provider: str  # e.g. "openrouter", "ollama"
+    component: str  # e.g. "Interpretation", "Judgment", "Planner", "Response"
+    provider: str  # e.g. "openrouter", "ollama", "openai", "anthropic"
     model: str
-    input_tokens: int
-    output_tokens: int
+
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+
     total_tokens: int
+
     latency_ms: float
+
     estimated_cost_usd: Optional[float] = None
+
+    # The provider's own usage object, preserved exactly as returned, so a
+    # future provider (or a new field an existing provider starts
+    # exposing) never requires another instrumentation redesign -- the
+    # normalized fields above are for reporting; this is for future
+    # compatibility and debugging. None only when a provider has no
+    # concept of a discrete usage object to preserve (shouldn't happen in
+    # practice; see each call site).
+    raw_usage: Optional[dict] = None
 
 
 def build_usage(
     component: str,
     provider: str,
     model: str,
-    input_tokens: int,
-    output_tokens: int,
+    prompt_tokens: int,
+    completion_tokens: int,
     latency_ms: float,
+    reasoning_tokens: Optional[int] = None,
+    cached_tokens: Optional[int] = None,
+    raw_usage: Optional[dict] = None,
 ) -> LLMUsage:
+    """total_tokens = prompt_tokens + completion_tokens only --
+    reasoning_tokens and cached_tokens are both SUBSETS of completion/
+    prompt tokens respectively (per every provider's own accounting, not
+    an assumption made here), so adding them again would double-count.
+    estimated_cost_usd is likewise computed from prompt/completion tokens
+    only -- this codebase's tiny pricing table has no per-provider cached-
+    token discount rates, and inventing one would be exactly the kind of
+    guessed number this module's docstring and pricing.py's docstring
+    both explicitly reject."""
     return LLMUsage(
         component=component,
         provider=provider,
         model=model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=input_tokens + output_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        reasoning_tokens=reasoning_tokens,
+        cached_tokens=cached_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
         latency_ms=latency_ms,
-        estimated_cost_usd=estimate_cost_usd(provider, model, input_tokens, output_tokens),
+        estimated_cost_usd=estimate_cost_usd(provider, model, prompt_tokens, completion_tokens),
+        raw_usage=raw_usage,
     )
 
 
-def extract_openai_compatible_usage(payload: dict) -> Tuple[int, int]:
-    """OpenRouter (and any OpenAI-compatible response) -- usage.prompt_tokens
-    / usage.completion_tokens. Missing/malformed usage returns (0, 0)
-    rather than raising -- instrumentation must never break the real call."""
+class ParsedUsage(NamedTuple):
+    """Return type for every extract_*_usage function below -- one
+    normalized shape regardless of how differently each provider reports
+    it. `reasoning_tokens`/`cached_tokens` are `None` when the provider's
+    response doesn't include that field at all (not merely zero)."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: Optional[int]
+    cached_tokens: Optional[int]
+
+
+def extract_openai_compatible_usage(payload: dict) -> ParsedUsage:
+    """OpenRouter and OpenAI share this exact usage shape -- both confirmed
+    via web search against their own API docs 2026-07-05:
+    usage.prompt_tokens / usage.completion_tokens are the top-level
+    counts; usage.prompt_tokens_details.cached_tokens and
+    usage.completion_tokens_details.reasoning_tokens are present only for
+    providers/models that support caching/reasoning (OpenAI's o-series
+    reasoning models; OpenRouter passes the same nested shape through for
+    models/providers it routes to that support it). Missing/malformed
+    top-level usage returns (0, 0) for prompt/completion tokens rather
+    than raising -- instrumentation must never break the real call --
+    but a present-with-zero `_details` sub-field is still recorded as 0,
+    not None, since the provider DID report it; only a genuinely absent
+    `_details` object (or absent key within it) yields None."""
     usage = payload.get("usage") or {}
-    return int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0)
+    prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+    completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+
+    reasoning_tokens = None
+    completion_details = usage.get("completion_tokens_details")
+    if isinstance(completion_details, dict) and "reasoning_tokens" in completion_details:
+        reasoning_tokens = completion_details["reasoning_tokens"]
+
+    cached_tokens = None
+    prompt_details = usage.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict) and "cached_tokens" in prompt_details:
+        cached_tokens = prompt_details["cached_tokens"]
+
+    return ParsedUsage(prompt_tokens, completion_tokens, reasoning_tokens, cached_tokens)
 
 
-def extract_ollama_usage(payload: dict) -> Tuple[int, int]:
-    """Ollama's native /api/chat -- prompt_eval_count / eval_count."""
-    return int(payload.get("prompt_eval_count", 0) or 0), int(payload.get("eval_count", 0) or 0)
+def extract_anthropic_usage(payload: dict) -> ParsedUsage:
+    """Anthropic's Messages API -- confirmed via web search against
+    Anthropic's own docs 2026-07-05: usage.input_tokens/usage.output_tokens
+    are always present; usage.cache_read_input_tokens (tokens actually
+    served from cache -- a cache HIT) maps to this module's `cached_tokens`
+    concept. usage.cache_creation_input_tokens (tokens spent WRITING to
+    cache) is a distinct cost, not a hit/reuse discount, so it is
+    deliberately NOT folded into `cached_tokens` -- it's preserved as-is
+    in `raw_usage` instead, available for anyone who needs it. Anthropic
+    has no reasoning_tokens equivalent in its usage object -- extended
+    thinking tokens are counted inside output_tokens, not broken out --
+    so this always returns None for reasoning_tokens, never a guess.
+
+    Not currently wired into any provider chain (this codebase only calls
+    OpenRouter/Ollama today, see src/llm/providers.py) -- provided ahead of
+    an actual Anthropic provider adapter so adding one only means calling
+    this function, not redesigning this module."""
+    usage = payload.get("usage") or {}
+    prompt_tokens = int(usage.get("input_tokens", 0) or 0)
+    completion_tokens = int(usage.get("output_tokens", 0) or 0)
+    cached_tokens = usage.get("cache_read_input_tokens")
+    return ParsedUsage(prompt_tokens, completion_tokens, None, cached_tokens)
+
+
+def extract_ollama_usage(payload: dict) -> ParsedUsage:
+    """Ollama's native /api/chat -- prompt_eval_count / eval_count. Ollama
+    has no reasoning-token or prompt-caching concept in its API, so both
+    are always None here, never a guess."""
+    prompt_tokens = int(payload.get("prompt_eval_count", 0) or 0)
+    completion_tokens = int(payload.get("eval_count", 0) or 0)
+    return ParsedUsage(prompt_tokens, completion_tokens, None, None)
 
 
 class UsageTracker:
@@ -107,68 +213,115 @@ class UsageTracker:
     def summary(self, records: Optional[List[LLMUsage]] = None) -> Dict:
         """
         Structured aggregate stats for the given records (defaults to all
-        of them) -- the experiment framework should read this (or build
-        its own aggregation over `.records`, which are plain Pydantic
-        models and serialize via `.model_dump()`), never parse console
-        output.
+        of them) -- returned as a plain dict/number structure (not
+        printed text) so future experiment code can aggregate
+        programmatically (average latency, average prompt/completion/
+        reasoning tokens, cost by stage, cost by provider, token growth
+        over a conversation via `.records`' call order) without ever
+        parsing console output. `.records` are plain Pydantic models and
+        serialize via `.model_dump()` for anything not covered here.
+
+        reasoning_tokens/cached_tokens aggregates follow the same
+        None-honesty rule as the per-record fields: if NO record in the
+        group reports a value, the aggregate is None ("unknown/not
+        applicable"), not 0 ("confirmed zero"). If at least one record
+        reports a value, the aggregate sums the ones that did (silently
+        treating a record with None for that field as not contributing,
+        since "this call didn't expose it" isn't "this call used zero").
         """
         rs = self.records if records is None else records
 
-        known_costs = [r.estimated_cost_usd for r in rs if r.estimated_cost_usd is not None]
-        cost_total = sum(known_costs) if known_costs else None
-        cost_fully_known = len(known_costs) == len(rs) and len(rs) > 0
-
-        by_component: Dict[str, Dict] = {}
-        for r in rs:
-            bucket = by_component.setdefault(
-                r.component,
-                {
-                    "calls": 0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "total_tokens": 0,
-                    "latency_ms": 0.0,
-                    "_known_costs": [],
-                },
-            )
-            bucket["calls"] += 1
-            bucket["input_tokens"] += r.input_tokens
-            bucket["output_tokens"] += r.output_tokens
-            bucket["total_tokens"] += r.total_tokens
-            bucket["latency_ms"] += r.latency_ms
-            if r.estimated_cost_usd is not None:
-                bucket["_known_costs"].append(r.estimated_cost_usd)
-        for bucket in by_component.values():
-            costs = bucket.pop("_known_costs")
-            bucket["estimated_cost_usd"] = sum(costs) if costs else None
-
         return {
             "calls": len(rs),
-            "input_tokens": sum(r.input_tokens for r in rs),
-            "output_tokens": sum(r.output_tokens for r in rs),
+            "prompt_tokens": sum(r.prompt_tokens for r in rs),
+            "completion_tokens": sum(r.completion_tokens for r in rs),
+            "reasoning_tokens": _sum_optional(r.reasoning_tokens for r in rs),
+            "cached_tokens": _sum_optional(r.cached_tokens for r in rs),
             "total_tokens": sum(r.total_tokens for r in rs),
             "latency_ms": sum(r.latency_ms for r in rs),
-            "estimated_cost_usd": cost_total,
-            "cost_fully_known": cost_fully_known,
-            "by_component": by_component,
+            "avg_latency_ms": (sum(r.latency_ms for r in rs) / len(rs)) if rs else None,
+            "avg_prompt_tokens": (sum(r.prompt_tokens for r in rs) / len(rs)) if rs else None,
+            "avg_completion_tokens": (sum(r.completion_tokens for r in rs) / len(rs)) if rs else None,
+            "avg_reasoning_tokens": _avg_optional(r.reasoning_tokens for r in rs),
+            "estimated_cost_usd": _sum_optional(r.estimated_cost_usd for r in rs),
+            "cost_fully_known": _cost_fully_known(rs),
+            "by_component": _group_by(rs, key=lambda r: r.component),
+            "by_provider": _group_by(rs, key=lambda r: r.provider),
         }
 
 
 default_tracker = UsageTracker()
 
 
-def _format_cost(records: List[LLMUsage]) -> str:
-    costs = [r.estimated_cost_usd for r in records if r.estimated_cost_usd is not None]
-    if not costs:
-        return "unknown"
-    return f"${sum(costs):.4f}"
+def _sum_optional(values) -> Optional[int]:
+    values = list(values)
+    known = [v for v in values if v is not None]
+    return sum(known) if known else None
+
+
+def _avg_optional(values) -> Optional[float]:
+    values = list(values)
+    known = [v for v in values if v is not None]
+    return (sum(known) / len(known)) if known else None
+
+
+def _cost_fully_known(records: List[LLMUsage]) -> bool:
+    return len(records) > 0 and all(r.estimated_cost_usd is not None for r in records)
+
+
+def _group_by(records: List[LLMUsage], key) -> Dict[str, Dict]:
+    groups: Dict[str, Dict] = {}
+    for r in records:
+        bucket = groups.setdefault(
+            key(r),
+            {
+                "calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reasoning_tokens": [],
+                "cached_tokens": [],
+                "total_tokens": 0,
+                "latency_ms": 0.0,
+                "_costs": [],
+            },
+        )
+        bucket["calls"] += 1
+        bucket["prompt_tokens"] += r.prompt_tokens
+        bucket["completion_tokens"] += r.completion_tokens
+        if r.reasoning_tokens is not None:
+            bucket["reasoning_tokens"].append(r.reasoning_tokens)
+        if r.cached_tokens is not None:
+            bucket["cached_tokens"].append(r.cached_tokens)
+        bucket["total_tokens"] += r.total_tokens
+        bucket["latency_ms"] += r.latency_ms
+        if r.estimated_cost_usd is not None:
+            bucket["_costs"].append(r.estimated_cost_usd)
+    for bucket in groups.values():
+        reasoning = bucket.pop("reasoning_tokens")
+        cached = bucket.pop("cached_tokens")
+        costs = bucket.pop("_costs")
+        bucket["reasoning_tokens"] = sum(reasoning) if reasoning else None
+        bucket["cached_tokens"] = sum(cached) if cached else None
+        bucket["estimated_cost_usd"] = sum(costs) if costs else None
+    return groups
+
+
+def _fmt_optional_int(value: Optional[int]) -> str:
+    return f"{value:,}" if value is not None else "N/A"
+
+
+def _fmt_cost(value: Optional[float]) -> str:
+    return f"${value:.4f}" if value is not None else "N/A"
 
 
 def print_turn_summary(records: List[LLMUsage]) -> None:
     """
-    Console output matching the requested format: one block per
-    component (in first-seen order), then a Pipeline Total block. No-op
-    if `records` is empty (e.g. tracking disabled, or nothing recorded).
+    Console output: one block per component (in first-seen order), then a
+    Pipeline Total block. Every field that isn't available for a given
+    group (e.g. no reasoning_tokens because the model doesn't do
+    reasoning) prints "N/A", never a guessed or silently-zeroed value.
+    No-op if `records` is empty (e.g. tracking disabled, or nothing
+    recorded).
     """
     if not records:
         return
@@ -182,28 +335,40 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
 
     for component in order:
         crs = grouped[component]
+        provider = crs[-1].provider
         model = crs[-1].model
-        input_tokens = sum(r.input_tokens for r in crs)
-        output_tokens = sum(r.output_tokens for r in crs)
+        prompt_tokens = sum(r.prompt_tokens for r in crs)
+        completion_tokens = sum(r.completion_tokens for r in crs)
+        reasoning_tokens = _sum_optional(r.reasoning_tokens for r in crs)
+        cached_tokens = _sum_optional(r.cached_tokens for r in crs)
         total_tokens = sum(r.total_tokens for r in crs)
         latency_s = sum(r.latency_ms for r in crs) / 1000
+        cost = _sum_optional(r.estimated_cost_usd for r in crs)
 
         print(f"\n{component}")
+        print(f"- Provider: {provider}")
         print(f"- Model: {model}")
-        print(f"- Input: {input_tokens:,}")
-        print(f"- Output: {output_tokens:,}")
-        print(f"- Total: {total_tokens:,}")
+        print(f"- Prompt Tokens: {prompt_tokens:,}")
+        print(f"- Completion Tokens: {completion_tokens:,}")
+        print(f"- Reasoning Tokens: {_fmt_optional_int(reasoning_tokens)}")
+        print(f"- Cached Tokens: {_fmt_optional_int(cached_tokens)}")
+        print(f"- Total Tokens: {total_tokens:,}")
         print(f"- Latency: {latency_s:.1f} s")
-        print(f"- Cost: {_format_cost(crs)}")
+        print(f"- Estimated Cost: {_fmt_cost(cost)}")
 
-    total_input = sum(r.input_tokens for r in records)
-    total_output = sum(r.output_tokens for r in records)
+    total_prompt = sum(r.prompt_tokens for r in records)
+    total_completion = sum(r.completion_tokens for r in records)
+    total_reasoning = _sum_optional(r.reasoning_tokens for r in records)
+    total_cached = _sum_optional(r.cached_tokens for r in records)
     total_tokens = sum(r.total_tokens for r in records)
     total_latency_s = sum(r.latency_ms for r in records) / 1000
+    total_cost = _sum_optional(r.estimated_cost_usd for r in records)
 
     print("\nPipeline Total")
-    print(f"- Input: {total_input:,}")
-    print(f"- Output: {total_output:,}")
+    print(f"- Prompt Tokens: {total_prompt:,}")
+    print(f"- Completion Tokens: {total_completion:,}")
+    print(f"- Reasoning Tokens: {_fmt_optional_int(total_reasoning)}")
+    print(f"- Cached Tokens: {_fmt_optional_int(total_cached)}")
     print(f"- Total Tokens: {total_tokens:,}")
-    print(f"- Total Cost: {_format_cost(records)}")
+    print(f"- Total Cost: {_fmt_cost(total_cost)}")
     print(f"- Total Latency: {total_latency_s:.1f} s")

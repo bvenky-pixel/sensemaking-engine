@@ -102,8 +102,12 @@ def main() -> int:
         summary = tracker.summary()
         print(f"\n{'=' * 70}\nCONVERSATION USAGE SUMMARY (all {len(TRANSCRIPT)} turns)")
         print(f"- Calls: {summary['calls']}")
-        print(f"- Input tokens: {summary['input_tokens']:,}")
-        print(f"- Output tokens: {summary['output_tokens']:,}")
+        print(f"- Prompt tokens: {summary['prompt_tokens']:,}")
+        print(f"- Completion tokens: {summary['completion_tokens']:,}")
+        reasoning = summary["reasoning_tokens"]
+        print(f"- Reasoning tokens: {reasoning:,}" if reasoning is not None else "- Reasoning tokens: N/A")
+        cached = summary["cached_tokens"]
+        print(f"- Cached tokens: {cached:,}" if cached is not None else "- Cached tokens: N/A")
         print(f"- Total tokens: {summary['total_tokens']:,}")
         print(f"- Total latency: {summary['latency_ms'] / 1000:.1f} s")
         cost = summary["estimated_cost_usd"]
@@ -117,6 +121,13 @@ def main() -> int:
             print(
                 f"  - {component}: {stats['calls']} calls, {stats['total_tokens']:,} tokens, "
                 f"{comp_cost_str}"
+            )
+        for provider, stats in summary["by_provider"].items():
+            prov_cost = stats["estimated_cost_usd"]
+            prov_cost_str = f"${prov_cost:.4f}" if prov_cost is not None else "unknown"
+            print(
+                f"  - [{provider}] {stats['calls']} calls, {stats['total_tokens']:,} tokens, "
+                f"{prov_cost_str}"
             )
 
     return 1 if failures else 0

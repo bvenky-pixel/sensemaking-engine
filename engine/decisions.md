@@ -1542,3 +1542,112 @@ so this change is a tightening of "which free model," not a relaxation
 of "must be free."
 
 All 53 tests pass (52 existing + 1 new).
+
+**2026-07-05 — Instrumentation redesign: comprehensive, provider-agnostic LLM usage tracking**
+
+Explicit ask, ahead of larger experiments: make the token logger
+production-quality -- a reusable `LLMUsage` abstraction portable across
+OpenRouter, OpenAI, Anthropic, and Ollama (and, without modification,
+whatever Planner/Response end up calling), observability only, no
+prompt/schema/architecture/behavior changes.
+
+**Schema change**: `LLMUsage` (`src/instrumentation/usage.py`) renamed
+`input_tokens`/`output_tokens` -> `prompt_tokens`/`completion_tokens`
+(matching every provider's own terminology) and added `reasoning_tokens`,
+`cached_tokens` (both `Optional[int]`), and `raw_usage: Optional[dict]`
+(the provider's own usage object, preserved verbatim). `total_tokens`
+stays `prompt_tokens + completion_tokens` only -- reasoning/cached tokens
+are subsets of completion/prompt tokens respectively in every provider's
+own accounting, so adding them again would double-count.
+
+**None vs. 0, enforced structurally, not just by convention**: a provider/
+model that doesn't expose reasoning or cached tokens reports `None` for
+that field -- never a guessed or defaulted `0`, since `0` would falsely
+claim "confirmed zero usage" where the truth is "this provider doesn't
+tell us." Verified by test that a `_details` object present with an
+actual `0` value (a model that supports reasoning but used none) is
+still recorded as `0`, distinct from the object being absent entirely
+(`None`) -- these are different facts and the code no longer conflates
+them.
+
+**Provider field names verified via web search against each provider's
+own API docs 2026-07-05, not guessed** (this directly matters --
+inventing an API field name would silently produce wrong data forever):
+- OpenRouter/OpenAI (they share the exact same shape, confirmed
+  separately for each): `usage.prompt_tokens`/`usage.completion_tokens`,
+  `usage.completion_tokens_details.reasoning_tokens`,
+  `usage.prompt_tokens_details.cached_tokens`.
+- Anthropic: `usage.input_tokens`/`usage.output_tokens`,
+  `usage.cache_read_input_tokens` (a cache HIT -- mapped to this
+  module's `cached_tokens`). `cache_creation_input_tokens` (the cache
+  WRITE cost, a different concept from a hit/reuse discount) is
+  deliberately NOT folded into `cached_tokens` -- preserved as-is in
+  `raw_usage` instead. Anthropic has no reasoning_tokens field at all
+  (extended thinking tokens live inside `output_tokens`), so this always
+  returns `None` for that field for this provider -- not implemented as
+  "not yet wired into a real provider adapter" (this codebase still only
+  calls OpenRouter/Ollama, see `src/llm/providers.py`), added ahead of
+  time so a future Anthropic adapter only needs to call this extraction
+  function, not redesign the module.
+- Ollama: unchanged (`prompt_eval_count`/`eval_count`), always `None`
+  for reasoning/cached -- no such concept in its API.
+
+**raw_usage capture, provider-specific**: OpenRouter/OpenAI pass through
+`payload["usage"]` directly (a real nested object exists). Anthropic
+would do the same once wired in. Ollama has no nested "usage" key -- its
+token/duration accounting fields live at the top level alongside
+"message" -- so `raw_usage` for Ollama is the payload with "message"
+(the actual generated text, already returned separately as the call's
+return value) stripped out, capturing every duration/count field without
+duplicating the full response body.
+
+**Cost estimation** (`src/instrumentation/pricing.py`): `estimate_cost_usd`
+params renamed to match (`prompt_tokens`/`completion_tokens`), same
+$0/table/None behavior as before. Cost is computed from prompt+completion
+tokens only, not cache-discounted -- the tiny pricing table has no per-
+provider cached-token discount rate, and inventing one would be exactly
+the kind of guessed number this module already refuses to produce
+elsewhere; slightly overstating cost on a cache hit is the honest
+tradeoff.
+
+**Console output** (`print_turn_summary`): matches the requested format
+per component (Provider/Model/Prompt/Completion/Reasoning/Cached/Total
+Tokens/Latency/Estimated Cost) plus a Pipeline Total block with the same
+fields. Any unavailable metric prints `N/A`, never a blank or a guessed
+number -- verified against both a reasoning+caching-capable mocked
+OpenRouter response and a plain mocked Ollama response (real
+`call_openrouter`/`call_ollama` calls, mocked `requests.post`, not just
+unit-level field checks) to catch any formatting issue unit tests alone
+might miss.
+
+**Experiment support** (`UsageTracker.summary()`): still returns a plain
+dict (never printed text) for programmatic aggregation, extended with
+`avg_latency_ms`, `avg_prompt_tokens`, `avg_completion_tokens`,
+`avg_reasoning_tokens`, and a new `by_provider` breakdown alongside the
+existing `by_component` one -- covers the requested "average latency,"
+"cost by provider," "cost by pipeline stage" cases directly. "Token
+growth as WorldState grows" needs no new aggregation code -- `.records`
+already preserves call order, so a future experiment can read prompt/
+completion token counts turn-by-turn directly off the list.
+
+**Backward compatibility deliberately NOT preserved for the renamed
+fields**: `input_tokens`/`output_tokens` are gone, not aliased -- every
+call site was updated in the same change (`src/llm/providers.py`,
+`scripts/run_worldstate_walkthrough.py`; `scripts/run_judgment_evaluation_smoketest.py`
+only ever used the still-present generic keys `calls`/`total_tokens`/
+`latency_ms`/`estimated_cost_usd`/`by_component`, so it needed no
+changes). A shim would have meant carrying two names for the same
+concept indefinitely for no real benefit -- nothing outside this repo
+depends on the old field names.
+
+**Tests**: `tests/test_instrumentation.py` rewritten -- 29 tests (up from
+14), covering the None-vs-zero rule explicitly, all three providers'
+extraction functions (including the new Anthropic one), raw_usage
+preservation, total_tokens double-counting avoidance, and the new
+by_provider/average aggregations. All 68 tests across the branch pass
+(39 existing unaffected + 29 rewritten/new).
+
+No prompts, schemas, pipeline logic, or provider-call behavior changed --
+confirmed by re-running the full suite plus a manual mocked end-to-end
+check of both `call_openrouter` and `call_ollama` through
+`print_turn_summary`, not just the unit tests in isolation.
