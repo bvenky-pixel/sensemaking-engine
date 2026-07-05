@@ -2132,3 +2132,101 @@ concretely than before.
 answered by the same pinned model throughout, confirmed by the printed
 per-component `Model:` field matching the pinned slug exactly rather than
 `openrouter/free`.
+
+**2026-07-05 — Response Generator v1 implemented: the pipeline is now complete end to end**
+
+User supplied `engine/specs/response-generator-specification-v1.md`,
+checked in verbatim (same precedent as every prior spec this session).
+This is the final layer: Interpretation -> WorldState -> Judgment ->
+Planner -> Response Generator is now a complete pipeline, and Response
+Generator is the FIRST layer whose output (`response_text`) is actually
+meant to reach the user -- every earlier artifact stays internal.
+
+**One real fork resolved before implementing, flagged and documented
+rather than silently copied**: TEMPERATURE. Judgment and Planner both use
+`0.15`, justified in both engines' docstrings as "assessment/reasoning,
+not creative generation." Response Generator is explicitly the opposite
+-- Expression, not cognition, per the spec's own framing -- so reusing
+0.15 would have been copying a rationale that doesn't actually apply here.
+Set `TEMPERATURE = 0.7` for `src/response/engine.py` specifically, with
+the departure stated explicitly in the module docstring. Like every other
+first-guess parameter on this branch (the original grounding thresholds,
+the original 0.5 confidence floor, etc.), this is an unvalidated starting
+point, not a calibrated one -- revisit once real Response output exists
+to review, the same discipline applied to every new layer's first
+parameter choice.
+
+**New files**, mirroring `src/planner/`'s structure exactly: `src/response/schema.py`
+(the `Response` model -- exactly the two fields the spec's Output section
+defines, `response_text: str` and `confidence: float`, nothing added),
+`src/response/prompt.py` (system prompt built from the spec's Core
+Principle/Responsibilities/Grounding/Handling Uncertainty/Non-Goals
+sections -- GOVERNING LAWS, FIELD DEFINITIONS, a RESPONSE GENERATOR MUST
+NOT section pulled from the Non-Goals list verbatim), `src/response/engine.py`
+(`run_response_generator(state, judgment, planner, tracker=None) ->
+Response`, same OpenRouter-primary/Ollama-fallback provider chain via
+`src/llm/providers.py`, same `ResponseGeneratorError` exception shape as
+`JudgmentError`/`PlannerError`).
+
+**`confidence`'s definition required the same care Judgment's confidence
+field needed earlier this session**: the spec is explicit that Response
+Generator "should reflect the confidence of upstream cognition" and "must
+never exaggerate certainty" -- so this field is NOT a fresh, independent
+assessment. `prompt.py`'s FIELD DEFINITIONS section states this directly:
+low upstream (Judgment/Planner) confidence, or unresolved Unknowns, should
+produce both a low `confidence` value AND hedged phrasing in
+`response_text` itself -- the two are meant to move together, not be set
+independently.
+
+**No code-level grounding enforcement added**, matching this session's
+established discipline: Judgment v2 and Planner v1 both launched
+prompt-only, with code-level backstops added only after repeated,
+demonstrated live failures (the pattern Interpretation went through
+across its v0.5-v0.8 rounds). Response Generator's "never introduce a new
+fact/assumption/risk/opportunity/objective" rule is enforced by prompt
+instruction only for v1 -- inventing a word-overlap or similar grounding
+filter now, with zero calibration history, would repeat the exact mistake
+this codebase has corrected for elsewhere (building capability the
+evidence doesn't yet call for).
+
+**Inputs enforced exactly as specified**: `run_response_generator` takes
+`state: WorldState`, `judgment: Judgment`, `planner: Planner` only -- no
+raw transcript, no Interpretation, matching the spec's Inputs section
+verbatim.
+
+**Wired into both existing pipeline entry points**, called immediately
+after `run_planner` on the same Judgment/Planner objects
+(`conversation_runner.py`, `scripts/run_worldstate_walkthrough.py`).
+Print labels updated to distinguish internal cognitive artifacts from the
+one user-facing output: `--- INTERPRETATION (internal) ---` /
+`--- STATE (internal) ---` / `--- JUDGMENT (internal) ---` /
+`--- PLANNER (internal) ---` / `--- RESPONSE (user-facing) ---` -- the
+first time this distinction has been visually meaningful, since every
+earlier layer's output was internal-only. Both CI workflow comments
+(`single-turn-smoketest.yml`, `worldstate-walkthrough.yml`) updated for
+the new call count (4 per turn, up from 3). No changes to `src/evaluation/`
+-- extending the evaluation harness to Response Generator is a separate,
+larger task, not attempted here.
+
+**Tests**: `tests/test_response_schema.py`, 10 new tests, all structural
+(no LLM calls) -- required-field enforcement, confidence bounds
+(including both boundary values 0.0/1.0), same category as the existing
+Planner schema tests. All 100 tests across the branch pass (90 existing +
+10 new).
+
+**Not done, not claimed**: like every new LLM-call layer on this branch,
+Response Generator has no calibration history. `run_response_generator`
+itself is not unit-tested (a live LLM call) -- exercised via
+`scripts/run_worldstate_walkthrough.py` and `conversation_runner.py`
+rather than isolated tests. Its output should be treated as unvalidated
+until actually exercised live and reviewed. No prompt-tuning, no
+calibration review, and no evaluation-harness integration attempted this
+round.
+
+**Status: the full Confidant pipeline (Interpretation -> WorldState ->
+Judgment -> Planner -> Response Generator) now exists end to end for the
+first time.** Every layer specified so far has been implemented; the
+natural next step is exercising this complete chain live and reviewing
+whether Response Generator's output actually reads as a faithful,
+well-toned execution of Planner's plan -- not before real output exists
+to judge it against.

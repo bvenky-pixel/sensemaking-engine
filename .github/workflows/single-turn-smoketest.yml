@@ -1,9 +1,10 @@
 name: Single-turn pipeline smoke test
 
 # Manual only -- runs ONE message through the real pipeline
-# (Interpretation -> State Builder -> WorldState -> Judgment -> Planner),
-# 3 real LLM calls total. For verifying the pipeline still works end to
-# end after a fix, without the full evaluation harness's ~23-call cost.
+# (Interpretation -> State Builder -> WorldState -> Judgment -> Planner ->
+# Response Generator), 4 real LLM calls total. For verifying the pipeline
+# still works end to end after a fix, without the full evaluation
+# harness's ~23-call cost.
 on:
   workflow_dispatch:
     inputs:

@@ -1,8 +1,9 @@
 """
 End-to-end WorldState walkthrough: runs a fixed, realistic 8-10 turn
 conversation through the REAL pipeline (run_interpretation -> update_state
--> run_judgment -> run_planner), rendering WorldState, the Judgment
-assessment, and the Planner plan after every turn.
+-> run_judgment -> run_planner -> run_response_generator), rendering
+WorldState, the Judgment assessment, the Planner plan, and the final
+user-facing Response after every turn.
 
 Purpose: unlike tests/test_world_state_evolution.py (hand-built
 Interpretation objects, no LLM calls, isolates the State Builder), this
@@ -10,12 +11,14 @@ exercises the whole chain together against a live model, so a human can read
 through the per-turn output and judge whether WorldState reads as an
 increasingly faithful model of the user's world by the final turn -- a
 qualitative call this script doesn't attempt to auto-grade. Now also
-exercises Judgment v2 (src/judgment/engine.py) and Planner v1
-(src/planner/engine.py), each its own LLM call layered on the one before --
-read Judgment's output for whether the assessment (primary_problem, risks,
-contradictions, ...) tracks the actual WorldState content, and Planner's
+exercises Judgment v2 (src/judgment/engine.py), Planner v1
+(src/planner/engine.py), and Response Generator v1 (src/response/engine.py),
+each its own LLM call layered on the one before -- read Judgment's output
+for whether the assessment tracks the actual WorldState content, Planner's
 output for whether the chosen primary_objective/rationale actually follows
-from that Judgment rather than drifting from it.
+from that Judgment, and the Response for whether it faithfully executes
+Planner's plan (same objective/strategy/constraints) without introducing
+new facts, reasoning, or objectives of its own.
 
 Not part of the automated test suite: this makes one real, billable API call
 per turn. Run manually, or via the "WorldState walkthrough" GitHub Actions
@@ -35,6 +38,7 @@ from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
 from src.planner.engine import PlannerError, run_planner
+from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 
@@ -103,6 +107,17 @@ def main() -> int:
 
         print("\n--- PLANNER ---")
         print(plan.model_dump())
+
+        try:
+            response = run_response_generator(state, judgment, plan, tracker=tracker)
+        except ResponseGeneratorError as exc:
+            failures += 1
+            print(f"[FAIL] turn {i} (response generator): {exc}")
+            continue
+
+        print("\n--- RESPONSE (user-facing) ---")
+        print(response.response_text)
+        print(f"[confidence={response.confidence}]")
 
         if is_tracking_enabled():
             print_turn_summary(tracker.since(turn_start))

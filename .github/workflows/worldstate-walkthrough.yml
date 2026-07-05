@@ -1,8 +1,8 @@
 name: WorldState walkthrough
 
-# Manual only -- each run makes three real, billable calls per transcript
-# turn (Interpretation, Judgment, Planner; 10 turns) to the configured LLM
-# provider.
+# Manual only -- each run makes four real, billable calls per transcript
+# turn (Interpretation, Judgment, Planner, Response Generator; 10 turns)
+# to the configured LLM provider.
 on:
   workflow_dispatch:
     inputs:

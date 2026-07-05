@@ -14,6 +14,7 @@ from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_t
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
 from src.planner.engine import run_planner
+from src.response.engine import run_response_generator
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 from src.judgment.engine import recommend_phase_transition, run_judgment
@@ -72,17 +73,27 @@ def run(model: str) -> None:
             # section)
             plan = run_planner(state, judgment, tracker=tracker)
 
-            print("\n--- INTERPRETATION ---")
+            # 5. Response Generator (LLM, over WorldState + Judgment +
+            # Planner -- never the raw conversation or Interpretation).
+            # This is the only artifact actually meant for the user;
+            # everything above is internal, shown here for inspection.
+            response = run_response_generator(state, judgment, plan, tracker=tracker)
+
+            print("\n--- INTERPRETATION (internal) ---")
             print(interp.model_dump())
 
-            print("\n--- STATE ---")
+            print("\n--- STATE (internal) ---")
             render(state)
 
-            print("\n--- JUDGMENT ---")
+            print("\n--- JUDGMENT (internal) ---")
             print(judgment.model_dump())
 
-            print("\n--- PLANNER ---")
+            print("\n--- PLANNER (internal) ---")
             print(plan.model_dump())
+
+            print("\n--- RESPONSE (user-facing) ---")
+            print(response.response_text)
+            print(f"[confidence={response.confidence}]")
 
             if is_tracking_enabled():
                 print_turn_summary(tracker.since(turn_start))
