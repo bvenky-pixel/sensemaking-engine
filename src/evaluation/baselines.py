@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field, ValidationError
 from src.instrumentation.usage import UsageTracker, default_tracker
 from src.judgment.engine import TEMPERATURE, JudgmentError
 from src.judgment.prompt import SYSTEM_PROMPT as CONFIDANT_JUDGMENT_SYSTEM_PROMPT
-from src.judgment.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.judgment.schema import Judgment
 
 _WORLDSTATE_FIELD_REF_RE = re.compile(r"WorldState\.\w+")

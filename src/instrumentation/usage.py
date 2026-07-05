@@ -2,21 +2,19 @@
 Instrumentation layer: token/cost/latency measurement for every LLM call
 in the pipeline (Interpretation, Judgment). Measurement only -- nothing
 in this module changes what a provider call sends or what it returns to
-its caller; see src/interpretation/providers.py and
-src/judgment/providers.py for how it's wired in (a try/except around the
-recording step ensures an instrumentation failure can never break the
-actual LLM call).
+its caller; see src/llm/providers.py for how it's wired in (a try/except
+around the recording step ensures an instrumentation failure can never
+break the actual LLM call).
 
 Disabled by default. Enable with CONFIDANT_TRACK_USAGE=1 (see
 .env.example). When disabled, recording is a no-op -- zero behavioral
 footprint outside evaluation runs, per explicit constraint.
 
-Shared by both providers.py files rather than duplicated: unlike
-providers.py itself (deliberately duplicated across interpretation/ and
-judgment/ to avoid coupling judgment to frozen interpretation code), this
-module is new, independent infrastructure that belongs to neither
-package -- both depending on one shared module here doesn't reintroduce
-that coupling concern.
+Shared infrastructure, not duplicated: this module is new, independent
+infrastructure that belongs to neither the interpretation nor judgment
+package -- both (and, since it was consolidated, src/llm/providers.py
+itself) depending on one shared module here doesn't create any coupling
+concern.
 """
 
 from __future__ import annotations

@@ -1,21 +1,44 @@
 """
-Provider configuration and raw HTTP calls for the Judgment Engine.
+Provider configuration and raw HTTP calls -- OpenRouter (primary) and
+Ollama (automatic local fallback) -- shared by every layer that makes an
+LLM call: Interpretation (src/interpretation/engine.py), Judgment
+(src/judgment/engine.py), and the evaluation harness
+(src/evaluation/baselines.py).
 
-Deliberately DUPLICATED from src/interpretation/providers.py (same
-OpenRouter-primary/Ollama-fallback mechanics, same env vars) rather than
-imported -- same reasoning as src/state/builder.py's duplicated
-_word_overlap: interpretation/* is frozen v1.0, and this avoids any
-dependency on / risk to it for what's otherwise generic HTTP/provider
-plumbing. Reuses the same env vars (OPENROUTER_API_KEY, OPENROUTER_MODEL,
-OLLAMA_BASE_URL, OLLAMA_MODEL, LLM_PROVIDER) rather than introducing a
-separate Judgment-specific config axis -- one key/model configuration
-works for both layers by default.
+Previously this module's logic was DUPLICATED verbatim between
+src/interpretation/providers.py and src/judgment/providers.py, on the
+reasoning that interpretation/* is frozen v1.0 and duplicating avoided
+any dependency on/risk to it. That reasoning applied to protecting
+frozen grounding-filter logic in engine.py, not to this file -- this is
+raw HTTP/parsing plumbing with no calibration-specific behavior, so it
+belongs in one place, same as src/instrumentation/ (new, independent
+infrastructure belonging to neither package). Consolidated here after a
+real bug -- a malformed OpenRouter response with content=None crashed
+with an unhandled AttributeError instead of a caught ProviderCallError --
+was found in BOTH duplicated copies during the Judgment v2 evaluation
+smoke test (see engine/decisions.md). `src/interpretation/providers.py`
+and `src/judgment/providers.py` no longer exist; both engine.py files and
+src/evaluation/baselines.py import directly from here.
 
-Judgment has no prior calibration history the way Interpretation's
-grounding filters do (those went through live n=10/n=20 testing against
-Ollama specifically) -- this is a brand-new component, untested against
-any live model yet. Treat its output as unvalidated until it's actually
-exercised the way Interpretation was.
+IMPORTANT CAVEAT, carried over from the pre-consolidation docstrings (see
+engine/decisions.md "Ollama stays for MVP, Claude swap deferred
+deliberately" and the v1.0 freeze entries): the six v1.0 exit criteria
+and every grounding threshold in src/interpretation/engine.py were
+validated via live n=10 testing against Ollama's output (llama3.2:3b)
+specifically. Making OpenRouter the primary provider means the model
+most turns actually run against has NOT been through that same
+validation. Re-run the n=10 methodology against whatever OPENROUTER_MODEL
+is configured before trusting it the way the Ollama path is trusted.
+
+Robustness contract: every call_openrouter/call_ollama call either
+returns a non-empty string or raises ProviderCallError -- never any
+other exception type, and never an empty/whitespace-only string. This is
+enforced explicitly (not just by not crashing) so that a caller looping
+over resolve_provider_chain() can always fall back to the next provider
+on ANY malformed/incomplete response (missing fields, non-JSON body,
+content=None, content="", a request that times out) -- see
+tests/test_llm_providers.py for the exact malformed-response cases this
+guards against.
 """
 
 from __future__ import annotations
@@ -23,7 +46,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import requests
 
@@ -43,7 +66,11 @@ from src.instrumentation.usage import (
 
 
 class ProviderCallError(Exception):
-    """Raised when a single provider's call fails; caller should try the next one."""
+    """Raised when a single provider's call fails for any reason --
+    unreachable, timed out, non-2xx, or a 2xx response whose body is
+    missing, malformed, or empty. The caller should try the next
+    provider in the chain; this is the ONLY exception type
+    call_openrouter/call_ollama ever raise."""
 
 
 def _first_env(*names: str) -> Optional[str]:
@@ -73,6 +100,31 @@ def _record_usage(
         pass
 
 
+def _extract_message_content(payload: Any, path: List[Any], provider_name: str) -> str:
+    """Walks `payload` through `path` (a sequence of dict keys / list
+    indices) to reach the assistant's text content, raising
+    ProviderCallError -- not a bare KeyError/IndexError/TypeError/
+    AttributeError -- for every way that walk can fail: a missing key,
+    wrong-shaped payload (e.g. a list where a dict was expected), or a
+    content value that is present but None or not a string. Also rejects
+    an empty/whitespace-only string, since that's just as useless to the
+    caller as a missing one -- both are "this provider gave us nothing
+    usable," not different failure modes."""
+    node = payload
+    try:
+        for step in path:
+            node = node[step]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ProviderCallError(f"Unexpected {provider_name} response shape: {exc}") from exc
+
+    if not isinstance(node, str) or not node.strip():
+        raise ProviderCallError(
+            f"{provider_name} response content was empty or not a string (got {type(node).__name__})"
+        )
+
+    return node.strip()
+
+
 def call_openrouter(
     system_prompt: str,
     messages: list,
@@ -92,7 +144,8 @@ def call_openrouter(
     hint, and the caller (engine.py) already does full Pydantic validation
     on the result -- same belt-and-suspenders pattern as
     engine/state_updater.py on the main-line branch. Returns the raw
-    assistant text content.
+    assistant text content, or raises ProviderCallError -- see module
+    docstring's robustness contract.
     """
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
@@ -120,6 +173,8 @@ def call_openrouter(
             timeout=180,
         )
     except requests.RequestException as exc:
+        # Covers connection errors AND timeouts -- requests.exceptions.Timeout
+        # is itself a RequestException subclass.
         raise ProviderCallError(f"OpenRouter request failed: {exc}") from exc
     latency_ms = (time.monotonic() - start) * 1000
 
@@ -132,9 +187,10 @@ def call_openrouter(
 
     try:
         payload = response.json()
-        content = payload["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, ValueError) as exc:
-        raise ProviderCallError(f"Unexpected OpenRouter response shape: {exc}") from exc
+    except ValueError as exc:
+        raise ProviderCallError(f"OpenRouter response was not valid JSON: {exc}") from exc
+
+    content = _extract_message_content(payload, ["choices", 0, "message", "content"], "OpenRouter")
 
     input_tokens, output_tokens = extract_openai_compatible_usage(payload)
     _record_usage(tracker, component, "openrouter", model, input_tokens, output_tokens, latency_ms)
@@ -153,8 +209,9 @@ def call_ollama(
     """
     POSTs to a local Ollama's native /api/chat endpoint, passing the real
     JSON schema so generation is grammar-constrained (requires Ollama >=
-    0.3.0) -- same mechanism src/interpretation/providers.py's call_ollama
-    uses. Returns the raw assistant text content.
+    0.3.0) -- this is the exact call the v1.0 interpretation layer was
+    calibrated against. Returns the raw assistant text content, or raises
+    ProviderCallError -- see module docstring's robustness contract.
     """
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
@@ -186,9 +243,10 @@ def call_ollama(
 
     try:
         payload = response.json()
-        content = payload["message"]["content"].strip()
-    except (KeyError, ValueError) as exc:
-        raise ProviderCallError(f"Unexpected Ollama response shape: {exc}") from exc
+    except ValueError as exc:
+        raise ProviderCallError(f"Ollama response was not valid JSON: {exc}") from exc
+
+    content = _extract_message_content(payload, ["message", "content"], "Ollama")
 
     input_tokens, output_tokens = extract_ollama_usage(payload)
     _record_usage(tracker, component, "ollama", model, input_tokens, output_tokens, latency_ms)

@@ -8,10 +8,10 @@ explicit permission before being set as a default or run against without
 asking first — this applies to every project, not just this one.
 
 Current default: `nvidia/nemotron-3-ultra-550b-a55b:free` (see
-`OPENROUTER_MODEL` in `.env.example`, `src/interpretation/providers.py`,
-`src/judgment/providers.py`). Before changing this default to any model
-without a `:free` suffix, ask first — don't just verify the model exists
-and switch it.
+`OPENROUTER_MODEL` in `.env.example`, `src/llm/providers.py` -- the shared
+provider layer used by Interpretation, Judgment, and the evaluation
+harness). Before changing this default to any model without a `:free`
+suffix, ask first — don't just verify the model exists and switch it.
 
 `src/instrumentation/pricing.py` already treats any OpenRouter model
 ending in `:free` as a verified `$0.00`; a paid model reports its actual

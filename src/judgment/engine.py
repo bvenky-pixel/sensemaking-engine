@@ -31,7 +31,7 @@ from pydantic import ValidationError
 
 from src.instrumentation.usage import UsageTracker, default_tracker
 from src.judgment.prompt import build_messages
-from src.judgment.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.judgment.schema import Judgment
 from src.state.world_state import WorldState
 
@@ -61,7 +61,7 @@ class JudgmentError(Exception):
 def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> Judgment:
     """
     Calls an LLM to produce a Judgment from the given WorldState. Tries
-    each configured provider in order (see src/judgment/providers.py),
+    each configured provider in order (see src/llm/providers.py),
     same OpenRouter-primary/Ollama-fallback pattern as Interpretation.
     Raises JudgmentError if every provider fails.
 

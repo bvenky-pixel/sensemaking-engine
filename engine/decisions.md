@@ -1393,3 +1393,73 @@ conversation dataset, blind human ranking, LLM-judge scoring, planted
 ground truth, stability-across-repeated-runs variance, and the
 cross-model generalization stretch goal -- none of these are needed to
 validate the harness itself, which is what a smoke test is for.
+
+**2026-07-05 — Provider layer consolidated into src/llm/providers.py; real content=None crash fixed**
+
+The smoke test's first real dispatch surfaced two things at once: (1)
+individual calls to the free-tier `nvidia/nemotron-3-ultra-550b-a55b:free`
+model took up to 118.9s each, explaining why 23 sequential calls ran for
+36 minutes; (2) under that load, OpenRouter returned a response with
+`content: null`, and `call_openrouter` crashed with an unhandled
+`AttributeError` (`'NoneType' object has no attribute 'strip'`) instead
+of raising `ProviderCallError` -- so instead of falling back to Ollama
+like every other failure mode, it took down the entire script. The
+identical bug existed in the identical duplicated code in both
+`src/interpretation/providers.py` and `src/judgment/providers.py`.
+
+Explicit ask: fix it so every malformed/incomplete response becomes
+`ProviderCallError`, and remove the duplication between the two provider
+files if practical. It was practical -- unlike `engine.py`'s grounding-
+filter logic (genuinely frozen, calibration-specific), the provider
+files' HTTP/parsing plumbing had no calibration-specific behavior; the
+original duplication was there only to avoid coupling to *frozen*
+interpretation code, and this isn't that. Same category as
+`src/instrumentation/`: new, shared infrastructure belonging to neither
+package.
+
+**What changed**: new `src/llm/providers.py` holds the once-duplicated
+`call_openrouter`/`call_ollama`/`call_provider`/`resolve_provider_chain`/
+`ProviderCallError`. `src/interpretation/providers.py` and
+`src/judgment/providers.py` are deleted outright (not left as shim
+re-exports) -- `src/interpretation/engine.py`, `src/judgment/engine.py`,
+and `src/evaluation/baselines.py` now import directly from
+`src.llm.providers`. `CLAUDE.md` and `src/instrumentation/usage.py`'s
+docstrings updated to point at the new location.
+
+**The actual fix**: a new `_extract_message_content(payload, path,
+provider_name)` helper walks the response body to the content field and
+raises `ProviderCallError` -- not a bare `KeyError`/`IndexError`/
+`TypeError`/`AttributeError` -- for every way that walk can fail: a
+missing key, a wrong-shaped payload, or content that's present but
+`None` or not a string. It also rejects an empty/whitespace-only string,
+treating it as equally useless as a missing one. `response.json()`
+failing (invalid JSON) is now also explicitly caught and re-raised as
+`ProviderCallError` before the content walk even starts, rather than
+being folded into the same broad except as the content-shape errors (as
+it was before) -- clearer error messages, same behavior. `requests.post`
+timeouts were already covered before this fix (`requests.exceptions.Timeout`
+is a `RequestException` subclass, caught by the existing except clause) --
+confirmed by a new test rather than assumed.
+
+**Robustness contract, stated explicitly in the module docstring now**:
+`call_openrouter`/`call_ollama` either return a non-empty string or raise
+`ProviderCallError` -- never any other exception type, never an empty
+string. This is what lets `resolve_provider_chain()` + `call_provider()`
+loops (in `run_interpretation`, `run_judgment`, and the evaluation
+baselines) safely fall back to the next provider on literally any
+failure mode.
+
+**Tests**: new `tests/test_llm_providers.py`, 17 tests, all mocked (no
+real HTTP) -- covers, for both `call_openrouter` and `call_ollama`:
+missing required key, `content=None`, invalid JSON, empty/whitespace
+content, and a real `requests.exceptions.Timeout`/`ConnectTimeout`, each
+asserted to raise `ProviderCallError` specifically. A separate group of
+tests exercises the actual fallback chain end-to-end (`resolve_provider_chain`
++ `call_provider`, mocking `requests.post` to fail on the OpenRouter URL
+and succeed on the Ollama URL) for every one of those five failure modes,
+confirming the loop really does move on to Ollama and return its content
+rather than the failure propagating uncaught. All 52 tests across the
+branch pass (35 existing + 17 new).
+
+**Not yet done**: no re-run of the evaluation smoke test -- explicitly
+gated on this fix landing and its tests passing first, per instruction.

@@ -3,8 +3,8 @@ Interpretation Engine -- calls an LLM to turn raw user text into a
 structured Interpretation.
 
 OpenRouter is the primary provider, with a local Ollama as an automatic
-fallback (see src/interpretation/providers.py for the provider chain and
-an important caveat: the grounding filters and thresholds below were
+fallback (see src/llm/providers.py for the provider chain and an
+important caveat: the grounding filters and thresholds below were
 calibrated against Ollama/llama3.2:3b specifically -- see
 engine/decisions.md for the full history and why the OpenRouter path
 hasn't been through that same n=10 validation yet).
@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.prompt import build_messages
-from src.interpretation.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.interpretation.schema import Interpretation
 
 TEMPERATURE = 0.15  # low: this is extraction, not creative generation
