@@ -1251,3 +1251,35 @@ models, and tracker aggregation. All 24 tests across the branch
 No prompts, schemas, or pipeline logic changed. No architecture changed
 beyond the two new optional parameters threaded through the existing call
 chain.
+
+**2026-07-05 — Default OPENROUTER_MODEL changed from openai/gpt-4o-mini to nvidia/nemotron-3-ultra-550b-a55b:free**
+
+`openai/gpt-4o-mini` was never a considered choice -- it was an arbitrary
+placeholder picked when the OpenRouter integration was first built, purely
+to get the plumbing working with no model specified. Explicit ask: switch
+the default to a free-tier model. Verified via live web search (not
+guessed) that `nvidia/nemotron-3-ultra-550b-a55b:free` is a real,
+currently-listed OpenRouter model before hardcoding it -- guessing an
+invalid slug would silently break every default-configured call with a
+model-not-found error.
+
+Changed in both `src/interpretation/providers.py` and
+`src/judgment/providers.py` (`call_openrouter`'s fallback default),
+`.env.example`, and `src/instrumentation/pricing.py` (any OpenRouter model
+ending in `:free` -- OpenRouter's own naming convention for its no-cost
+tier, confirmed against openrouter.ai/models the same way -- now reports a
+verified `$0.00` rather than `unknown`, without needing a per-model table
+entry; covers this model and any other free-tier model chosen later).
+New test `test_openrouter_free_suffix_model_cost_is_verified_zero_not_unknown`.
+All 25 tests pass.
+
+**Practical caveat noted in `.env.example`**: OpenRouter's free tier is
+rate-limited -- 50 requests/day with no credit loaded, 1,000/day once
+$10+ has been loaded. Interpretation + Judgment is 2 calls per
+conversation turn, so the no-credit tier caps out around 25 turns/day.
+
+**Not re-validated**: switching the default model doesn't carry over any
+of Interpretation's grounding-filter calibration (tuned against
+Ollama/llama3.2:3b) or give Judgment v2 any calibration history --
+already-logged caveats, restated here since they apply to this specific
+model too, not just "OpenRouter generically."

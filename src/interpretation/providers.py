@@ -96,7 +96,7 @@ def call_openrouter(
     """
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
-    model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
 
     if not api_key:
         raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")

@@ -13,6 +13,11 @@ across architectures.
 
 Ollama is always $0.00 -- local inference has no per-token API charge,
 this is a fact, not an estimate.
+
+OpenRouter models with a `:free` suffix are also treated as a verified
+$0.00, not an estimate -- that suffix is OpenRouter's own naming
+convention for its no-cost tier (confirmed against
+https://openrouter.ai/models 2026-07-05), not a guess on our part.
 """
 
 from __future__ import annotations
@@ -20,8 +25,8 @@ from __future__ import annotations
 from typing import Dict, Optional, Tuple
 
 # model -> (input $ per 1M tokens, output $ per 1M tokens). Snapshot only
-# -- see module docstring. Add entries as needed; an unlisted model is
-# reported as unknown cost, not silently priced at $0.
+# -- see module docstring. Add entries as needed; an unlisted, non-":free"
+# model is reported as unknown cost, not silently priced at $0.
 _OPENROUTER_PRICING_PER_MTOK: Dict[str, Tuple[float, float]] = {
     "openai/gpt-4o-mini": (0.15, 0.60),
 }
@@ -30,9 +35,12 @@ _OPENROUTER_PRICING_PER_MTOK: Dict[str, Tuple[float, float]] = {
 def estimate_cost_usd(
     provider: str, model: str, input_tokens: int, output_tokens: int
 ) -> Optional[float]:
-    """Returns None when the model isn't in the pricing table -- never a
-    guessed number."""
+    """Returns None when the model isn't in the pricing table and isn't a
+    `:free` OpenRouter model -- never a guessed number."""
     if provider == "ollama":
+        return 0.0
+
+    if model.endswith(":free"):
         return 0.0
 
     pricing = _OPENROUTER_PRICING_PER_MTOK.get(model)
