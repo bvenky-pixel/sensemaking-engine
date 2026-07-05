@@ -892,3 +892,76 @@ Judgment actually needs:
    for elsewhere (see every "don't invent structure the evidence doesn't
    support" entry above). Split WorkingMemory out into its own container
    once Judgment's actual usage patterns make the right split obvious.
+
+**2026-07-05 — WorldState v1 tested in isolation: state evolution test suite, 3 confirmed gaps, proposed fixes not yet implemented**
+
+Explicit ask: validate the State Builder / WorldState layer in isolation
+NOW, before Judgment starts depending on it -- once that dependency exists,
+a failure could originate in Interpretation, the State Builder, WorldState,
+or Judgment, and isolating the cause gets much harder. Added
+`tests/test_world_state_evolution.py` (pytest, new `requirements-dev.txt`):
+5 tests built from hand-constructed `Interpretation` objects (no LLM calls),
+run turn-by-turn through `update_state()`. All 6 assertions (one test split
+into two) PASS -- but "pass" means "asserts real, verified behavior," not
+"confirms everything works as hoped." Per explicit instruction: document and
+propose fixes for confirmed gaps, do not implement any fix without
+discussing and confirming first.
+
+**Confirmed working (validates intended behavior):**
+- Cross-tier accumulation (goal/fact/unknown from different turns coexist
+  correctly) and exact-repeat dedup (verbatim-restated goal doesn't
+  duplicate).
+- Unknown resolution fires correctly on real word/substring overlap, and
+  the resolved content is genuinely promoted into Facts (not just
+  discarded) -- this was the one new behavior added this round, confirmed
+  working.
+- Entity dedup by name (case-insensitive) -- "Rahul" mentioned twice stays
+  one Entity, not two.
+
+**Confirmed gap 1 -- contradiction is never detected.** "Boss denied the
+transfer" then "Boss approved the transfer" produces two `active` Facts;
+`FactStatus.superseded` exists in the schema but no code path ever sets it.
+*Proposed fix (not implemented, for discussion)*: the "typed over prompted"
+principle already established for Interpretation (see multiple 2026-07-02
+entries above) argues for having Interpretation itself flag contradictions
+explicitly -- e.g. a `supersedes: Optional[str]` hint on new facts/claims --
+rather than trying to detect contradiction post-hoc from two arbitrary
+strings. That requires deliberately reopening the Interpretation spec
+(schema change), the same discipline already applied to every prior
+schema change on this branch. A cheaper but weaker alternative (keyword/
+antonym heuristics) would inherit the same class of fragility as the
+already-logged "negation-blind grounding" limitation and isn't recommended.
+
+**Confirmed gap 2 -- unknown resolution is real-substring-only, doesn't
+catch realistic paraphrasing.** "Why HR rejected the application" is not
+resolved by "HR said the role was frozen" -- confirms the "too blunt"
+limitation already flagged in `_reconcile_unknowns`'s docstring, now with a
+concrete reproducible example. *Proposed fix (not implemented)*: swap the
+strict substring check for the same word-overlap scoring already proven
+in `src/interpretation/engine.py` (`_word_overlap`, used for bias-evidence
+and assumption grounding) -- lower risk than a schema change since it
+reuses an existing, tested pattern in place rather than adding new
+Interpretation fields.
+
+**Confirmed gap 3 -- Goal/Decision lifecycle never advances.** "Build
+Confidant" then "launched the MVP" leaves the goal `active` forever, with
+no link from the new fact back to the goal. Matches the KNOWN LIMITATION
+already documented in `world_state.py`. *Proposed fix (not implemented)*:
+this one genuinely needs an Interpretation-level signal (there's no
+existing field to reuse, unlike gap 2) -- e.g. a
+`goal_status_signals: List[...]` field pairing a goal reference with an
+observed status change. Bigger lift than gap 2's fix; would need to go
+through the same spec-reopening process as any other Interpretation schema
+change.
+
+**Confirmed gap 4 -- Entity attribute enrichment has no data source.**
+"Rahul now heads Product" never becomes a structured attribute on the
+`Rahul` Entity -- `Interpretation.entities` is a flat list of name strings
+only. *Proposed fix (not implemented)*: same shape as gap 3 -- requires
+extending `Interpretation`'s entity extraction to emit structured
+attributes, not just names. No in-place fix available without touching
+Interpretation's schema.
+
+**Not done this round, deliberately**: implementing any of the four
+proposed fixes above. Per explicit instruction, this entry is the
+discussion document; next step is confirming which (if any) to build.
