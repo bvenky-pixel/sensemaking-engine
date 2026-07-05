@@ -1,0 +1,46 @@
+name: Interpretation benchmark
+
+# Manual only -- each run makes `runs_per_case * 2` real, billable calls to
+# the configured LLM provider.
+on:
+  workflow_dispatch:
+    inputs:
+      runs_per_case:
+        description: "Runs per benchmark case (TC1/TC2 each)"
+        required: false
+        default: "10"
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default)"
+        required: false
+        default: ""
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run n=N interpretation benchmark
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_interpretation_benchmark.py --runs "${{ github.event.inputs.runs_per_case }}"
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interpretation-benchmark-results
+          path: test-runs/
+          retention-days: 30
