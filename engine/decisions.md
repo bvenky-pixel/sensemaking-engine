@@ -723,3 +723,36 @@ already accepted in the v1.0 declaration above -- extraction-quality
 issue, not an architectural flaw, and out of scope for further patching
 under the agreed stopping discipline. Revisit if this pattern recurs at
 meaningful frequency in future testing, or when the Claude swap happens.
+
+**2026-07-05 — OpenRouter made primary provider, Ollama kept as fallback (unvalidated swap, logged explicitly)**
+
+Practical trigger: `conversation_runner.py` failed in a Codespace with no
+local Ollama running (`Connection refused` on `localhost:11434`).
+Direct product decision, explicitly made aware of the tradeoff below:
+OpenRouter (env-configurable model, `src/interpretation/providers.py`) is
+now the primary provider; Ollama (unchanged native `/api/chat` call,
+same `format`-as-schema grammar constraint) is kept as an automatic
+fallback if the OpenRouter call fails.
+
+**Flagging explicitly, per this file's own stated methodology**: every
+grounding-filter threshold in `engine.py` (bias-evidence 0.6,
+decision-option 0.5, goal 0.4, assumption 0.45, bare-restatement 0.7,
+etc.) was calibrated via live n=10/n=20 testing against Ollama's
+llama3.2:3b specifically. This change means the provider most turns
+actually run against (OpenRouter's configured model, default
+`openai/gpt-4o-mini`) has NOT been through that same validation, and the
+v1.0 exit criteria are strictly only confirmed for the Ollama path.
+Per the "would a larger model still benefit" rule used throughout the
+v1.0 freeze: a materially more capable model is likely to fabricate
+*less*, not more, so the existing filters should if anything over-reject
+rather than under-reject against the new default -- but this is a
+reasoned bet, not a confirmed result the way every Ollama-path number
+above is.
+
+**Not done, and deliberately flagged as the real next step**: re-running
+the n=10 methodology (same TC1/TC2 benchmark conversations, same six exit
+criteria) against whatever `OPENROUTER_MODEL` ends up configured, the
+same rigor originally reserved for the eventual Claude swap this entry
+effectively front-runs. Until that happens, the OpenRouter path should be
+treated as MVP-quality, not v1.0-validated -- same status the Ollama path
+had before its own testing rounds.

@@ -1,11 +1,13 @@
 """
-Interpretation Engine -- calls a local Ollama model to turn raw user text
-into a structured Interpretation.
+Interpretation Engine -- calls an LLM to turn raw user text into a
+structured Interpretation.
 
-This is the MVP provider (free, local, fast iteration on the schema).
-The plan is to swap this for the Claude API once the schema stabilizes --
-see engine/state_updater.py for the structured-outputs pattern that swap
-should follow, and engine/decisions.md for why Ollama was chosen for now.
+OpenRouter is the primary provider, with a local Ollama as an automatic
+fallback (see src/interpretation/providers.py for the provider chain and
+an important caveat: the grounding filters and thresholds below were
+calibrated against Ollama/llama3.2:3b specifically -- see
+engine/decisions.md for the full history and why the OpenRouter path
+hasn't been through that same n=10 validation yet).
 """
 
 from __future__ import annotations
@@ -14,14 +16,12 @@ import json
 import re
 from typing import Optional
 
-import requests
 from pydantic import ValidationError
 
 from src.interpretation.prompt import build_messages
+from src.interpretation.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.interpretation.schema import Interpretation
 
-OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3.2:3b"
 TEMPERATURE = 0.15  # low: this is extraction, not creative generation
 
 _WORD_RE = re.compile(r"[a-z']+")
@@ -196,45 +196,22 @@ class InterpretationError(Exception):
 
 def run_interpretation(user_text: str) -> Interpretation:
     system_prompt, messages = build_messages(user_text)
+    schema = Interpretation.model_json_schema()
 
-    try:
-        response = requests.post(
-            OLLAMA_CHAT_URL,
-            json={
-                "model": MODEL,
-                "system": system_prompt,
-                "messages": messages,
-                "stream": False,
-                # Passing the actual schema (not just the string "json")
-                # constrains generation via grammar -- this is what makes
-                # the output actually match Interpretation's shape, not
-                # just be syntactically-valid-but-arbitrary JSON. Requires
-                # Ollama >= 0.3.0. See engine/decisions.md.
-                "format": Interpretation.model_json_schema(),
-                "options": {"temperature": TEMPERATURE},
-            },
-            timeout=180,
-        )
-    except requests.RequestException as exc:
-        raise InterpretationError(f"Ollama request failed: {exc}") from exc
-
-    if not response.ok:
-        # Ollama returns the real reason as JSON in the body -- surface it
-        # instead of letting raise_for_status() discard it.
+    raw: Optional[str] = None
+    failures = []
+    for provider_name in resolve_provider_chain():
         try:
-            detail = response.json().get("error", response.text)
-        except ValueError:
-            detail = response.text
-        raise InterpretationError(
-            f"Ollama returned {response.status_code}: {detail}", raw_output=response.text
-        )
+            raw = call_provider(provider_name, system_prompt, messages, schema, TEMPERATURE)
+            break
+        except ProviderCallError as exc:
+            failures.append(f"{provider_name}: {exc}")
+            continue
 
-    try:
-        raw = response.json()["message"]["content"].strip()
-    except (KeyError, ValueError) as exc:
+    if raw is None:
         raise InterpretationError(
-            f"Unexpected Ollama response shape: {exc}", raw_output=response.text
-        ) from exc
+            "All configured LLM providers failed: " + "; ".join(failures)
+        )
 
     # Small models sometimes wrap JSON in fences despite instructions not to.
     raw = raw.replace("```json", "").replace("```", "").strip()
