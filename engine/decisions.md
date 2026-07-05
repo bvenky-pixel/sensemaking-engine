@@ -1861,3 +1861,87 @@ not done right now. Judgment stays RE-FROZEN per the entry above; this
 result doesn't reopen it, since nothing here points at a Judgment
 prompt/schema defect -- it's entirely a free-tier model-variance issue on
 the evaluation harness side.
+
+**2026-07-05 — Planner v1 implemented as an LLM call over WorldState + Judgment**
+
+User supplied `engine/specs/planner-specification-v1.md`, checked in
+verbatim (same precedent as WorldState_Specification_v1.md and
+judgment-specification-v2.md -- scope decisions live here, not in the
+spec file). This is the step the last several Judgment entries were
+explicitly waiting on: Planner now exists and is the first real consumer
+of Judgment's output, which is what the standing "resist further Judgment
+tuning until Planner exists" directive was conditioned on.
+
+Before implementing, traced the spec against the actual codebase and
+resolved two real forks:
+
+1. **`temporal_horizon` typing.** The spec gives it as "Suggested values:
+   Immediate / Near-term / Long-term" -- a short, complete enumeration,
+   unlike the spec's other four scalar fields (`primary_objective`,
+   `conversational_strategy`, `resolution_blocker`, `desired_outcome`),
+   each introduced with a longer, explicitly non-exhaustive "Examples:"
+   list. Made `temporal_horizon` a closed `Literal["immediate",
+   "near_term", "long_term"]` -- the same "typed over prompted" call
+   already made for Interpretation's `urgency`/`impact_domains` when a
+   spec gives a genuinely closed set. The other four scalar fields stay
+   plain `str`, matching how Judgment's `primary_problem`/`primary_goal`/
+   `current_focus` are plain strings guided by prompt examples rather
+   than forced into an enum the spec never actually closes -- same
+   reasoning, applied consistently across both schemas.
+2. **`phase`/`recommend_phase_transition` ownership.** The Judgment v2
+   implementation entry above flagged phase's "long-term owner" as "the
+   future Planner, not expanded here." This Planner spec never mentions
+   phase at all. Resolved by NOT moving anything: `recommend_phase_transition`
+   stays exactly where it is, in `src/judgment/engine.py`, untouched.
+   Inventing a phase-transition responsibility for Planner that this spec
+   doesn't call for would repeat the exact mistake this codebase has
+   corrected for repeatedly elsewhere (building structure ahead of a spec
+   that doesn't ask for it). Logged here as still open, not silently
+   resolved either way -- if a future Planner spec revision wants this
+   moved, that's a deliberate reopening, not an incidental side effect of
+   this round.
+
+**New files**, mirroring `src/judgment/`'s structure exactly: `src/planner/schema.py`
+(the `Planner` Pydantic model, eleven fields, none added or dropped beyond
+the spec's Output section), `src/planner/prompt.py` (system prompt
+generated from the spec -- GOVERNING LAWS drawn from Core Principles 1/2/4/5,
+FIELD DEFINITIONS covering all eleven fields, a PLANNER MUST NOT section
+drawn verbatim from the spec's Non-Goals, same schema-first discipline as
+the other two prompt.py files), `src/planner/engine.py` (`run_planner(state,
+judgment, tracker=None) -> Planner`, same OpenRouter-primary/Ollama-fallback
+provider chain via `src/llm/providers.py`, same `PlannerError` exception
+shape as `JudgmentError`, same `TEMPERATURE = 0.15` reasoning -- assessment/
+planning, not creative generation).
+
+**Inputs enforced exactly as specified**: `run_planner` takes `state:
+WorldState` and `judgment: Judgment` only -- no raw transcript, no
+Interpretation, no previous prompt reaches Planner at any point, matching
+the spec's Inputs section verbatim (this mirrors Judgment v2's own
+WorldState-only input discipline, extended one layer further).
+
+**Wired into both existing pipeline entry points**, called immediately
+after `run_judgment` on the same Judgment object (`conversation_runner.py`,
+`scripts/run_worldstate_walkthrough.py`) -- printed alongside Interpretation/
+WorldState/Judgment output, same pattern as Judgment's own addition. No
+changes to `src/evaluation/` (Baseline A/B2/Confidant) -- extending the
+evaluation harness to also produce and compare Planner output is a
+separate, larger task, not attempted here without being asked.
+
+**Tests**: `tests/test_planner_schema.py`, 17 new tests, all structural
+(no LLM calls) -- required-field enforcement, `temporal_horizon`'s closed
+enum (accepts all three spec values, rejects a fourth), `confidence`
+bounds, and list-field defaulting/population. Same category as the
+existing Judgment-adjacent tests (`test_judgment_phase_transition.py`):
+covers what Pydantic structurally guarantees, not model behavior. All 90
+tests across the branch pass (73 existing + 17 new).
+
+**Not done, not claimed**: like Judgment v2 before its first live run,
+Planner has no calibration history at all. `run_planner` itself is not
+unit-tested (a live LLM call, same category as `run_interpretation`/
+`run_judgment`) -- exercised via `scripts/run_worldstate_walkthrough.py`
+and `conversation_runner.py` rather than isolated tests. Its output
+should be treated as unvalidated until actually exercised live and
+reviewed, same status every new LLM-call layer on this branch has started
+from. No prompt-tuning, no calibration review, and no evaluation-harness
+integration attempted this round -- those are the natural next steps once
+real output exists to review, not before.

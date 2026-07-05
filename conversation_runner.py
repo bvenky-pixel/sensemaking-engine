@@ -13,6 +13,7 @@ from engine.state_inspector import render
 from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
+from src.planner.engine import run_planner
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 from src.judgment.engine import recommend_phase_transition, run_judgment
@@ -66,6 +67,11 @@ def run(model: str) -> None:
             # 3. Judgment (LLM, over the now-updated WorldState)
             judgment = run_judgment(state, tracker=tracker)
 
+            # 4. Planner (LLM, over WorldState + Judgment -- never the raw
+            # conversation or Interpretation, per the Planner spec's Inputs
+            # section)
+            plan = run_planner(state, judgment, tracker=tracker)
+
             print("\n--- INTERPRETATION ---")
             print(interp.model_dump())
 
@@ -74,6 +80,9 @@ def run(model: str) -> None:
 
             print("\n--- JUDGMENT ---")
             print(judgment.model_dump())
+
+            print("\n--- PLANNER ---")
+            print(plan.model_dump())
 
             if is_tracking_enabled():
                 print_turn_summary(tracker.since(turn_start))
