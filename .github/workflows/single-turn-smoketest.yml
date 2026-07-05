@@ -11,6 +11,10 @@ on:
         description: "User message to run through the pipeline"
         required: false
         default: "I've been trying to move from my current team to the Product team for a few months now."
+      llm_provider:
+        description: "LLM_PROVIDER override (blank = default 'openrouter'; 'ollama' to test the local-model path)"
+        required: false
+        default: ""
 
 jobs:
   smoketest:
@@ -25,9 +29,32 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Ollama is installed unconditionally so it's a real fallback (not just
+      # a dead end that always fails with Connection refused, as it has in
+      # every prior CI run -- see engine/decisions.md). Harmless/no-op if
+      # LLM_PROVIDER stays "openrouter" and OpenRouter succeeds -- Ollama
+      # just sits there unused.
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama server
+        run: |
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/ >/dev/null && break
+            sleep 1
+          done
+
+      - name: Pull llama3.2:3b (the model Interpretation's grounding filters were calibrated against)
+        run: ollama pull llama3.2:3b
+
       - name: Run a single turn through the real pipeline
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CONFIDANT_TRACK_USAGE: "1"
+          LLM_PROVIDER_INPUT: ${{ github.event.inputs.llm_provider }}
         run: |
+          if [ -n "$LLM_PROVIDER_INPUT" ]; then
+            export LLM_PROVIDER="$LLM_PROVIDER_INPUT"
+          fi
           printf '%s\nexit\n' "${{ github.event.inputs.message }}" | python conversation_runner.py
