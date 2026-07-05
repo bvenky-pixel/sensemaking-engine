@@ -853,3 +853,42 @@ pattern), and `engine/mock_state_updater.py` -- none are imported by
 deleted since nothing forced the choice either way; worth a deliberate
 cleanup pass later if they're confirmed to have no future use (e.g. as
 reference material for a different future swap).
+
+**2026-07-05 — WorldState v1 follow-up: standardized KnowledgeItem shape, logged WorkingMemory/Knowledge split as a deferred TODO**
+
+Direct feedback on the v1 entry above, explicit decision on what to do
+next and what to explicitly NOT do yet: "a good architecture isn't one
+where every future feature is built today -- it's one where those
+features have an obvious place to go when you need them." Two concrete
+changes, everything else deliberately left to evolve based on what
+Judgment actually needs:
+
+1. **Standardized shape**: added a `KnowledgeItem` base class
+   (`src/state/world_state.py`) that `Fact`/`Claim`/`Goal`/`Decision`/
+   `Unknown`/`Entity` all inherit from, guaranteeing every durable
+   knowledge object carries `status` (each subtype narrows the Literal
+   and default), plus `confidence`/`provenance` placeholder fields
+   (`Optional[..] = None`, nothing populates them yet -- real shapes land
+   in v1.1). `Unknown` and `Entity` didn't have a `status` field at all
+   before this -- added (`open`/`resolved` and `active`/`retracted`
+   respectively) purely for shape consistency; `_reconcile_unknowns` in
+   `src/state/builder.py` still removes a resolved Unknown outright
+   rather than marking it resolved and retaining it, which is arguably
+   inconsistent with Design Principle 3 -- logged as a TODO at that
+   function rather than changed, since fixing it is a merge-behavior
+   change, not a shape change.
+
+2. **Logged, not built**: a design-note TODO in `world_state.py`'s module
+   docstring that `WorldState` currently conflates two different kinds of
+   state -- durable Knowledge (Facts/Claims/Goals/Decisions/Unknowns/
+   Entities) and Working Memory (phase, core_question tracking,
+   assumptions/inferences/biases, clarity_level -- reasoning scaffolding
+   about where the CONVERSATION stands, not facts about the user's
+   world). `phase` and core_question tracking are clearly the latter;
+   assumptions/inferences/biases are deliberately left unclassified since
+   an assumption surfaced today could turn out to be durable knowledge,
+   not just scratchpad -- forcing that split now would be guessing ahead
+   of evidence, the same mistake this codebase has repeatedly corrected
+   for elsewhere (see every "don't invent structure the evidence doesn't
+   support" entry above). Split WorkingMemory out into its own container
+   once Judgment's actual usage patterns make the right split obvious.

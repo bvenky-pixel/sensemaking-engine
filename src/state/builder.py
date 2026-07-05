@@ -81,6 +81,13 @@ def _reconcile_unknowns(
     proves too blunt), then merge in genuinely new unknowns. Returns the
     updated unknowns list plus the content of any unknowns resolved this
     turn, so the caller can promote them into Facts.
+
+    TODO (see Unknown's status field in src/state/world_state.py): this
+    removes a resolved unknown outright rather than marking its status
+    "resolved" and retaining it -- Design Principle 3 ("nothing is
+    silently deleted") would argue for the latter, matching Facts/Claims.
+    Not changed here since that's a merge-behavior change beyond this
+    round's ask (standardizing shape), not a shape change.
     """
     still_open = []
     resolved_contents = []
