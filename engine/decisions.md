@@ -2049,3 +2049,40 @@ has a real chance of completing rather than timing out on the very first
 call. Not implemented yet -- reporting the diagnosis first, per this
 session's standing practice of proposing before changing shared provider
 plumbing.
+
+**2026-07-05 — Ollama timeout fix confirmed: first fully successful end-to-end run on the mechanical harness**
+
+Made `call_ollama`'s timeout configurable (`OLLAMA_TIMEOUT`, default
+unchanged at 180s for local dev) and set `OLLAMA_TIMEOUT=600` in
+`single-turn-smoketest.yml`. Re-dispatched with `LLM_PROVIDER=ollama`.
+
+**Result: full mechanical PASS, scored against exactly the four questions
+the new Ollama-as-harness policy cares about**:
+- Pipeline runs end to end -- yes, Interpretation -> WorldState -> Judgment
+  -> Planner, all three calls succeeded on `ollama/llama3.2:3b`, no
+  fallback needed.
+- Schema validates -- yes, all three outputs parsed cleanly into their
+  Pydantic models.
+- WorldState populated correctly -- yes (single turn, so accumulation/merge
+  behavior itself wasn't exercised, only initial population).
+- Planner consumes Judgment -- mechanically yes; `rationale` reused
+  Judgment's `primary_problem` string verbatim, confirming the data
+  actually flows from Judgment into Planner's prompt.
+
+Total latency 124.4s across all three calls (42.2s + 52.6s + 29.7s) --
+comfortably under both the new 600s CI ceiling and even the old 180s local
+default, suggesting the original timeout was only marginally insufficient
+on CPU-only CI hardware, not wildly so. 1,773 total tokens, $0.0000 real
+cost.
+
+**Content quality explicitly NOT evaluated as a finding**, per the policy
+just adopted: `llama3.2:3b`'s output was noticeably terser/more generic
+than prior `openrouter/free` samples (e.g. `current_focus: "product
+team"`, unknowns like "opponent"/"resource"/"opportunity" reading as
+placeholder-ish) -- exactly the kind of output this policy says not to
+judge Ollama against frontier-quality expectations. Noted for context
+only, not logged as a defect.
+
+**Status: Ollama is now a working mechanical CI harness**, confirmed by
+one real successful dispatch. The `OLLAMA_TIMEOUT` fix closes the gap
+opened by the previous entry.
