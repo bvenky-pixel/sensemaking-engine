@@ -1028,3 +1028,52 @@ Direct decision on the four proposed fixes above, after reviewing the live
   presentation concern for a future WorldState rendering layer to solve
   (e.g. grouping/cross-referencing related items across tiers for display),
   not a reason to collapse the underlying knowledge model.
+
+**2026-07-05 — WorldState v1 and Interpretation v1 declared FROZEN; Interpretation v1.1 design proposal added (not implemented)**
+
+Final pass before moving on to Judgment. Confirmed the two implemented
+fixes from the prior entry (confidence-formatting, word-overlap unknown
+resolution) are both in place and covered by the 8-test suite --
+re-verified, not redone. No further code changes this round: WorldState
+schema, merge semantics, Judgment, and Planner are all explicitly
+untouched, per instruction.
+
+Standing architectural principle restated and now formally the freeze
+condition for both layers: **Interpretation extracts structured meaning.
+State Builder maintains durable knowledge. WorldState stores knowledge.
+Judgment performs reasoning.** The State Builder must never become smarter
+by adding heuristics that compensate for a missing Interpretation signal --
+every gap identified this round (contradiction, goal/decision lifecycle,
+entity enrichment) stays open specifically because closing it properly
+requires a real signal from Interpretation, not a better guess downstream.
+
+Added `engine/specs/interpretation-v1.1-proposal.md` -- a discussion draft
+(explicitly not the full per-field format `interpretation-spec-v0.9.md`
+uses, since nothing here is being implemented yet), proposing three typed
+additions to eventually close the three declined gaps: Decision Events,
+Goal Updates, Entity Attribute Updates. Recommends against a single
+generalized "Knowledge Update Operation" schema in favor of three distinct
+typed fields, for the same reason the original single `facts` bucket was
+split into five epistemic tiers back in v0.5 -- collapsing genuinely
+different update semantics into one shape reintroduces the exact
+flattening mistake this project already learned from once.
+
+**Key finding surfaced while writing the proposal, not previously
+noticed**: Interpretation is currently stateless per turn --
+`build_messages(user_text)` takes only the raw message, with no view into
+existing WorldState. This means every proposed "update" field can describe
+*that* something changed but can't cleanly reference *which* existing
+Fact/Goal/Decision/Entity it applies to without either (a) accepting
+text-matching at the reference-resolution step (a narrower, more bounded
+problem than the heuristics already declined, but not fully eliminating
+string-matching), or (b) giving Interpretation limited read access to
+current open Goals/Decisions/Entities as prompt context, a materially
+bigger pipeline change. Flagged as the central open question in the
+proposal document rather than decided unilaterally.
+
+**Status**: WorldState v1 and Interpretation v1 are FROZEN as of this
+entry. Any further change to either requires deliberately reopening this
+process (spec update -> migration doc -> prompt/code), the same discipline
+already applied to every prior version. Next: Judgment v2, informed by
+whichever Interpretation v1.1 fields (if any) get approved from the
+proposal.
