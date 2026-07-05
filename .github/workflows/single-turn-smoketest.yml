@@ -1,0 +1,33 @@
+name: Single-turn pipeline smoke test
+
+# Manual only -- runs ONE message through the real pipeline
+# (Interpretation -> State Builder -> WorldState -> Judgment), 2 real
+# LLM calls total. For verifying the pipeline still works end to end
+# after a fix, without the full evaluation harness's ~23-call cost.
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "User message to run through the pipeline"
+        required: false
+        default: "I've been trying to move from my current team to the Product team for a few months now."
+
+jobs:
+  smoketest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run a single turn through the real pipeline
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          printf '%s\nexit\n' "${{ github.event.inputs.message }}" | python conversation_runner.py
