@@ -1,8 +1,8 @@
 """
 Deterministic judgment layer: converts one turn's Interpretation, plus the
-accumulated ConversationState, into a framing of where things stand and
-whether the conversation is ready to move to the next phase of the
-Confidant Method.
+accumulated WorldState, into a framing of where things stand and whether
+the conversation is ready to move to the next phase of the Confidant
+Method.
 
 This layer never advises. It only frames -- consistent with Principle 14:
 "The decision always belongs to the human."
@@ -25,8 +25,8 @@ DISCERN_MIN_SIGNALS = 1
 def run_judgment(interp: Interpretation, state=None):
     """
     state is optional so this stays usable standalone (e.g. in tests) --
-    pass the accumulated ConversationState when available so phase
-    transitions can consider history, not just this one turn.
+    pass the accumulated WorldState when available so phase transitions
+    can consider history, not just this one turn.
     """
 
     dominant_emotion = None

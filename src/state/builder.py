@@ -1,6 +1,7 @@
 """
 Merges an Interpretation (one turn's structured meaning) into the running
-ConversationState (the accumulated model of the user's thinking).
+WorldState (the accumulated model of the user's world) -- see
+src/state/world_state.py for the v1 scope decision and known limitations.
 
 This must accumulate, not overwrite. The constitution's Method depends on
 it: Phase 3's success criterion is the user recognizing an assumption
@@ -10,35 +11,38 @@ later, not wiped out by whatever the latest turn happened to say.
 
 Epistemic tiers (observed_facts / claims / assumptions / inferences /
 unknowns / biases) are preserved as separate fields all the way through
-to ConversationState -- see src/interpretation/schema.py and
-engine/decisions.md for why collapsing them was the root cause of advice
-and world-knowledge leaking into state in an earlier version.
+to WorldState -- see src/interpretation/schema.py and engine/decisions.md
+for why collapsing them was the root cause of advice and world-knowledge
+leaking into state in an earlier version.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import List
+from typing import List, Tuple
 
 from src.interpretation.schema import Interpretation
+from src.state.world_state import (
+    Claim,
+    Decision,
+    Entity,
+    Fact,
+    Goal,
+    Unknown,
+    WorldState,
+)
 
-# Emotional intensity in Interpretation is 0.0-1.0; ConversationState
-# stores it as an int 0-10 (matches the Pydantic mirror in
+# Emotional intensity in Interpretation is 0.0-1.0; the render layer
+# multiplies by this for display (matches the Pydantic mirror in
 # engine/state_updater.py, kept in sync for the eventual Claude swap).
 INTENSITY_SCALE = 10
 
-# Inferences below this confidence don't get promoted into state. Lowered
-# from 0.5 (v0.4) to 0.15 in v0.6: the earlier floor was set when the
-# problem was over-confident fabrication (0.9 for a guess). Now that
-# prompt.py's calibration bands correctly assign 0.2-0.3 to a genuinely
-# weak-but-real read, a 0.5 floor would silently discard exactly the
-# honest low-confidence signal we're now teaching the model to produce --
-# working against Golden Rule 2 instead of with it. 0.15 filters out
-# near-zero noise while trusting the model's own inclusion decision
-# (guided by the prompt) as the real filter. Revisit if low-confidence
-# noise turns out to be a bigger problem than lost signal.
+# Inferences below this confidence don't get promoted into state. See
+# engine/decisions.md 2026-07-02 "v0.6" for why this is 0.15, not 0.5:
+# a 0.5 floor was set when the problem was over-confident fabrication,
+# but under proper calibration a genuinely weak-but-real read correctly
+# scores 0.2-0.3 -- a higher floor would silently discard exactly the
+# honest low-confidence signal the prompt is now taught to produce.
 INFERENCE_CONFIDENCE_FLOOR = 0.15
-
 
 def _merge_unique(existing: List[str], new: List[str]) -> List[str]:
     """Append new items not already present, preserving order."""
@@ -49,45 +53,79 @@ def _merge_unique(existing: List[str], new: List[str]) -> List[str]:
     return merged
 
 
-def _reconcile_unknowns(existing: List[str], new_unknowns: List[str], resolved_by: List[str]) -> List[str]:
+def _merge_content_items(existing: list, new_contents: List[str], model_cls) -> list:
     """
-    Drop any existing unknown that a newly-stated fact appears to resolve
-    (simple substring check -- good enough for MVP, revisit if it proves
-    too blunt), then merge in genuinely new unknowns.
+    Generic merge for the typed Fact/Claim/Goal/Decision/Unknown tiers:
+    dedup by content (case-insensitive), append genuinely new items as a
+    fresh instance of model_cls with its default status. Existing items
+    are returned unchanged -- status transitions are handled by whichever
+    caller has the signal for them (see _reconcile_unknowns below for the
+    one transition Interpretation actually gives us evidence for).
     """
-    still_open = [
-        u for u in existing
-        if not any(u.lower() in f.lower() or f.lower() in u.lower() for f in resolved_by)
-    ]
-    return _merge_unique(still_open, new_unknowns)
+    result = list(existing)
+    seen = {item.content.strip().lower() for item in result}
+    for content in new_contents:
+        key = content.strip().lower()
+        if key not in seen:
+            result.append(model_cls(content=content))
+            seen.add(key)
+    return result
 
 
-def update_state(state, interp: Interpretation):
-    new_state = replace(state)  # never mutate the caller's state in place
+def _reconcile_unknowns(
+    existing: List[Unknown], new_unknowns: List[str], resolved_by: List[str]
+) -> Tuple[List[Unknown], List[str]]:
+    """
+    Drop any existing unknown that a newly-stated fact/claim appears to
+    resolve (simple substring check -- good enough for v1, revisit if it
+    proves too blunt), then merge in genuinely new unknowns. Returns the
+    updated unknowns list plus the content of any unknowns resolved this
+    turn, so the caller can promote them into Facts.
+    """
+    still_open = []
+    resolved_contents = []
+    for u in existing:
+        if any(u.content.lower() in f.lower() or f.lower() in u.content.lower() for f in resolved_by):
+            resolved_contents.append(u.content)
+        else:
+            still_open.append(u)
 
-    # --- Phase 1 ---
-    new_state.urgency = interp.urgency
-    new_state.impact_domains = _merge_unique(state.impact_domains, interp.impact_domains)
-    if interp.emotional_signals:
-        top = max(interp.emotional_signals, key=lambda e: e.intensity)
-        new_state.emotion = top.emotion
-        new_state.emotion_intensity = round(top.intensity * INTENSITY_SCALE)
-        new_state.emotion_source = top.source
+    merged = _merge_content_items(still_open, new_unknowns, Unknown)
+    return merged, resolved_contents
+
+
+def _merge_entities(existing: List[Entity], new_names: List[str]) -> List[Entity]:
+    """Enrich existing entities by name (case-insensitive), never duplicate."""
+    result = list(existing)
+    by_name = {e.name.strip().lower(): e for e in result}
+    for name in new_names:
+        key = name.strip().lower()
+        if key not in by_name:
+            entity = Entity(name=name)
+            result.append(entity)
+            by_name[key] = entity
+        # Enrichment (attributes/relationships) has no data source yet --
+        # see src/state/world_state.py module docstring.
+    return result
+
+
+def update_state(state: WorldState, interp: Interpretation) -> WorldState:
+    new_state = state.model_copy(deep=True)  # never mutate the caller's state
 
     # --- Phase 2 ---
     new_state.surface_complaint = interp.surface_complaint or state.surface_complaint
-    # Only move core_problem when this turn is at least as confident as
+    # Only move core_question when this turn is at least as confident as
     # what we already had -- otherwise a low-confidence turn could regress
     # a real question we'd already found back to a vague symptom.
-    if interp.core_question_confidence >= state.core_problem_confidence:
-        new_state.core_problem = interp.core_question
-        new_state.core_problem_confidence = interp.core_question_confidence
+    if interp.core_question_confidence >= state.core_question_confidence:
+        new_state.core_question = interp.core_question
+        new_state.core_question_confidence = interp.core_question_confidence
 
     # --- Phase 3: epistemic tiers, kept separate, never flattened ---
-    new_state.observed_facts = _merge_unique(state.observed_facts, interp.observed_facts)
-    new_state.claims = _merge_unique(state.claims, interp.claims)
-    new_state.goals = _merge_unique(state.goals, interp.goals)
-    new_state.decision_options = _merge_unique(state.decision_options, interp.decision_options)
+    new_state.facts = _merge_content_items(state.facts, interp.observed_facts, Fact)
+    new_state.claims = _merge_content_items(state.claims, interp.claims, Claim)
+    new_state.goals = _merge_content_items(state.goals, interp.goals, Goal)
+    new_state.decisions = _merge_content_items(state.decisions, interp.decision_options, Decision)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
 
     kept_inferences = [
@@ -97,12 +135,17 @@ def update_state(state, interp: Interpretation):
     ]
     new_state.inferences = _merge_unique(state.inferences, kept_inferences)
 
-    new_state.unknowns = _reconcile_unknowns(
+    updated_unknowns, resolved = _reconcile_unknowns(
         state.unknowns, interp.unknowns, interp.observed_facts + interp.claims
     )
-    new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
+    new_state.unknowns = updated_unknowns
+    if resolved:
+        # Resolved unknowns become facts (spec: "Unknowns -- Remove only
+        # when answered. Resolved unknowns become facts.").
+        new_state.facts = _merge_content_items(new_state.facts, resolved, Fact)
 
-    new_state.stakeholders = _merge_unique(state.stakeholders, interp.entities)
+    new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
+    new_state.entities = _merge_entities(state.entities, interp.entities)
     new_state.clarity_level = interp.clarity_score
 
     return new_state

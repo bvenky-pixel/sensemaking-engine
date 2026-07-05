@@ -9,12 +9,12 @@ import sys
 
 from typing import List
 
-from engine.state import ConversationState
 from engine.state_inspector import render
 
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
 from src.state.builder import update_state
+from src.state.world_state import WorldState
 from src.judgment.engine import run_judgment
 
 
@@ -27,7 +27,7 @@ def run(model: str) -> None:
     print("Type a message and press Enter. Type 'exit' to quit.")
     print("-" * 50)
 
-    state = ConversationState()
+    state = WorldState()
     transcript: List[str] = []  # optional, currently unused
 
     while True:
@@ -80,7 +80,7 @@ def run(model: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Inspect ConversationState after every message."
+        description="Inspect WorldState after every message."
     )
 
     parser.add_argument(

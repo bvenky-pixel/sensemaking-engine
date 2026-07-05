@@ -788,3 +788,68 @@ constraints than Ollama's grammar-constrained `format` param -- worth
 factoring into the eventual n=10 validation pass, since a higher rate of
 shape drift (not just content fabrication) is plausible until/unless
 this gets upgraded to a properly `additionalProperties`-compliant schema.
+
+**2026-07-05 — WorldState v1: ConversationState replaced with typed, lifecycle-aware state**
+
+User supplied `WorldState_Specification_v1.md` (Facts/Claims/Goals/Open
+Decisions/Open Unknowns/Entities as the Core Structure, plus provenance,
+turn numbering, conversation summary, emotional history trend, and a
+project graph as cross-cutting sections). Explicit scope decision, made
+after an initial "build everything" answer was walked back: **implement
+WorldState v1, not WorldState Ultimate** -- prove the new data model and
+merge semantics first, since that's what's orthogonal to everything else
+(Judgment, the inspector, the whole pipeline shape) and worth stabilizing
+before layering more onto it. Staged as:
+- **v1 (this entry)**: typed `WorldState` (`src/state/world_state.py`),
+  typed `Fact`/`Claim`/`Goal`/`Decision`/`Unknown`/`Entity` objects with
+  lifecycle status fields, per-type merge policies, a rewritten
+  `src/state/builder.py`, and `src/judgment/engine.py` updated to consume
+  `WorldState`.
+- **v1.1 (deferred)**: provenance (source/first_seen/last_updated/
+  supporting_evidence), turn numbering, stable object IDs.
+- **v1.2 (deferred)**: conversation_summary, emotional_history (trend
+  computation).
+- **v1.3 (deferred)**: project graph, cross-links between entities and
+  goals.
+
+Every stage is meant to leave the system runnable -- v1 fully replaces
+`ConversationState` in the live pipeline (`conversation_runner.py`,
+`src/judgment/engine.py`, `engine/state_inspector.py`) rather than
+running the two in parallel.
+
+**Design choices made without an explicit spec answer, flagged rather
+than silently decided:**
+- **Decision modeling**: the spec's "Open Decisions" section implies one
+  named decision with options, but `Interpretation.decision_options` is
+  an untitled flat list (see `src/interpretation/schema.py`). Rather than
+  invent a grouping/title the evidence doesn't support, kept one
+  `Decision` object per option string -- consistent with this codebase's
+  standing rule (epistemic tiers are never merged/clustered beyond what
+  the model actually output).
+- **Phase 2 tracking carried forward**: the spec's Core Structure has no
+  slot for "what's the real question" (the old `core_problem`/
+  `surface_complaint`/`core_problem_confidence` fields). Dropping it
+  would have silently regressed behavior the inspector and Judgment
+  already depend on, so it's kept on `WorldState` as an explicit
+  extension beyond the literal spec text, same "never regress on lower
+  confidence" merge rule as before.
+- **Entity/Goal/Decision lifecycle**: statuses beyond the initial one
+  (`paused`/`completed`/`abandoned` for Goals, `resolved`/`expired` for
+  Decisions, attribute/relationship enrichment for Entities) never fire
+  in v1 -- `Interpretation` has no signal for any of these transitions
+  today. Fields exist per spec; nothing invents the missing signal.
+- **Unknown resolution -> Fact promotion**: ported the existing
+  substring-based reconciliation heuristic unchanged from the old
+  `update_state` (already documented there as "good enough for MVP,
+  revisit if it proves too blunt") and added the one genuinely new piece
+  the spec calls for: a resolved Unknown's content is now promoted into
+  `Facts` rather than just discarded.
+
+**Left untouched, confirmed dead in this branch's live path**:
+`engine/state.py` (`ConversationState`), `engine/state_updater.py`
+(Anthropic-based, superseded by `src/interpretation/providers.py`'s
+pattern), and `engine/mock_state_updater.py` -- none are imported by
+`conversation_runner.py` or anything it calls. Left in place rather than
+deleted since nothing forced the choice either way; worth a deliberate
+cleanup pass later if they're confirmed to have no future use (e.g. as
+reference material for a different future swap).
