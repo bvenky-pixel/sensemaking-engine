@@ -1302,3 +1302,94 @@ projects" durably needs either the same `CLAUDE.md` note added to each
 other repo, or (if Claude Code is used locally) the user's own global
 `~/.claude/CLAUDE.md` on their machine -- neither of which this session
 can reach on its own.
+
+**2026-07-05 — Judgment v2 evaluation: smoke test harness built, scoped down from the full pilot**
+
+Explicit ask: "let's run the experiment now" (referring to
+`engine/specs/judgment-v2-evaluation-design.md`, the design-only
+methodology from the previous session). Two scope questions resolved via
+explicit user choice before building anything: run a **smoke test**
+(one conversation, one run per condition) rather than the design doc's
+20-30 conversation pilot, and compute **quantitative-only** metrics this
+round (no blind human ranking, no LLM-judge) -- both driven by the
+free-tier rate limit (50 req/day with no credit) and the lack of human
+evaluators available to this session.
+
+**New package `src/evaluation/`**, implementing the design doc's "core
+three" conditions (Sec. 2 recommends running these before the ablations):
+- `confidant_runner.py::run_confidant` -- drives the real, unmodified
+  pipeline (`run_interpretation` -> `update_state` per turn), then calls
+  `run_judgment` ONCE on the final WorldState (not per-turn, since this
+  smoke test only compares final-conversation assessments).
+- `baselines.py::run_baseline_a` -- single call reasoning directly over
+  the full raw transcript.
+- `baselines.py::run_baseline_b2` -- incremental summary maintained
+  turn-by-turn (its own small schema/prompt, `_SummaryUpdate`), then a
+  final call over the last summary only. Isolates persistence-without-
+  structure from Confidant's persistence-with-structure, per the design
+  doc's framing of B2 as "probably the single most informative
+  baseline."
+
+**Model invariance, mechanically enforced, not just asserted**: all
+three conditions' final Judgment call goes through the identical
+`Judgment` Pydantic schema and identical `call_provider`/
+`resolve_provider_chain` path (so the same `OPENROUTER_MODEL`/
+`LLM_PROVIDER` env vars govern every condition equally), at the same
+`TEMPERATURE` (imported from `src.judgment.engine`, not redeclared).
+The system-prompt governance (GOVERNING LAWS / FIELD DEFINITIONS /
+JUDGMENT MUST NOT) is derived from Confidant's real
+`src/judgment/prompt.py` SYSTEM_PROMPT by mechanical substitution
+(`baselines.py::_adapt_judgment_prompt`) rather than a hand-copied
+rewrite that could drift -- only the opening paragraph describing what
+the model is given, and the handful of WorldState-structure-specific
+phrases (`WorldState.goals`, etc.), are swapped per condition. Verified
+by test (`test_adapt_judgment_prompt_has_no_worldstate_leaks_or_doubled_words`)
+that no literal "WorldState" string or doubled-word artifact survives
+the substitution.
+
+**Quantitative metrics, honestly scoped as heuristic proxies where they
+are one** (`src/evaluation/metrics.py`): plain structural counts (list
+lengths, empty-field checks) are exact, not heuristic. Two others are
+explicitly labeled approximations standing in for design-doc dimensions
+that the real methodology scores with a human or LLM judge:
+`groundedness_heuristic` reuses the same word-overlap technique already
+calibrated for unknown-resolution in `src/state/builder.py` to flag
+`supporting_evidence` entries whose vocabulary doesn't overlap enough
+with the condition's own source text (transcript / summary / WorldState
+JSON) -- a low score is a signal worth a human look, not proof of
+hallucination. `constraint_violation_heuristic` is a keyword scan for
+literal coaching/advice phrasing, not a real intent check. Neither is
+presented as the design doc's actual groundedness/constraint-adherence
+scoring -- both docstrings and the driver script's closing print say so
+explicitly, so this smoke test's output can't be mistaken for pilot-
+grade evidence.
+
+**Driver script** `scripts/run_judgment_evaluation_smoketest.py` reuses
+the existing 10-turn Sarah/Product-team transcript from
+`scripts/run_worldstate_walkthrough.py` (already has a qualitative read
+on Confidant's behavior against it from the prior session), runs all
+three conditions with separate `UsageTracker` instances so cost/latency
+are never mixed across conditions, and prints each condition's Judgment,
+usage, and metrics side by side for direct comparison. Budget: ~23 LLM
+calls total, sized to stay inside the free tier's daily cap.
+
+**Tests**: `tests/test_evaluation_harness.py`, 10 new tests, all
+deterministic (mock `call_provider` at each of the three call sites --
+`src.interpretation.engine`, `src.judgment.engine`,
+`src.evaluation.baselines` -- with canned JSON, no real HTTP). Covers
+prompt adaptation cleanliness, each condition's wiring and per-condition
+source_text, and all three metrics functions. All 35 tests across the
+branch pass (25 existing + 10 new).
+
+**New workflow** `.github/workflows/judgment-evaluation-smoketest.yml`
+(`workflow_dispatch` only, `CONFIDANT_TRACK_USAGE=1` so the run reports
+real token/cost/latency). Needs the same "register on main first" step
+as every prior workflow on this branch before it's dispatchable.
+
+**Explicitly NOT done this round** (still design-only in
+`judgment-v2-evaluation-design.md`, not built): Baseline B1 (fresh
+summary) and the C/D tier-collapse ablations, the full 20-30/80-120
+conversation dataset, blind human ranking, LLM-judge scoring, planted
+ground truth, stability-across-repeated-runs variance, and the
+cross-model generalization stretch goal -- none of these are needed to
+validate the harness itself, which is what a smoke test is for.
