@@ -2086,3 +2086,49 @@ only, not logged as a defect.
 **Status: Ollama is now a working mechanical CI harness**, confirmed by
 one real successful dispatch. The `OLLAMA_TIMEOUT` fix closes the gap
 opened by the previous entry.
+
+**2026-07-05 — First model-invariant quality-benchmark sample: pinned `nvidia/nemotron-3-ultra-550b-a55b:free` on OpenRouter, full pipeline succeeded**
+
+Added an `openrouter_model` input to `single-turn-smoketest.yml` (matching
+the pattern already used in `worldstate-walkthrough.yml`) so a dispatch can
+pin one specific `:free` model instead of the `openrouter/free` auto-router
+-- needed for the "OpenRouter is the quality benchmark" half of the policy
+above, since a model-variance-prone router can't be trusted to judge a
+single model's output quality. Confirmed the model is still live via
+search before pinning it (matches this session's live-verification
+discipline for OpenRouter model IDs). Dispatched with
+`LLM_PROVIDER=openrouter`, `OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free`.
+
+**Full success, no fallback needed** -- first genuinely clean,
+model-invariant sample to actually evaluate content quality against
+(as opposed to every other real dispatch this session, which either
+failed outright or mixed models across calls).
+
+**Judgment**: `current_focus` stayed distinct from `primary_problem` again
+(discovery-phase framing vs. the stalled-transfer problem statement) --
+second consecutive real sample confirming the current_focus/primary_problem
+prompt fix holds. `key_blockers`/`risks` both cited specific
+Unknowns/Facts by name with a stated consequence, matching the refined
+grounding rule. **`opportunities` came back populated with genuinely
+grounded content for the first time** (previously only ever observed
+empty) -- two entries, each citing a specific Claim/phase and a real
+positive consequence, not a restatement. `confidence: 0.35`, appropriately
+low for a still-sparse WorldState.
+
+**Planner**: `rationale` named the three specific open_unknowns
+individually and tied them to primary_problem -- clean adherence to
+"must explicitly reference Judgment." `assumptions_to_test` produced
+three specific, situationally-derived assumptions (not generic).
+**`planning_constraints` again came back as a near-verbatim copy of the
+spec's own four example constraints** -- same exact pattern as the
+earlier Ollama walkthrough sample (turn 8). Now n=2 across two different
+model families (llama3.2:3b and nemotron), which nudges this from
+"possible one-off" toward "worth watching as a recurring pattern" --
+still not enough (n=2) to justify a prompt change, but flagged more
+concretely than before.
+
+**Usage**: 12,020 tokens, $0.0000 real cost, ~$0.259 Fable-5-equivalent,
+233.1s total latency (25.7s / 74.9s / 132.5s per call) -- all three calls
+answered by the same pinned model throughout, confirmed by the printed
+per-component `Model:` field matching the pinned slug exactly rather than
+`openrouter/free`.
