@@ -1997,3 +1997,55 @@ schema-compliance data point (turn 4) -- nowhere near enough to draw any
 calibration conclusion or justify a prompt change. Consistent with the
 "resist tuning until real evidence exists" discipline already applied to
 Judgment: this run is logged as raw observation, not acted on.
+
+**2026-07-05 — Ollama actually installed/started in CI; standing policy set: Ollama = reliability harness, OpenRouter = quality benchmark**
+
+Explicit product decision, recorded in `CLAUDE.md` (standing rule, not just
+narrative): **Ollama's job from here on is answering "does the pipeline
+run, does the schema validate, does WorldState evolve correctly, does
+Planner consume Judgment correctly" -- mechanical correctness questions
+about OUR code.** `openrouter/free` remains where actual output QUALITY
+gets judged, but per the already-documented model-variance/rate-limit
+caveats, it's unsuitable as the mechanical reliability harness -- confirmed
+directly, repeatedly, this session (schema-non-compliance and content=None
+failures traced to which underlying free model answered a given call, not
+to our code). Explicit non-goal stated for the record: do not judge
+Ollama/llama3.2:3b output against GPT-4o-/Claude-level quality -- a vague
+but schema-valid, roughly-on-topic response is a PASS for Ollama's actual
+job.
+
+**Mechanical change**: `.github/workflows/single-turn-smoketest.yml` had
+Ollama listed as a fallback since the workflow was first written, but
+nothing ever installed or started it -- every prior CI run's Ollama
+fallback failed with `Connection refused` by construction (see the
+"why is there no local ollama on CI" exchange this session). Added
+install/serve/pull steps (official `ollama.com/install.sh`, `ollama serve`
+backgrounded with a readiness-poll loop, `ollama pull llama3.2:3b` -- the
+same model Interpretation's grounding filters were calibrated against) and
+an `llm_provider` workflow input so a dispatch can set `LLM_PROVIDER=ollama`
+to actually exercise the local-model path, not just have it sit unused
+behind a healthy OpenRouter call.
+
+**First real CI dispatch with `LLM_PROVIDER=ollama` surfaced a genuine,
+actionable mechanical finding -- not a content-quality question**: Ollama
+install/serve/pull all succeeded quickly (~1 minute total, including the
+~2GB model pull), but the actual Interpretation call then hit
+`Ollama request failed: ... Read timed out. (read timeout=180)` --
+`call_ollama`'s hardcoded `timeout=180` (shared with `call_openrouter` in
+`src/llm/providers.py`) is apparently too short for schema-constrained
+`llama3.2:3b` generation on a CPU-only GitHub Actions runner (no GPU).
+Provider fallback then correctly tried OpenRouter, which hit the same
+`openrouter/free` 429 rate-limiting already documented repeatedly today --
+so the run still failed end to end, but for a genuinely new, precisely
+diagnosed reason (a timeout tuned for local dev hardware, not CI's slower
+CPU inference) rather than a repeat of the old "nothing's listening"
+failure.
+
+**Not yet fixed, flagged as the next concrete step**: making the Ollama
+timeout configurable (e.g. a new `OLLAMA_TIMEOUT` env var, default
+unchanged at 180 for local-dev parity) and setting a longer value in this
+CI workflow specifically, so a future `LLM_PROVIDER=ollama` CI dispatch
+has a real chance of completing rather than timing out on the very first
+call. Not implemented yet -- reporting the diagnosis first, per this
+session's standing practice of proposing before changing shared provider
+plumbing.

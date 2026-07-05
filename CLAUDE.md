@@ -31,3 +31,28 @@ it doesn't match that suffix pattern), as a verified `$0.00`; a paid
 model reports its actual per-token cost via the pricing table there (see
 that file's docstring for how to add entries and why unlisted models
 report unknown cost rather than a guess).
+
+## Ollama vs. OpenRouter: what each is FOR (standing rule)
+
+**Ollama (`LLM_PROVIDER=ollama`, `llama3.2:3b`) is the reliability/test
+harness. OpenRouter (`openrouter/free`) is the quality benchmark.** Don't
+conflate the two purposes:
+
+- Ollama answers mechanical questions: does the pipeline run end to end?
+  Does the model's output validate against the Pydantic schema? Does
+  WorldState evolve correctly turn to turn? Does Planner actually consume
+  Judgment's output correctly? A small local model is sufficient for all
+  of these -- they're checks about OUR code, not about output quality.
+- OpenRouter is where actual output QUALITY gets judged (is this
+  primary_problem well-reasoned, is this risk genuinely grounded, etc.) --
+  but per the existing `openrouter/free` caveat above, it is NOT reliable
+  enough (rate limits, per-call model variance) to serve as the mechanical
+  correctness harness. Never treat an `openrouter/free` failure as a
+  pipeline bug without checking whether Ollama reproduces it first.
+
+**Do not judge Ollama/llama3.2:3b output against GPT-4o- or Claude-level
+quality expectations.** A vague, generic, or unpolished Ollama response
+that still validates against the schema and reads as roughly on-topic is
+a PASS for its job. Content-quality judgments (is this the *right*
+primary_problem, is this risk *well-chosen*) belong to OpenRouter/frontier
+model review, not to Ollama runs.
