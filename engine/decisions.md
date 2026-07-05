@@ -1283,3 +1283,22 @@ of Interpretation's grounding-filter calibration (tuned against
 Ollama/llama3.2:3b) or give Judgment v2 any calibration history --
 already-logged caveats, restated here since they apply to this specific
 model too, not just "OpenRouter generically."
+
+**2026-07-05 — Standing policy: free-tier OpenRouter models only, without explicit permission**
+
+Explicit, standing rule (stated as applying beyond this repo too): only
+use free-to-use OpenRouter models as defaults. Any non-free model needs
+the user's explicit permission before being set as a default or run
+against. Recorded in a new root-level `CLAUDE.md` so it's read
+automatically in future sessions on this repo -- decisions.md is the
+narrative log of why, CLAUDE.md is the standing instruction a fresh
+session actually needs to see up front.
+
+Flagged directly to the user, not silently assumed: this session's tool
+access is scoped to `bvenky-pixel/sensemaking-engine` and this container
+is ephemeral, so a file written here doesn't propagate to other repos or
+persist outside git-tracked content in this one. Enforcing "all
+projects" durably needs either the same `CLAUDE.md` note added to each
+other repo, or (if Claude Code is used locally) the user's own global
+`~/.claude/CLAUDE.md` on their machine -- neither of which this session
+can reach on its own.
