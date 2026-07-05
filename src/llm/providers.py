@@ -30,6 +30,18 @@ most turns actually run against has NOT been through that same
 validation. Re-run the n=10 methodology against whatever OPENROUTER_MODEL
 is configured before trusting it the way the Ollama path is trusted.
 
+SECOND CAVEAT, specific to the default `openrouter/free` (see
+engine/decisions.md "Switch default to OpenRouter's free-model auto-
+router"): this is NOT a single pinned model -- it's OpenRouter's own
+router that randomly selects among whatever free models are currently
+available, per request. That means two calls in the same run (even two
+calls in the same conversation turn) can silently be answered by two
+different underlying models. This directly conflicts with the "model
+invariance" control the Judgment v2 evaluation design
+(engine/specs/judgment-v2-evaluation-design.md Sec. 1) depends on --
+pin OPENROUTER_MODEL to one specific `:free`-suffixed model instead of
+`openrouter/free` before running that evaluation again.
+
 Robustness contract: every call_openrouter/call_ollama call either
 returns a non-empty string or raises ProviderCallError -- never any
 other exception type, and never an empty/whitespace-only string. This is
@@ -149,7 +161,7 @@ def call_openrouter(
     """
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
-    model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+    model = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
     if not api_key:
         raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")

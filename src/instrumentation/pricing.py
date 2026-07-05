@@ -18,6 +18,14 @@ OpenRouter models with a `:free` suffix are also treated as a verified
 $0.00, not an estimate -- that suffix is OpenRouter's own naming
 convention for its no-cost tier (confirmed against
 https://openrouter.ai/models 2026-07-05), not a guess on our part.
+
+`openrouter/free` (a distinct model ID, no `:free` suffix -- this is
+OpenRouter's own auto-router that randomly selects among available free
+models per-request, not a single model) is also a verified $0.00,
+confirmed via web search against OpenRouter's own pricing page
+2026-07-05 ("$0.00/1M input tokens and $0.00/1M output tokens"). Listed
+explicitly rather than relying on the `:free`-suffix rule since its own
+ID doesn't match that pattern.
 """
 
 from __future__ import annotations
@@ -31,16 +39,20 @@ _OPENROUTER_PRICING_PER_MTOK: Dict[str, Tuple[float, float]] = {
     "openai/gpt-4o-mini": (0.15, 0.60),
 }
 
+# Verified-$0 OpenRouter model IDs that don't match the `:free`-suffix
+# naming convention -- see module docstring for how each was confirmed.
+_VERIFIED_ZERO_COST_MODELS = {"openrouter/free"}
+
 
 def estimate_cost_usd(
     provider: str, model: str, input_tokens: int, output_tokens: int
 ) -> Optional[float]:
     """Returns None when the model isn't in the pricing table and isn't a
-    `:free` OpenRouter model -- never a guessed number."""
+    known-free OpenRouter model -- never a guessed number."""
     if provider == "ollama":
         return 0.0
 
-    if model.endswith(":free"):
+    if model.endswith(":free") or model in _VERIFIED_ZERO_COST_MODELS:
         return 0.0
 
     pricing = _OPENROUTER_PRICING_PER_MTOK.get(model)

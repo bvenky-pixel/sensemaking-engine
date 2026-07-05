@@ -91,9 +91,17 @@ def test_known_openrouter_model_cost_computed_from_pricing_table():
 def test_openrouter_free_suffix_model_cost_is_verified_zero_not_unknown():
     """Any OpenRouter model ending in ':free' (their own naming convention
     for the no-cost tier) is a confirmed $0.00, not an unlisted-model
-    unknown -- covers the current default (nemotron-3-ultra) and any
-    other free-tier model without needing a per-model table entry."""
+    unknown -- covers any free-tier model without needing a per-model
+    table entry."""
     cost = estimate_cost_usd("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free", 1000, 1000)
+    assert cost == 0.0
+
+
+def test_openrouter_free_router_cost_is_verified_zero_not_unknown():
+    """`openrouter/free` (the current default -- OpenRouter's own auto-
+    router across free models) has no ':free' suffix, so it needs its own
+    exact-match entry rather than falling under the suffix rule."""
+    cost = estimate_cost_usd("openrouter", "openrouter/free", 1000, 1000)
     assert cost == 0.0
 
 

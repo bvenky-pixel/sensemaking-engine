@@ -1463,3 +1463,82 @@ branch pass (35 existing + 17 new).
 
 **Not yet done**: no re-run of the evaluation smoke test -- explicitly
 gated on this fix landing and its tests passing first, per instruction.
+
+**2026-07-05 — Single-turn pipeline smoke test added; confirms the provider fix works, but free-tier degradation is real and recurring**
+
+Given the full evaluation harness's ~23-call cost, explicit ask for a
+much lighter check: one message through the real pipeline
+(Interpretation -> WorldState -> Judgment, 2 calls total), reusing
+`conversation_runner.py` directly (piped one message + `exit`) rather
+than writing a new script. New `.github/workflows/single-turn-smoketest.yml`
+(`workflow_dispatch`, optional `message` input), registered on `main`
+the same way every prior workflow on this branch was.
+
+**First dispatch**: Interpretation succeeded cleanly (full structured
+output -- surface complaint, core question, facts, claims, a goal, an
+inference, four unknowns). Judgment's OpenRouter call returned a
+response missing `choices` entirely -- the SAME kind of free-tier
+degradation seen in the earlier evaluation smoke test, not a new bug.
+This time, because of the fix above, it was caught as `ProviderCallError`,
+fell back to Ollama (which correctly failed -- no local Ollama in CI),
+and `conversation_runner.py`'s own exception handling printed a clean
+`[Error] ... State unchanged.` instead of crashing the process. This is
+direct, real-world confirmation the fix works, not just unit-test
+confirmation.
+
+**Second dispatch (retry)**: pending at time of writing.
+
+**Conclusion so far**: the crash is fixed. The underlying free-tier
+degradation (malformed/slow responses under load) is a separate,
+recurring, real condition -- not something code changes on our side can
+eliminate, only degrade gracefully from. This directly motivated the next
+entry.
+
+**2026-07-05 — Default OPENROUTER_MODEL switched from a pinned free model to `openrouter/free` (OpenRouter's free-model auto-router)**
+
+Question raised after repeatedly hitting free-tier degradation on the
+same pinned model (`nvidia/nemotron-3-ultra-550b-a55b:free`): are we
+pinned to one specific free model, or can OpenRouter route across
+whichever free models are healthy? Answer, confirmed via web search
+against OpenRouter's own documentation and pricing page (not guessed --
+WebFetch on openrouter.ai itself returned 403/bot-blocked, so this relied
+on search-result snippets quoting that documentation directly, cross-
+checked against two independent searches for consistency): `openrouter/free`
+is a real, distinct model ID -- OpenRouter's own router that randomly
+selects a free model per request from whatever's currently available,
+filtered to models supporting the request's needed features (structured
+outputs, tool calling, etc. -- both required by this codebase's JSON-mode
++ schema-hint pattern). Pricing page confirms it's $0.00/1M input and
+$0.00/1M output tokens. Still subject to the free tier's request-rate
+limits (50/day no-credit, 20/minute).
+
+Explicit ask, chosen over staying pinned: switch the default to this
+auto-router so a single overloaded model doesn't bottleneck every call --
+changed in `.env.example`, `src/llm/providers.py` (`call_openrouter`'s
+fallback default), `CLAUDE.md`. `src/instrumentation/pricing.py` gained
+an explicit `_VERIFIED_ZERO_COST_MODELS` exact-match set (currently just
+`{"openrouter/free"}`) since this model ID has no `:free` suffix and so
+doesn't match the existing suffix-based free-cost rule -- a new test
+(`test_openrouter_free_router_cost_is_verified_zero_not_unknown`) covers
+it explicitly rather than assuming the suffix rule silently extended to
+it.
+
+**Real, non-obvious tradeoff, flagged prominently (module docstring,
+CLAUDE.md, here)**: `openrouter/free` is NOT a single model -- different
+calls, even within the same conversation turn, can silently be answered
+by different underlying free models. This directly conflicts with the
+Judgment v2 evaluation design's model-invariance control
+(`judgment-v2-evaluation-design.md` Sec. 1), which requires every
+condition to use the *identical* underlying LLM so a measured difference
+is attributable to input representation, not model quality. **Before
+re-running that evaluation harness, `OPENROUTER_MODEL` must be pinned to
+one specific `:free` model again** -- `openrouter/free` is right for
+day-to-day pipeline use (this decision's actual motivation) but wrong for
+that specific controlled comparison.
+
+Standing free-models-only policy (`CLAUDE.md`) is unaffected either way
+-- `openrouter/free` only ever selects among free models by construction,
+so this change is a tightening of "which free model," not a relaxation
+of "must be free."
+
+All 53 tests pass (52 existing + 1 new).
