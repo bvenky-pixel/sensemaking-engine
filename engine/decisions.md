@@ -2230,3 +2230,66 @@ natural next step is exercising this complete chain live and reviewing
 whether Response Generator's output actually reads as a faithful,
 well-toned execution of Planner's plan -- not before real output exists
 to judge it against.
+
+**2026-07-05 — Response Generator's first live exercise: real schema gap found (empty response_text validates), strong first quality sample on OpenRouter**
+
+Dispatched both halves of the standing Ollama-harness/OpenRouter-quality
+policy in parallel: `LLM_PROVIDER=ollama` (mechanical check) and
+`LLM_PROVIDER=openrouter` with `OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free`
+pinned (quality check), both via `single-turn-smoketest.yml`.
+
+**Real, actionable gap found on the Ollama run -- not just weak-model
+content**: the pipeline ran end to end with zero errors (all four calls
+succeeded), but Response Generator's `response_text` came back as an
+EMPTY STRING, and it passed schema validation anyway. `src/response/schema.py`
+declared `response_text: str` with no non-empty constraint, so nothing
+catches a model returning `""`. This matters specifically because
+Response is the one layer whose output is the entire point of the
+pipeline (the only artifact meant for the user) -- "schema validated"
+and "output usable" are NOT the same claim for this layer, unlike every
+upstream layer where an empty list/string is often the CORRECT sparse
+answer. Scored honestly against the mechanical policy: pipeline-runs and
+schema-validates both technically passed, but Planner->Response
+consumption effectively failed this run, since the user would have
+received nothing.
+
+**Proposed fix, not yet implemented**: add a non-empty/whitespace check
+to `response_text` (e.g. a `field_validator` or `Field(min_length=1)`
+plus a strip-and-check, matching the same "empty is as useless as
+missing" principle already enforced at the provider-response level in
+`src/llm/providers.py`'s `_extract_message_content`). Flagging for
+discussion before changing the schema, per this session's standing
+practice.
+
+**First real Response Generator content sample (OpenRouter, pinned
+nemotron), assessed against the spec's own principles**:
+> "It sounds like you've been working toward this move for a few months
+> now without it coming together. That's frustrating when the goal feels
+> clear but the path isn't. To understand what's been happening, let me
+> start with something concrete: what specific steps have you taken so
+> far? ..." [confidence=0.35]
+
+- Faithful execution: Planner's strategy was "ask exploratory questions";
+  the response asks one, not several -- correctly honoring the
+  planning_constraint "focus on one information gap at a time" rather
+  than dumping all five questions_to_explore at once.
+- Grounding: introduces nothing beyond what WorldState already contains.
+- Tone: calm, validating, non-presumptuous -- matches the spec's tone
+  requirements directly.
+- **Confidence mirroring worked exactly as specified on the first real
+  sample**: `response.confidence` (0.35) exactly matched both Judgment's
+  and Planner's confidence for this turn, not a freshly-invented number.
+
+**Judgment/Planner both continued to hold up**: `current_focus` stayed
+distinct from `primary_problem` again; `opportunities` came back
+populated with grounded content for a third time; `planning_constraints`
+this run read as genuinely situational elaboration rather than a
+near-verbatim copy of the spec's example list -- a positive counter-example
+to the pattern flagged in the last two entries, suggesting that pattern
+isn't universal across samples.
+
+**Status**: the empty-`response_text` gap is real and worth fixing soon,
+but not fixed in this entry -- reporting first, per standing practice.
+Everything else from this pair of dispatches is encouraging: the one real
+content sample that exists shows Faithful Execution, Grounding, and
+confidence-mirroring all working as the spec intends.
