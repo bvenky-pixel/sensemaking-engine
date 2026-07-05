@@ -1708,3 +1708,49 @@ table coverage, linear token scaling, always-populated-vs-sometimes-None
 contrast with `estimated_cost_usd`, and both aggregation paths (top-level
 `summary()` sum, `by_component` breakdown). All 73 tests across the
 branch pass (68 existing + 5 new).
+
+**2026-07-05 — Judgment v2 calibration & evaluation review (review only, no code changed)**
+
+Explicit ask: with the architecture stable, review Judgment's quality
+before building Planner -- an evaluation/calibration task, not a coding
+task. Added `engine/specs/judgment-v2-calibration-review.md`.
+
+Grounded in real data rather than speculation: the review is built on the
+one genuine Judgment v2 output produced by the current code this session
+(the successful `openrouter/free` single-turn run), since the last CI
+"WorldState walkthrough" run predates the Judgment v2 implementation
+entirely and has no Judgment output to review -- flagged explicitly as an
+n=1 limitation rather than filled in with invented turns.
+
+**Confirmed against real output, not hypothesized**: `supporting_evidence`
+cited literally every piece of WorldState content that existed (8/8) --
+concrete confirmation of "includes nearly every relevant object," root-
+caused to the field being a single flat, global list with no per-
+conclusion attachment. `risks`/`opportunities` showed two distinct
+failure modes in the same sample: tautological restatement of an Unknown
+dressed as a Risk/Opportunity (no new information), and outright
+speculation (inferring "insufficient organizational support" from a mere
+open question about feedback). `current_focus` and `primary_problem`
+collapsed into near-duplicate phrasing of the same idea. `key_blockers`
+and `contradictions` behaved correctly (empty when nothing in WorldState
+actually supports them) -- confirms "sparse by default" already works
+for some fields, which is why the fix for risks/opportunities is
+*extending* that same discipline, not inventing a new one.
+
+**Prioritized recommendations** (design only, nothing implemented):
+1. Prompt fix for current_focus/primary_problem redundancy.
+2. Prompt fix requiring risks/opportunities to cite specific WorldState
+   content and forbidding unknown-restatement.
+3. Prompt fix making confidence's definition (evidentiary completeness,
+   not model certainty) explicit rather than merely implied.
+4. Schema change: restructure supporting_evidence to attach evidence
+   per-conclusion (sequenced after #2, since better-grounded risks/
+   opportunities change what "good" per-field evidence looks like).
+5. Prompt fix for primary_problem/primary_goal tie-breaking with multiple
+   candidates (lower priority, no confirmed failure yet).
+6. Process: run a fresh multi-turn walkthrough against the current code
+   before trusting conclusions beyond n=1, especially `contradictions`
+   (never exercised in the available sample).
+
+No changes to `src/judgment/prompt.py` or `src/judgment/schema.py` --
+awaiting direction on which recommendations to act on.
