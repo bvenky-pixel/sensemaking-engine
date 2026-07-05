@@ -1,7 +1,8 @@
 name: WorldState walkthrough
 
-# Manual only -- each run makes one real, billable call per transcript turn
-# (10 turns) to the configured LLM provider.
+# Manual only -- each run makes three real, billable calls per transcript
+# turn (Interpretation, Judgment, Planner; 10 turns) to the configured LLM
+# provider.
 on:
   workflow_dispatch:
     inputs:
@@ -27,6 +28,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
         run: |
           if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
             export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
