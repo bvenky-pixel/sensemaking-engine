@@ -1754,3 +1754,75 @@ for some fields, which is why the fix for risks/opportunities is
 
 No changes to `src/judgment/prompt.py` or `src/judgment/schema.py` --
 awaiting direction on which recommendations to act on.
+
+**2026-07-05 — Judgment v2 prompt refined (3 of the 6 calibration-review
+recommendations) and re-frozen**
+
+Direct decision on the prior entry's prioritized list: implement exactly
+recommendations #1-#3 (all prompt-only), explicitly decline #4 (the
+`supporting_evidence` per-conclusion schema restructure) and #5 (the
+primary_problem/primary_goal tie-breaking rule) for now, then re-freeze.
+Stated rationale, a standing directive: resist further Judgment tuning
+until Planner exists and starts actually consuming Judgment's output --
+optimizing further against a single real sample risks the same mistake
+already corrected for repeatedly elsewhere on this branch (inventing
+capability/structure the evidence doesn't yet support). Once Planner is
+built and exercises Judgment for real, that gives actual evidence about
+whether #4/#5 are worth doing, rather than a guess made against n=1.
+
+**Changes, all confined to `SYSTEM_PROMPT`'s FIELD DEFINITIONS in
+`src/judgment/prompt.py`** (nothing else touched -- not the opening
+paragraph, not `"Your sole job..."`, not the schema, not
+`build_messages()` -- preserving the exact substrings
+`src/evaluation/baselines.py::_adapt_judgment_prompt` depends on for
+mechanical substitution):
+
+1. **current_focus vs. primary_problem** (review finding: these collapsed
+   into near-duplicate phrasing in the one real sample). Rewrote
+   `current_focus`'s definition to explicitly frame it as the specific
+   ACTION or INQUIRY the user is currently engaged in (with worked
+   examples: "waiting to hear back from their manager," "deciding between
+   two options"), and added an explicit prohibition: do NOT restate
+   `primary_problem` in different words. Stated the distinction plainly --
+   `primary_problem` is WHAT is blocking progress, `current_focus` is WHAT
+   THE USER IS DOING about it right now.
+2. **risks/opportunities grounding** (review finding: tautological
+   Unknown-restatement dressed as a Risk, and outright speculation, both
+   present in the one real sample). Both fields now require naming the
+   specific Fact/Claim/Unknown they derive from AND describing a plausible
+   CONSEQUENCE of that content, not a restatement of it -- with an explicit
+   "do NOT turn an Unknown into a risk by simply adding 'this could delay
+   things'" prohibition (opportunities gets the same rule, positive-
+   consequence framing). Reinforced "leave the list empty if no
+   candidate meets this bar" for both, extending the "sparse by default"
+   discipline already confirmed working for `key_blockers`/
+   `contradictions` to these two fields specifically.
+3. **confidence's definition** (review finding: the field's intent --
+   evidentiary completeness, not personal certainty -- was only implied,
+   never stated). Rewrote to explicitly rule out both wrong readings: NOT
+   how certain the model personally feels, and NOT a judgment about
+   whether WorldState itself is accurate or trustworthy (a separate
+   question this field doesn't answer). Kept the existing guidance that
+   sparse, early-conversation WorldState should produce LOW confidence
+   regardless of how confidently-worded the available content is.
+
+**Explicitly NOT implemented, deferred by direct instruction, not
+forgotten**: the `supporting_evidence` per-conclusion restructure
+(review recommendation #4) and the primary_problem/primary_goal
+tie-breaking rule (#5). Both stay exactly as designed in the frozen v2
+spec until Planner supplies real evidence on whether they're needed.
+
+**Verified**: file re-parses cleanly; full suite re-run,
+all 73 tests pass unchanged, including
+`test_adapt_judgment_prompt_has_no_worldstate_leaks_or_doubled_words` and
+the rest of `tests/test_evaluation_harness.py` -- confirming the edits
+didn't disturb the load-bearing substrings the evaluation baselines'
+prompt-adaptation mechanism depends on.
+
+**Status: Judgment v2 (prompt) is RE-FROZEN as of this entry.** Standing
+directive recorded here: no further Judgment prompt/schema tuning until
+Planner exists and is actually consuming Judgment's output -- at that
+point Planner's real usage becomes the evidence base for whatever comes
+next (including #4/#5 above), not another round of single-sample
+optimization. Any change before then requires deliberately reopening this
+process, same discipline as every other frozen component on this branch.
