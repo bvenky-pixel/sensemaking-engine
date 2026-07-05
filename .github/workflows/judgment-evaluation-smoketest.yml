@@ -1,0 +1,36 @@
+name: Judgment evaluation smoke test
+
+# Manual only -- each run makes ~23 real, billable calls to the
+# configured LLM provider (Confidant: 10 Interpretation + 1 Judgment;
+# Baseline A: 1 call; Baseline B2: 10 summary-updates + 1 Judgment).
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default)"
+        required: false
+        default: ""
+
+jobs:
+  smoketest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run Judgment v2 evaluation smoke test
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_judgment_evaluation_smoketest.py
