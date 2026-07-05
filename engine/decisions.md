@@ -1149,3 +1149,39 @@ output after each turn) rather than isolated tests. All 12 tests
 rounds). Its output should be treated as unvalidated until it's actually
 exercised live and reviewed -- same status Interpretation's OpenRouter
 path was in before its own first live runs.
+
+**2026-07-05 — Judgment v2 evaluation design produced (design only, nothing implemented or run)**
+
+Before any prompt-tuning or code changes, explicit ask: design a rigorous
+methodology for answering "does reasoning over structured WorldState
+produce better judgments than reasoning over raw conversation" -- and
+whether that holds independent of which LLM does the reasoning. Added
+`engine/specs/judgment-v2-evaluation-design.md`: conditions (Baseline A
+raw transcript, Baseline B1/B2 fresh vs. incremental summary, Confidant,
+plus two held-in-reserve ablations isolating epistemic-tier-separation
+specifically), 13 evaluation dimensions with concrete scoring methods,
+dataset design (category x length-strata, majority-synthetic/minority-
+naturalistic, staged pilot-then-full sample sizing), quantitative +
+qualitative metrics, a blind-evaluation protocol (including a duplicate-
+injection rater-noise check), a failure taxonomy applicable equally to
+any condition, statistical confidence recommendations (with pre-
+registered primary metrics to avoid multiple-comparisons inflation across
+13 dimensions), and a staged cross-model generalization design for the
+stretch goal.
+
+**Single most load-bearing methodological point**: model invariance --
+every condition must use the identical underlying LLM (mechanically easy
+given the existing OpenRouter provider layer) and the identical Judgment
+schema/system-prompt governance, so any measured difference is
+attributable to input representation, not model quality or prompt
+wording. Without this control the experiment can't actually answer its
+own research question.
+
+**Explicitly flagged as open, not decided unilaterally**: who authors
+synthetic ground truth (and that they can't also blind-evaluate the same
+items), who the qualitative evaluators are and whether 3+ per item is
+realistically staffable, whether an LLM-judge for automated groundedness
+checking is trusted without human spot-validation first, and the real
+budget/call-volume implied by the recommended sample sizes.
+
+Status: design only. No harness, dataset, or experiment run yet.
