@@ -115,6 +115,10 @@ def main() -> int:
         if not summary["cost_fully_known"]:
             cost_str += " (partial -- some calls had no pricing entry)"
         print(f"- Total cost: {cost_str}")
+        frontier = summary["frontier_cost_comparison_usd"]
+        if frontier:
+            frontier_str = ", ".join(f"{model_id}=${cost:.4f}" for model_id, cost in frontier.items())
+            print(f"- Frontier cost comparison: {frontier_str}")
         for component, stats in summary["by_component"].items():
             comp_cost = stats["estimated_cost_usd"]
             comp_cost_str = f"${comp_cost:.4f}" if comp_cost is not None else "unknown"

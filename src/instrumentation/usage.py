@@ -35,8 +35,9 @@ from __future__ import annotations
 import os
 from typing import Dict, List, NamedTuple, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from src.instrumentation.frontier_pricing import estimate_frontier_costs_usd
 from src.instrumentation.pricing import estimate_cost_usd
 
 
@@ -59,6 +60,14 @@ class LLMUsage(BaseModel):
     latency_ms: float
 
     estimated_cost_usd: Optional[float] = None
+
+    # Calculated field, not real cost: what this call's exact token counts
+    # would have cost on a fixed set of frontier reference models (see
+    # src/instrumentation/frontier_pricing.py), regardless of which
+    # provider/model actually served this call. Always fully populated --
+    # unlike estimated_cost_usd, there's no "unknown model" case here since
+    # the reference table is fixed.
+    frontier_cost_comparison_usd: Dict[str, float] = Field(default_factory=dict)
 
     # The provider's own usage object, preserved exactly as returned, so a
     # future provider (or a new field an existing provider starts
@@ -101,6 +110,7 @@ def build_usage(
         total_tokens=prompt_tokens + completion_tokens,
         latency_ms=latency_ms,
         estimated_cost_usd=estimate_cost_usd(provider, model, prompt_tokens, completion_tokens),
+        frontier_cost_comparison_usd=estimate_frontier_costs_usd(prompt_tokens, completion_tokens),
         raw_usage=raw_usage,
     )
 
@@ -245,6 +255,7 @@ class UsageTracker:
             "avg_reasoning_tokens": _avg_optional(r.reasoning_tokens for r in rs),
             "estimated_cost_usd": _sum_optional(r.estimated_cost_usd for r in rs),
             "cost_fully_known": _cost_fully_known(rs),
+            "frontier_cost_comparison_usd": _sum_frontier_costs(rs),
             "by_component": _group_by(rs, key=lambda r: r.component),
             "by_provider": _group_by(rs, key=lambda r: r.provider),
         }
@@ -269,6 +280,17 @@ def _cost_fully_known(records: List[LLMUsage]) -> bool:
     return len(records) > 0 and all(r.estimated_cost_usd is not None for r in records)
 
 
+def _sum_frontier_costs(records: List[LLMUsage]) -> Dict[str, float]:
+    """Per-model sum of frontier_cost_comparison_usd across records --
+    always fully populated per model_id (see frontier_pricing.py), so
+    this is a plain sum, not an optional-aware one."""
+    totals: Dict[str, float] = {}
+    for r in records:
+        for model_id, cost in r.frontier_cost_comparison_usd.items():
+            totals[model_id] = totals.get(model_id, 0.0) + cost
+    return totals
+
+
 def _group_by(records: List[LLMUsage], key) -> Dict[str, Dict]:
     groups: Dict[str, Dict] = {}
     for r in records:
@@ -283,6 +305,7 @@ def _group_by(records: List[LLMUsage], key) -> Dict[str, Dict]:
                 "total_tokens": 0,
                 "latency_ms": 0.0,
                 "_costs": [],
+                "frontier_cost_comparison_usd": {},
             },
         )
         bucket["calls"] += 1
@@ -296,6 +319,10 @@ def _group_by(records: List[LLMUsage], key) -> Dict[str, Dict]:
         bucket["latency_ms"] += r.latency_ms
         if r.estimated_cost_usd is not None:
             bucket["_costs"].append(r.estimated_cost_usd)
+        for model_id, cost in r.frontier_cost_comparison_usd.items():
+            bucket["frontier_cost_comparison_usd"][model_id] = (
+                bucket["frontier_cost_comparison_usd"].get(model_id, 0.0) + cost
+            )
     for bucket in groups.values():
         reasoning = bucket.pop("reasoning_tokens")
         cached = bucket.pop("cached_tokens")
@@ -312,6 +339,12 @@ def _fmt_optional_int(value: Optional[int]) -> str:
 
 def _fmt_cost(value: Optional[float]) -> str:
     return f"${value:.4f}" if value is not None else "N/A"
+
+
+def _fmt_frontier_costs(costs: Dict[str, float]) -> str:
+    if not costs:
+        return "N/A"
+    return ", ".join(f"{model_id}=${cost:.4f}" for model_id, cost in costs.items())
 
 
 def print_turn_summary(records: List[LLMUsage]) -> None:
@@ -344,6 +377,7 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
         total_tokens = sum(r.total_tokens for r in crs)
         latency_s = sum(r.latency_ms for r in crs) / 1000
         cost = _sum_optional(r.estimated_cost_usd for r in crs)
+        frontier_costs = _sum_frontier_costs(crs)
 
         print(f"\n{component}")
         print(f"- Provider: {provider}")
@@ -355,6 +389,7 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
         print(f"- Total Tokens: {total_tokens:,}")
         print(f"- Latency: {latency_s:.1f} s")
         print(f"- Estimated Cost: {_fmt_cost(cost)}")
+        print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(frontier_costs)}")
 
     total_prompt = sum(r.prompt_tokens for r in records)
     total_completion = sum(r.completion_tokens for r in records)
@@ -363,6 +398,7 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
     total_tokens = sum(r.total_tokens for r in records)
     total_latency_s = sum(r.latency_ms for r in records) / 1000
     total_cost = _sum_optional(r.estimated_cost_usd for r in records)
+    total_frontier_costs = _sum_frontier_costs(records)
 
     print("\nPipeline Total")
     print(f"- Prompt Tokens: {total_prompt:,}")
@@ -371,4 +407,5 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
     print(f"- Cached Tokens: {_fmt_optional_int(total_cached)}")
     print(f"- Total Tokens: {total_tokens:,}")
     print(f"- Total Cost: {_fmt_cost(total_cost)}")
+    print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(total_frontier_costs)}")
     print(f"- Total Latency: {total_latency_s:.1f} s")

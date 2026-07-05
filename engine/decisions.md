@@ -1651,3 +1651,60 @@ No prompts, schemas, pipeline logic, or provider-call behavior changed --
 confirmed by re-running the full suite plus a manual mocked end-to-end
 check of both `call_openrouter` and `call_ollama` through
 `print_turn_summary`, not just the unit tests in isolation.
+
+**2026-07-05 — Instrumentation: frontier-model cost comparison field**
+
+Explicit ask: add a calculated field showing what the same call's tokens
+would have cost on a frontier LLM like Fable, to put the near-$0 free-tier
+cost in context.
+
+New `src/instrumentation/frontier_pricing.py`, deliberately separate from
+`pricing.py` (which estimates a call's REAL cost on its actual provider):
+`estimate_frontier_costs_usd(prompt_tokens, completion_tokens)` returns
+`{model_id: hypothetical_cost}` against a small, fixed reference table of
+four current Claude models. Pricing verified via the `claude-api` skill
+(Anthropic's own current pricing, cached 2026-06-24) 2026-07-05, not
+guessed:
+
+| Model | Model ID | Input $/1M | Output $/1M |
+|---|---|---|---|
+| Claude Fable 5 | `claude-fable-5` | $10.00 | $50.00 |
+| Claude Opus 4.8 | `claude-opus-4-8` | $5.00 | $25.00 |
+| Claude Sonnet 5 | `claude-sonnet-5` | $3.00 | $15.00 |
+| Claude Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 |
+
+Sonnet 5 has a temporary introductory rate ($2.00/$10.00 through
+2026-08-31) -- deliberately NOT used here; the table uses the standard
+post-intro rate so the comparison reflects durable pricing, not a
+promotion that will quietly make old comparisons look wrong once it
+expires.
+
+**New `LLMUsage` field**: `frontier_cost_comparison_usd: Dict[str, float]`
+(default `{}`), populated in `build_usage` from `prompt_tokens`/
+`completion_tokens` alone -- independent of which provider/model actually
+served the call. Unlike `estimated_cost_usd` (which is `None` for an
+unpriced/unlisted real model), this is always fully populated, since the
+four-model reference table has no "unknown" case.
+
+**Aggregation**: `UsageTracker.summary()` gained
+`frontier_cost_comparison_usd` (summed per model across all records) and
+both `by_component`/`by_provider` breakdowns now include a per-group sum
+of it too -- reuses the same dict-accumulation pattern as the existing
+cost/token aggregation, no new aggregation concept introduced.
+
+**Console output**: `print_turn_summary` prints a `Frontier Cost
+Comparison` line (all four models, comma-separated) per component and in
+Pipeline Total.
+
+**Sanity-checked against real data**: ran the new field against the
+actual token counts from the successful `openrouter/free` single-turn
+run logged earlier this session (Interpretation 3,559/872,
+Judgment 1,733/928) -- comes out to ~$0.14 on Fable 5 for the same
+pipeline that cost $0.0000 on the free tier, which is the kind of number
+this field exists to surface.
+
+**Tests**: 5 new tests in `tests/test_instrumentation.py` -- reference-
+table coverage, linear token scaling, always-populated-vs-sometimes-None
+contrast with `estimated_cost_usd`, and both aggregation paths (top-level
+`summary()` sum, `by_component` breakdown). All 73 tests across the
+branch pass (68 existing + 5 new).

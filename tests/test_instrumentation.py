@@ -15,6 +15,7 @@ import os
 
 import pytest
 
+from src.instrumentation.frontier_pricing import estimate_frontier_costs_usd
 from src.instrumentation.pricing import estimate_cost_usd
 from src.instrumentation.usage import (
     LLMUsage,
@@ -315,3 +316,57 @@ def test_summary_includes_by_provider_breakdown():
     assert summary["by_provider"]["openrouter"]["calls"] == 1
     assert summary["by_provider"]["ollama"]["calls"] == 1
     assert summary["by_provider"]["ollama"]["estimated_cost_usd"] == 0.0
+
+
+# --- Frontier cost comparison (calculated field, not real cost) ---
+
+
+def test_estimate_frontier_costs_usd_covers_all_reference_models():
+    costs = estimate_frontier_costs_usd(1_000_000, 1_000_000)
+    assert set(costs.keys()) == {
+        "claude-fable-5",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+    }
+    # 1M prompt + 1M completion tokens at each model's published rate
+    assert costs["claude-fable-5"] == pytest.approx(10.00 + 50.00)
+    assert costs["claude-opus-4-8"] == pytest.approx(5.00 + 25.00)
+    assert costs["claude-sonnet-5"] == pytest.approx(3.00 + 15.00)
+    assert costs["claude-haiku-4-5"] == pytest.approx(1.00 + 5.00)
+
+
+def test_estimate_frontier_costs_usd_scales_with_tokens():
+    costs = estimate_frontier_costs_usd(500_000, 0)
+    assert costs["claude-fable-5"] == pytest.approx(5.00)  # half of the 1M input rate
+
+
+def test_build_usage_always_populates_frontier_cost_comparison():
+    """Unlike estimated_cost_usd (which can be None for an unpriced/
+    unlisted model), frontier_cost_comparison_usd is always fully
+    populated -- it's computed purely from token counts against a fixed
+    reference table, independent of which provider/model actually served
+    the call."""
+    usage = build_usage("Interpretation", "openrouter", "some/unlisted-model", 100, 50, 500.0)
+    assert usage.estimated_cost_usd is None  # real cost: unknown
+    assert len(usage.frontier_cost_comparison_usd) == 4  # comparison: always known
+
+
+def test_summary_sums_frontier_cost_comparison_across_records():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record(build_usage("Interpretation", "openrouter", "m", 1_000_000, 0, 100.0))
+    tracker.record(build_usage("Judgment", "openrouter", "m", 1_000_000, 0, 100.0))
+
+    summary = tracker.summary()
+    assert summary["frontier_cost_comparison_usd"]["claude-fable-5"] == pytest.approx(20.00)
+
+
+def test_by_component_breakdown_includes_frontier_cost_comparison():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record(build_usage("Interpretation", "openrouter", "m", 1_000_000, 0, 100.0))
+
+    summary = tracker.summary()
+    interp = summary["by_component"]["Interpretation"]
+    assert interp["frontier_cost_comparison_usd"]["claude-opus-4-8"] == pytest.approx(5.00)
