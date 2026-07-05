@@ -1,15 +1,42 @@
 """
-Deterministic judgment layer: converts one turn's Interpretation, plus the
-accumulated WorldState, into a framing of where things stand and whether
-the conversation is ready to move to the next phase of the Confidant
-Method.
+Judgment Engine v2 -- calls an LLM to turn the accumulated WorldState into
+a Judgment: an objective assessment of the user's current situation.
 
-This layer never advises. It only frames -- consistent with Principle 14:
-"The decision always belongs to the human."
+Implements engine/specs/judgment-specification-v2.md. Explicit scope
+decisions made before implementation (see engine/decisions.md for the
+full discussion):
+- Input is WorldState ONLY -- never the raw Interpretation or transcript.
+  Urgency/emotion are not passed through; if they matter, they should
+  first become part of WorldState, not be smuggled in here.
+- `resolved_since_last_turn` and `trajectory` are dropped from the v2
+  spec's output for now -- both need a delta against a previous
+  WorldState/Judgment, which WorldState v1 (no turn numbers, no retained
+  history of transitions) can't supply. See src/judgment/schema.py.
+- This is NOT a rule engine and NOT a hybrid -- the entire Judgment
+  object, including fields that look like plain filters (open_unknowns,
+  active_decisions), comes from one LLM call over the full WorldState.
+  Deliberate simplicity: one call, one schema, no hybrid complexity.
+- `phase` (Prepare/Discover/Discern/...) is NOT part of Judgment's LLM
+  output at all -- kept as a separate, deterministic
+  `recommend_phase_transition` function below, explicitly legacy-only.
+  Its long-term owner is the future Planner, not Judgment.
 """
 
-from src.interpretation.schema import Interpretation
+from __future__ import annotations
 
+import json
+from typing import List, Optional
+
+from pydantic import ValidationError
+
+from src.judgment.prompt import build_messages
+from src.judgment.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.judgment.schema import Judgment
+from src.state.world_state import WorldState
+
+TEMPERATURE = 0.15  # low: this is assessment/reasoning, not creative generation
+
+# --- Legacy phase-transition thresholds, ported unchanged from Judgment v1 ---
 # Minimum core_question_confidence before we consider the "real question"
 # actually found (Phase 2 success: the conversation moves from "why is
 # this happening" to "what can I do").
@@ -22,61 +49,76 @@ DISCOVER_TO_DISCERN_THRESHOLD = 0.6
 DISCERN_MIN_SIGNALS = 1
 
 
-def run_judgment(interp: Interpretation, state=None):
+class JudgmentError(Exception):
+    """Raised when no configured provider could produce a valid Judgment."""
+
+    def __init__(self, message: str, raw_output: Optional[str] = None):
+        super().__init__(message)
+        self.raw_output = raw_output
+
+
+def run_judgment(state: WorldState) -> Judgment:
     """
-    state is optional so this stays usable standalone (e.g. in tests) --
-    pass the accumulated WorldState when available so phase transitions
-    can consider history, not just this one turn.
+    Calls an LLM to produce a Judgment from the given WorldState. Tries
+    each configured provider in order (see src/judgment/providers.py),
+    same OpenRouter-primary/Ollama-fallback pattern as Interpretation.
+    Raises JudgmentError if every provider fails.
+
+    Callers should update WorldState with the current turn's Interpretation
+    BEFORE calling this -- Judgment only ever sees WorldState, so if it's
+    called against stale state, it has no way to know about anything just
+    said this turn.
     """
+    world_state_json = state.model_dump_json(indent=2)
+    system_prompt, messages = build_messages(world_state_json)
+    schema = Judgment.model_json_schema()
 
-    dominant_emotion = None
-    if interp.emotional_signals:
-        dominant_emotion = max(interp.emotional_signals, key=lambda e: e.intensity)
+    failures: List[str] = []
+    for provider_name in resolve_provider_chain():
+        try:
+            raw = call_provider(provider_name, system_prompt, messages, schema, TEMPERATURE)
+        except ProviderCallError as exc:
+            failures.append(f"{provider_name}: {exc}")
+            continue
 
-    # Phase 1 framing: urgency + impact domains + emotional intensity, not a generic
-    # "risk score" -- named to match what the constitution actually asks
-    # Confidant to attend to before anything else.
-    attention_score = 0.0
-    if interp.urgency == "high":
-        attention_score += 0.4
-    elif interp.urgency == "medium":
-        attention_score += 0.2
-    if dominant_emotion:
-        attention_score += dominant_emotion.intensity * 0.4
-    if interp.clarity_score < 0.4:
-        attention_score += 0.2
-    attention_score = min(attention_score, 1.0)
+        raw = raw.replace("```json", "").replace("```", "").strip()
 
-    if attention_score > 0.7:
-        stance = "high_attention"
-    elif attention_score > 0.4:
-        stance = "uncertain_monitoring"
-    else:
-        stance = "stable_context"
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            failures.append(f"{provider_name}: model output was not valid JSON: {exc}")
+            continue
 
-    # Phase transition recommendation. This is advisory for the caller
-    # (e.g. a future response-generation layer) -- run_judgment itself
-    # doesn't mutate state.
-    next_phase = None
-    current_phase = getattr(state, "phase", "prepare") if state is not None else "prepare"
+        try:
+            return Judgment(**data)
+        except ValidationError as exc:
+            failures.append(f"{provider_name}: model output failed schema validation: {exc}")
+            continue
 
-    if current_phase == "prepare" and interp.surface_complaint:
-        next_phase = "discover"
-    elif current_phase == "discover" and interp.core_question_confidence >= DISCOVER_TO_DISCERN_THRESHOLD:
-        next_phase = "discern"
-    elif current_phase == "discern":
-        signal_count = len(interp.assumptions) + len(interp.biases)
+    raise JudgmentError("All configured LLM providers failed: " + "; ".join(failures))
+
+
+def recommend_phase_transition(state: WorldState) -> Optional[str]:
+    """
+    Deterministic, legacy-compatibility phase recommendation -- NOT part
+    of the Judgment v2 LLM output. Ported from Judgment v1's logic,
+    translated to read off accumulated WorldState fields instead of a
+    single turn's Interpretation (state.assumptions/state.biases are the
+    full accumulated lists, arguably a better signal than one turn's
+    count ever was). Kept deliberately unexpanded: this only decides
+    whether to recommend staying or advancing phase, nothing else.
+
+    Returns None if no transition is recommended.
+    """
+    current_phase = getattr(state, "phase", "prepare")
+
+    if current_phase == "prepare" and state.surface_complaint:
+        return "discover"
+    if current_phase == "discover" and state.core_question_confidence >= DISCOVER_TO_DISCERN_THRESHOLD:
+        return "discern"
+    if current_phase == "discern":
+        signal_count = len(state.assumptions) + len(state.biases)
         if signal_count >= DISCERN_MIN_SIGNALS:
-            next_phase = "discern"  # stays; advancing to challenge is undrafted in the constitution
+            return "discern"  # stays; advancing to challenge is undrafted in the constitution
 
-    return {
-        "dominant_emotion": dominant_emotion.emotion if dominant_emotion else None,
-        "attention_score": attention_score,
-        "stance": stance,
-        "core_question": interp.core_question,
-        "core_question_confidence": interp.core_question_confidence,
-        "assumptions_surfaced": len(interp.assumptions),
-        "biases_surfaced": len(interp.biases),
-        "current_phase": current_phase,
-        "recommended_next_phase": next_phase,
-    }
+    return None

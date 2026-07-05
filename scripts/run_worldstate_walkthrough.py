@@ -1,14 +1,19 @@
 """
 End-to-end WorldState walkthrough: runs a fixed, realistic 8-10 turn
-conversation through the REAL pipeline (run_interpretation -> run_judgment
--> update_state), rendering WorldState after every turn.
+conversation through the REAL pipeline (run_interpretation -> update_state
+-> run_judgment), rendering WorldState and the Judgment assessment after
+every turn.
 
 Purpose: unlike tests/test_world_state_evolution.py (hand-built
 Interpretation objects, no LLM calls, isolates the State Builder), this
 exercises the whole chain together against a live model, so a human can read
 through the per-turn output and judge whether WorldState reads as an
 increasingly faithful model of the user's world by the final turn -- a
-qualitative call this script doesn't attempt to auto-grade.
+qualitative call this script doesn't attempt to auto-grade. Now also
+exercises Judgment v2, itself an LLM call over WorldState (see
+src/judgment/engine.py) -- read its output for whether the assessment
+(primary_problem, risks, contradictions, ...) tracks the actual WorldState
+content or drifts from it.
 
 Not part of the automated test suite: this makes one real, billable API call
 per turn. Run manually, or via the "WorldState walkthrough" GitHub Actions
@@ -25,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.state_inspector import render
 from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import InterpretationError, run_interpretation
-from src.judgment.engine import run_judgment
+from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 
@@ -57,20 +62,31 @@ def main() -> int:
             interp = run_interpretation(message)
         except InterpretationError as exc:
             failures += 1
-            print(f"[FAIL] turn {i}: {exc}")
+            print(f"[FAIL] turn {i} (interpretation): {exc}")
             continue
 
         analyze_interpretation(interp)
-        judgment = run_judgment(interp, state)
-        print("\n--- JUDGMENT ---")
-        print(judgment)
 
+        # WorldState must be updated with this turn's Interpretation
+        # BEFORE Judgment runs -- Judgment only ever sees WorldState.
         state = update_state(state, interp)
-        if judgment["recommended_next_phase"]:
-            state.phase = judgment["recommended_next_phase"]
+
+        next_phase = recommend_phase_transition(state)
+        if next_phase:
+            state.phase = next_phase
 
         print("\n--- WORLDSTATE AFTER TURN", i, "---")
         render(state)
+
+        try:
+            judgment = run_judgment(state)
+        except JudgmentError as exc:
+            failures += 1
+            print(f"[FAIL] turn {i} (judgment): {exc}")
+            continue
+
+        print("\n--- JUDGMENT ---")
+        print(judgment.model_dump())
 
     print(f"\n{'=' * 70}\nDone: {len(TRANSCRIPT) - failures}/{len(TRANSCRIPT)} turns succeeded.")
     print("Read through the WORLDSTATE output above turn by turn: does it read as an")

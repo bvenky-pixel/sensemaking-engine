@@ -14,7 +14,7 @@ from src.interpretation.debug import analyze_interpretation
 from src.interpretation.engine import run_interpretation
 from src.state.builder import update_state
 from src.state.world_state import WorldState
-from src.judgment.engine import run_judgment
+from src.judgment.engine import recommend_phase_transition, run_judgment
 
 
 DIVIDER = "=" * 50
@@ -49,25 +49,28 @@ def run(model: str) -> None:
         try:
             # 1. Interpretation (LLM)
             interp = run_interpretation(message)
-
             analyze_interpretation(interp)
 
-            judgment = run_judgment(interp, state)
-
-            print("\n--- JUDGMENT ---")
-            print(judgment)
-
+            # 2. State Builder -- WorldState must be updated with this
+            # turn's Interpretation BEFORE Judgment runs, since Judgment
+            # only ever sees WorldState (never the raw Interpretation).
             state = update_state(state, interp)
 
-            if judgment["recommended_next_phase"]:
-                state.phase = judgment["recommended_next_phase"]
+            next_phase = recommend_phase_transition(state)
+            if next_phase:
+                state.phase = next_phase
 
-            # 3. Debug view
+            # 3. Judgment (LLM, over the now-updated WorldState)
+            judgment = run_judgment(state)
+
             print("\n--- INTERPRETATION ---")
             print(interp.model_dump())
 
             print("\n--- STATE ---")
             render(state)
+
+            print("\n--- JUDGMENT ---")
+            print(judgment.model_dump())
 
             print(DIVIDER)
 

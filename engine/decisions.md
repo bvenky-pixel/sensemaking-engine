@@ -1077,3 +1077,75 @@ process (spec update -> migration doc -> prompt/code), the same discipline
 already applied to every prior version. Next: Judgment v2, informed by
 whichever Interpretation v1.1 fields (if any) get approved from the
 proposal.
+
+**2026-07-05 — Judgment v2 implemented as an LLM call over WorldState**
+
+User supplied `engine/specs/judgment-specification-v2.md`, checked in
+verbatim (matching precedent -- scope decisions live here, not in the spec
+file). Before implementing, traced the spec against the actual codebase
+and surfaced five real gaps/forks, resolved as follows:
+
+1. **Input is WorldState only.** No urgency/emotion pass-through from
+   Interpretation -- WorldState v1 doesn't track either today. If they
+   matter later, they become part of WorldState first, not a side-channel
+   into Judgment.
+2. **`resolved_since_last_turn` and `trajectory` removed from the v2
+   schema entirely** (not deferred-in-place, actually dropped from
+   `src/judgment/schema.py`). Both need a delta against a previous
+   WorldState/Judgment; a single snapshot can't supply one, and WorldState
+   v1 deliberately has no turn numbers or retained transition history.
+   Add back once WorldState v1.1/v1.2 supplies that signal.
+3. **`phase` stays, but as legacy-only, deterministic, and explicitly NOT
+   part of Judgment's LLM output.** `recommend_phase_transition()` in
+   `src/judgment/engine.py` is a separate pure function, ported unchanged
+   from Judgment v1's thresholds (`DISCOVER_TO_DISCERN_THRESHOLD`,
+   `DISCERN_MIN_SIGNALS`), reading `state.core_question_confidence` /
+   `state.surface_complaint` / `state.assumptions` / `state.biases`
+   instead of a single turn's Interpretation. Its long-term owner is the
+   future Planner, per direct instruction -- not expanded here.
+4. **Supporting evidence is content-based (direct quotes/paraphrases of
+   WorldState content), not ID-based** -- WorldState objects have no
+   stable IDs yet (deferred to v1.1). Migrate once IDs exist.
+5. **Judgment is a full LLM call, not a rule engine or a hybrid** --
+   explicit, direct instruction, overriding the hybrid option this session
+   proposed. Every field, including ones that look like plain filters
+   (`open_unknowns`, `active_decisions`), comes from one structured-output
+   call over the serialized WorldState. Deliberate simplicity: one call,
+   one schema.
+
+**New files**: `src/judgment/schema.py` (the `Judgment` Pydantic model),
+`src/judgment/prompt.py` (system prompt generated from the spec, same
+schema-first discipline as `src/interpretation/prompt.py`),
+`src/judgment/providers.py` (OpenRouter-primary/Ollama-fallback, same
+mechanics and env vars as `src/interpretation/providers.py` --
+deliberately DUPLICATED rather than imported, same reasoning as
+`src/state/builder.py`'s duplicated `_word_overlap`: avoids any
+dependency on/risk to frozen `interpretation/*` for what's otherwise
+generic HTTP plumbing). `src/judgment/engine.py` rewritten: `run_judgment`
+is now `run_judgment(state: WorldState) -> Judgment`, an LLM call using
+the same json_object + schema-hint pattern already proven for the
+Interpretation OpenRouter path (not strict json_schema mode -- same
+`additionalProperties` issue would apply here too).
+
+**Real correctness fix, not just a rewrite**: `conversation_runner.py` and
+`scripts/run_worldstate_walkthrough.py` both called `run_judgment` BEFORE
+`update_state` under v1 (Judgment read the current turn's Interpretation
+directly, so state being stale didn't matter). Under v2, Judgment only
+ever sees WorldState -- calling it before `update_state` would mean every
+turn's assessment is one turn behind, blind to whatever was just said.
+Both call sites reordered: `update_state` now runs first, `recommend_phase_transition`
+second, `run_judgment` last, against the just-updated state.
+
+**Tests**: `tests/test_judgment_phase_transition.py` covers
+`recommend_phase_transition` directly (deterministic, no LLM call needed).
+`run_judgment` itself is not unit-tested -- it's a live LLM call now, same
+category as `run_interpretation`; exercised via
+`scripts/run_worldstate_walkthrough.py` (updated to print Judgment's
+output after each turn) rather than isolated tests. All 12 tests
+(8 existing + 4 new) pass.
+
+**Not done, not claimed**: Judgment v2 has no calibration history at all
+(unlike Interpretation's grounding filters, tuned over three n=10/n=20
+rounds). Its output should be treated as unvalidated until it's actually
+exercised live and reviewed -- same status Interpretation's OpenRouter
+path was in before its own first live runs.
