@@ -965,3 +965,66 @@ Interpretation's schema.
 **Not done this round, deliberately**: implementing any of the four
 proposed fixes above. Per explicit instruction, this entry is the
 discussion document; next step is confirming which (if any) to build.
+
+**2026-07-05 — Confidence-formatting fix implemented; unknown resolution swapped to word-overlap; contradiction/lifecycle/entity-enrichment fixes explicitly declined**
+
+Direct decision on the four proposed fixes above, after reviewing the live
+10-turn walkthrough transcript:
+
+**Implemented:**
+1. **Confidence-formatting bug** (`src/state/builder.py`): the walkthrough's
+   turn 5 showed a real doubled annotation --
+   `"...situation (confidence=0.5) (confidence=0.50)"` -- because the model
+   sometimes writes its own `(confidence=X)` directly into an Inference's
+   `reading` text, and `update_state` then appended its own canonical one on
+   top. Fixed with `_clean_reading()`, a regex strip of any model-embedded
+   `(confidence=...)` before formatting. Covered by
+   `test_inference_embedded_confidence_annotation_is_stripped`.
+2. **Unknown resolution: substring -> word-overlap.** Replaced the exact
+   substring check in `_reconcile_unknowns` with `_is_resolved_by()`, using
+   a word-overlap scorer (same set-intersection-ratio algorithm as
+   `src/interpretation/engine.py`'s `_word_overlap`, deliberately
+   DUPLICATED rather than imported -- that module is the frozen v1.0
+   Interpretation layer, and this avoids taking any dependency on / risk to
+   frozen code for a one-line algorithm; the two use cases -- grounding a
+   model's own extraction against raw user text, vs. matching two model
+   outputs against each other across turns -- may reasonably diverge later
+   anyway). Threshold (0.5, either direction) is a first cut, NOT
+   empirically calibrated the way Interpretation's own thresholds were
+   (those went through live n=10/n=20 testing) -- revisit once real
+   conversations show whether it's too strict or too loose.
+   `test_unknown_resolution_word_overlap_catches_reordered_phrasing`
+   confirms a real improvement (a reordered-phrasing case the old exact
+   substring check would have missed now resolves correctly).
+   **Explicitly NOT claimed to fix the deep semantic-gap case**
+   ("why HR rejected me" vs "role was frozen" -- no shared content
+   vocabulary) --
+   `test_unknown_resolution_still_misses_deep_semantic_gap_by_design`
+   confirms it still doesn't resolve, deliberately: that gap needs a real
+   signal from a richer Interpretation schema or from Judgment, not a
+   better string-matching trick in the State Builder.
+
+**Explicitly declined, not deferred-as-in-forgotten but deferred-as-in-decided-against-for-now:**
+- Contradiction detection, Goal/Decision lifecycle advancement, and Entity
+  attribute enrichment (gaps 1, 3, 4) all stay as documented gaps. Explicit
+  standing principle from this round, worth keeping for any future work on
+  these: **the State Builder must not compensate for a missing semantic
+  signal with a heuristic.** Word-overlap for unknown resolution was
+  approved because it's a real, if partial, improvement over strictly worse
+  string matching and doesn't pretend to solve semantic understanding it
+  can't do -- but contradiction/lifecycle/entity-attribute detection would
+  require guessing at meaning (is this new fact really the same thing
+  changing state, or a different thing?) that only a richer Interpretation
+  schema or Judgment can legitimately provide. When these are eventually
+  built, they belong in one of those two layers, not as State Builder
+  heuristics.
+- **Cross-tier duplication (the "goal recorded independently as a Fact, a
+  Claim, and a Goal" pattern from the walkthrough) is explicitly NOT
+  considered a modeling problem.** Reversing an earlier framing: this
+  reflects genuinely different epistemic categories (what was observed,
+  what was asserted, what's being pursued), which is the whole point of
+  keeping the tiers separate (see every "never flatten epistemic tiers"
+  entry above). If the rendered output reads as redundant, that's a
+  presentation concern for a future WorldState rendering layer to solve
+  (e.g. grouping/cross-referencing related items across tiers for display),
+  not a reason to collapse the underlying knowledge model.

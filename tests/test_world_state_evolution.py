@@ -17,7 +17,7 @@ a pass; where a gap was found, the test documents the gap instead.
 
 from __future__ import annotations
 
-from src.interpretation.schema import Interpretation
+from src.interpretation.schema import Inference, Interpretation
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 
@@ -120,22 +120,20 @@ def test_contradiction_is_not_detected_known_gap():
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Unknown resolution -- validates the mechanism where it fires,
-# documents fragility where it doesn't
+# Test 3: Unknown resolution -- now word-overlap based (was exact substring;
+# see engine/decisions.md 2026-07-05 fix entry). Validates the improvement,
+# and documents that deep semantic gaps remain out of scope for this layer.
 # ---------------------------------------------------------------------------
-def test_unknown_resolution_fires_on_substring_overlap():
+def test_unknown_resolution_fires_on_high_word_overlap():
     """
-    Validates the mechanism that IS implemented: when a new fact/claim's
-    text has enough literal word overlap with an existing unknown for the
-    substring check in _reconcile_unknowns to fire, the unknown is removed
-    and its content is promoted into Facts.
+    Validates the word-overlap mechanism directly: high shared vocabulary
+    between an existing unknown and a new fact resolves the unknown and
+    promotes its content into Facts.
     """
     state = WorldState()
     state = update_state(state, make_interp(unknowns=["why hr rejected me"]))
     assert [u.content for u in state.unknowns] == ["why hr rejected me"]
 
-    # Worded so the substring check actually fires (existing unknown text
-    # is a literal substring of the new fact).
     state = update_state(
         state, make_interp(observed_facts=["HR gave a reason: why hr rejected me was a frozen headcount."])
     )
@@ -146,27 +144,49 @@ def test_unknown_resolution_fires_on_substring_overlap():
     )
 
 
-def test_unknown_resolution_does_not_fire_on_realistic_paraphrase_known_gap():
+def test_unknown_resolution_word_overlap_catches_reordered_phrasing():
+    """
+    Demonstrates the actual improvement over the old exact-substring check:
+    "Why is HR rejecting applications" is NOT a literal substring of "HR is
+    rejecting applications due to budget cuts." (word order differs -- "why
+    is hr rejecting" vs "hr is rejecting"), so the OLD mechanism would have
+    left this unknown open. The word-overlap check (4 of the unknown's 5
+    words -- is/hr/rejecting/applications -- appear in the fact, 0.8 overlap)
+    correctly resolves it.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(unknowns=["Why is HR rejecting applications"]))
+    state = update_state(
+        state, make_interp(observed_facts=["HR is rejecting applications due to budget cuts."])
+    )
+
+    assert state.unknowns == [], f"expected the unknown to resolve, got {state.unknowns}"
+    assert "Why is HR rejecting applications" in [f.content for f in state.facts]
+
+
+def test_unknown_resolution_still_misses_deep_semantic_gap_by_design():
     """
     ORIGINALLY HOPED FOR (per the request that produced this test): "I
     don't know why HR rejected me" -> "HR said the role was frozen" should
     resolve the unknown.
 
-    ACTUAL, CONFIRMED BEHAVIOR: _reconcile_unknowns only does a literal
-    substring check (either direction) between the unknown's text and new
-    facts/claims. Realistic paraphrasing -- an unknown asking "why" and a
-    fact stating the actual reason in different words -- does not
-    substring-match, so the unknown stays open. This is the exact
-    limitation already flagged in engine/decisions.md and the docstring of
-    _reconcile_unknowns ("too blunt... revisit if it proves too blunt") --
-    this test is the first concrete, reproducible confirmation of it.
+    ACTUAL, CONFIRMED BEHAVIOR, even under the improved word-overlap check:
+    the unknown's content words (reason/rejected/application) and the fact's
+    content words (role/frozen) share almost nothing but stopwords ("hr",
+    "the") -- overlap is well under threshold in both directions, so the
+    unknown stays open. This is intentional, not a leftover bug: per
+    engine/decisions.md "Confirmed gap 2," resolving a genuine semantic gap
+    (a question and its answer sharing no real vocabulary) needs a real
+    signal from a richer Interpretation schema or from Judgment -- the State
+    Builder is explicitly not meant to compensate for that with string
+    heuristics.
     """
     state = WorldState()
     state = update_state(state, make_interp(unknowns=["Why HR rejected the application."]))
     state = update_state(state, make_interp(observed_facts=["HR said the role was frozen."]))
 
     assert len(state.unknowns) == 1, (
-        "confirms the gap: realistic paraphrasing does not resolve the unknown -- "
+        "expected this deep semantic gap to remain open by design -- "
         f"got {[u.content for u in state.unknowns]}"
     )
     assert state.unknowns[0].content == "Why HR rejected the application."
@@ -234,3 +254,37 @@ def test_entity_dedup_works_but_attribute_enrichment_has_no_data_source():
         f"got {matching[0].attributes}"
     )
     assert "Rahul now heads Product." in [f.content for f in state.facts]
+
+
+# ---------------------------------------------------------------------------
+# Bonus: confidence-formatting fix -- validates working behavior
+# ---------------------------------------------------------------------------
+def test_inference_embedded_confidence_annotation_is_stripped():
+    """
+    The 2026-07-05 WorldState walkthrough surfaced a real doubled-annotation
+    case in turn 5: the model wrote its own "(confidence=0.5)" directly into
+    an Inference's `reading` text, and update_state then appended its own
+    canonical one on top, rendering as
+    "...situation (confidence=0.5) (confidence=0.50)". Confirms the fix:
+    any model-embedded confidence annotation is stripped before the
+    canonical one is appended, so exactly one appears.
+    """
+    state = WorldState()
+    state = update_state(
+        state,
+        make_interp(
+            inferences=[
+                Inference(
+                    reading="User's previous concern reflects a misunderstanding of the situation (confidence=0.5)",
+                    confidence=0.5,
+                )
+            ]
+        ),
+    )
+
+    assert len(state.inferences) == 1
+    inference_text = state.inferences[0]
+    assert inference_text.count("(confidence=") == 1, f"expected exactly one annotation, got {inference_text!r}"
+    assert inference_text == (
+        "User's previous concern reflects a misunderstanding of the situation (confidence=0.50)"
+    )
