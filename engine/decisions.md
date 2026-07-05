@@ -1945,3 +1945,55 @@ reviewed, same status every new LLM-call layer on this branch has started
 from. No prompt-tuning, no calibration review, and no evaluation-harness
 integration attempted this round -- those are the natural next steps once
 real output exists to review, not before.
+
+**2026-07-05 — Planner v1 first live exercise: 10-turn walkthrough, 1/10 turns fully succeeded**
+
+Dispatched `worldstate-walkthrough.yml` (now 3 calls/turn with Planner added;
+also fixed this workflow to actually set `CONFIDANT_TRACK_USAGE`, which had
+been silently missing since the workflow was first created -- its
+usage-summary print block had never once fired). Result: 1/10 turns (turn 8)
+made it all the way through Interpretation -> Judgment -> Planner cleanly;
+the rest hit `openrouter/free` failures.
+
+**First real Planner output (turn 8), assessed against the spec's own
+governing laws**: `rationale` genuinely named Judgment's specific
+primary_problem and open_unknowns rather than restating the objective --
+satisfies the spec's "must explicitly reference Judgment" requirement on
+the very first real sample. `assumptions_to_test` stayed empty rather than
+inventing something, matching "sparse by default" holding on a brand-new
+field with zero calibration history. One soft, non-actionable observation:
+`planning_constraints` came back as a verbatim copy of the spec's own four
+example constraints, not something derived from this specific situation --
+worth watching whether that's a one-off or a recurring generic-templating
+pattern once more real samples exist; not enough evidence yet to call it a
+finding.
+
+**Real schema-compliance gap found (turn 4, NOT a provider outage)**:
+Judgment succeeded, but the model serving Planner's call that turn omitted
+the required `resolution_blocker` field entirely -- a genuine Pydantic
+`Field required` validation error, structurally different from every other
+failure this run (all provider/rate-limit/empty-content errors). First
+concrete evidence that a required Planner field can be dropped by the
+underlying model on some turns; logged as an observation, not acted on --
+one occurrence, no pattern yet to justify any prompt or schema change.
+
+**Strongest confirmation yet of the `openrouter/free` model-variance
+caveat**: across the other 8 failed turns, at least 5 differently-named
+underlying free models cycled through 429 rate-limit errors
+(`dolphin-mistral-24b-venice-edition` via Venice, `qwen3-next-80b-a3b-instruct`,
+two different `google/gemma-4-*-it` variants via Google AI Studio and
+Darkbloom) plus repeat `content: null` responses -- 30 calls in one run was
+evidently enough to exhaust several individual free models' own rate
+limits in sequence. Consistent with, not contradicting, every prior
+`openrouter/free` finding this session.
+
+**Usage** (11 successful calls of ~30 attempted): 47,603 total tokens,
+$0.0000 real cost, $0.9567 Fable-5-equivalent cost, 320.9s total latency.
+Per-component: Interpretation 6 calls/28,780 tokens, Judgment 3 calls/11,145
+tokens, Planner 2 calls/7,678 tokens.
+
+**Not done, not claimed**: this is n=1 real Planner sample (turn 8) plus one
+schema-compliance data point (turn 4) -- nowhere near enough to draw any
+calibration conclusion or justify a prompt change. Consistent with the
+"resist tuning until real evidence exists" discipline already applied to
+Judgment: this run is logged as raw observation, not acted on.
