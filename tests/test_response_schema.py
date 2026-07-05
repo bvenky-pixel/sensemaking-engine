@@ -45,3 +45,14 @@ def test_required_fields_are_actually_required(missing_field):
     fields = {k: v for k, v in REQUIRED_FIELDS.items() if k != missing_field}
     with pytest.raises(ValidationError):
         Response(**fields)
+
+
+@pytest.mark.parametrize("empty_value", ["", "   ", "\n\t"])
+def test_empty_or_whitespace_response_text_is_rejected(empty_value):
+    """Regression test: a live Ollama/llama3.2:3b dispatch returned an
+    empty response_text and it passed validation silently -- see
+    engine/decisions.md. response_text is the one artifact the user
+    actually sees, so empty must be rejected, not treated as a valid
+    (if sparse) answer the way empty lists are upstream."""
+    with pytest.raises(ValidationError):
+        Response(**{**REQUIRED_FIELDS, "response_text": empty_value})

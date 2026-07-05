@@ -2293,3 +2293,19 @@ but not fixed in this entry -- reporting first, per standing practice.
 Everything else from this pair of dispatches is encouraging: the one real
 content sample that exists shows Faithful Execution, Grounding, and
 confidence-mirroring all working as the spec intends.
+
+**2026-07-05 — Empty response_text fix implemented**
+
+Direct follow-up on the gap above: added a `field_validator("response_text",
+mode="after")` to `src/response/schema.py` that rejects empty or
+whitespace-only values (`.strip()` check, not just `Field(min_length=1)`,
+so `"   "` is caught too, not only `""`). Same "empty is as useless as
+missing" principle already enforced at the provider-response level in
+`src/llm/providers.py`'s `_extract_message_content` -- now enforced at the
+schema level for the one field where an empty value is never a correct
+sparse answer, unlike upstream layers' empty lists/strings.
+
+New regression test `test_empty_or_whitespace_response_text_is_rejected`
+(3 parametrized cases: `""`, `"   "`, `"\n\t"`) in
+`tests/test_response_schema.py`. All 103 tests across the branch pass
+(100 existing + 3 new).

@@ -16,13 +16,31 @@ reflect the confidence of upstream cognition" and "must never exaggerate
 certainty." It's a faithful carry-through of how confident Judgment and
 Planner already are, expressed as a single number, not a fresh judgment
 about the situation.
+
+`response_text` rejects empty/whitespace-only values (mode="after"
+validator, not just Field(min_length=1) -- so "   " is caught too, not
+just ""). Found via a live Ollama/llama3.2:3b dispatch: the model
+returned an empty string and it passed validation silently, even though
+an empty response is a hard failure for this layer specifically -- unlike
+every upstream layer, where an empty list/string is often the CORRECT
+sparse answer, response_text is the ONE artifact the user actually sees,
+so "validated" must mean "usable," not just "present." Same "empty is as
+useless as missing" principle already enforced at the provider level in
+src/llm/providers.py's _extract_message_content.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Response(BaseModel):
     response_text: str
     confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("response_text", mode="after")
+    @classmethod
+    def _reject_empty_response_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("response_text must not be empty or whitespace-only")
+        return value
