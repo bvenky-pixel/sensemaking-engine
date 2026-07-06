@@ -2309,3 +2309,73 @@ New regression test `test_empty_or_whitespace_response_text_is_rejected`
 (3 parametrized cases: `""`, `"   "`, `"\n\t"`) in
 `tests/test_response_schema.py`. All 103 tests across the branch pass
 (100 existing + 3 new).
+
+**2026-07-05 — System Architecture v2 design review (review only, no code changed)**
+
+User declared the Sensemaking Engine v1 (Interpretation -> WorldState ->
+Judgment -> Planner -> Response Generator) formally frozen, and proposed
+a four-process System Architecture v2 (Orchestrator, Instrumentation,
+Learning, Executor) to operate/observe/improve/externalize it -- distinct
+from the Sensemaking Engine in that it reasons about Confidant's own
+operation, never about the user's world. Asked for a review, not an
+implementation: are four processes sufficient, does each have exactly
+one responsibility, is anything mis-assigned, is anything actually
+Sensemaking Engine work, and are there genuine missing system-level
+responsibilities (excluding infra concerns and speculative AI modules).
+
+Full review written to `engine/specs/system-architecture-v2-review.md`.
+Headline findings:
+
+1. **Executor / Response Generator overlap**: both are described as
+   "generating user-facing artifacts." Recommended tightening Executor's
+   contract to explicitly exclude the live conversational reply
+   (Response Generator's job) -- Executor's job is materializing
+   completed sensemaking into artifacts consumed OUTSIDE the live turn
+   (Clarity Briefs, email drafts, reminders).
+2. **Executor's "never reasons" claim doesn't hold yet structurally**:
+   for it to be true, something has to already decide what a Clarity
+   Brief should contain/accomplish, the same way Planner already decides
+   the complete plan Response Generator merely renders. Planner v1
+   (frozen) has no notion of an artifact-shaped objective yet.
+   Recommended: extend Planner (still inside the Sensemaking Engine) to
+   produce plans for non-conversational artifacts too, rather than
+   inventing a new component or letting Executor quietly reason.
+3. **Orchestrator's "selecting models"/"managing retries" needs an
+   altitude clarification**: `src/llm/providers.py`'s
+   `resolve_provider_chain`/`call_provider` already handles call-level
+   provider selection and retry-on-failure as shared plumbing underneath
+   every cognitive layer. Recommended Orchestrator's remit be stated as
+   interaction-level POLICY (which model tier for this interaction;
+   whether to retry/skip/fall back at the STAGE level), not a
+   restatement of the call-level HTTP mechanics that already exist.
+4. **Orchestrator's "skip unnecessary computation" risk**: flagged that
+   skip criteria must stay mechanical/structural (e.g. "Interpretation
+   produced no new content, reuse the last Judgment") -- the moment a
+   skip decision requires judging whether a change "matters," that's
+   Judgment's job leaking into Orchestrator.
+5. **Learning: legitimate as a named slot, real sequencing risk if built
+   now.** Recommended Learning exist in the spec with a one-sentence
+   contract but stay unimplemented until Instrumentation has
+   accumulated real operational history -- building "identify durable
+   patterns" logic today, with zero real volume yet, would repeat the
+   exact "invent capability the evidence doesn't support" mistake this
+   codebase has corrected for repeatedly (Judgment's "resist tuning
+   until Planner exists," Planner's own n=1/n=2 restraint). Also flagged
+   that Learning must never write directly into a live WorldState --
+   that would make Learning a de facto sensemaking process, contradicting
+   the stated System Architecture / Sensemaking Engine separation.
+6. **Evaluation explicitly NOT recommended as a fifth component** --
+   despite `src/evaluation/` already doing more than passive measurement
+   (comparative baseline scoring), it's an occasional analysis activity
+   consuming Instrumentation's data, not a continuously-running process;
+   folding it under Instrumentation's existing remit (already drafted:
+   "evaluation logging, benchmarking support") is sufficient, with one
+   added clarification that drawing a CONCLUSION from that data is a
+   human call today / Learning's job later, not Instrumentation's own.
+
+**Status**: review only. No code, schema, or prompt changed. Sensemaking
+Engine v1 remains frozen and untouched. Next step, if this direction is
+approved: write the actual System Architecture v2 specification
+incorporating these four recommendations, following the same
+spec-first-then-implement discipline used for every Sensemaking Engine
+component so far.
