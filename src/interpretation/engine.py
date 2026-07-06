@@ -18,7 +18,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from src.instrumentation.usage import UsageTracker, default_tracker
+from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.interpretation.prompt import build_messages
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.interpretation.schema import Interpretation
@@ -208,6 +208,7 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
 
     raw: Optional[str] = None
     failures = []
+    provider_name: Optional[str] = None
     for provider_name in resolve_provider_chain():
         try:
             raw = call_provider(
@@ -217,6 +218,10 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
             break
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Interpretation", provider=provider_name,
+                outcome="provider_call_error", detail=str(exc),
+            ))
             continue
 
     if raw is None:
@@ -230,12 +235,24 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
+        tracker.record_outcome(AttemptRecord(
+            component="Interpretation", provider=provider_name,
+            outcome="invalid_json", detail=str(exc),
+        ))
         raise InterpretationError(f"Model output was not valid JSON: {exc}", raw_output=raw) from exc
 
     try:
         interp = Interpretation(**data)
     except ValidationError as exc:
+        tracker.record_outcome(AttemptRecord(
+            component="Interpretation", provider=provider_name,
+            outcome="schema_validation_failed", detail=str(exc),
+        ))
         raise InterpretationError(f"Model output failed schema validation: {exc}", raw_output=raw) from exc
+
+    tracker.record_outcome(AttemptRecord(
+        component="Interpretation", provider=provider_name, outcome="success",
+    ))
 
     interp.biases = [
         b for b in interp.biases if _is_evidence_grounded(b.evidence, user_text)

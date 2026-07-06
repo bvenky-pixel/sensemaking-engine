@@ -2466,3 +2466,109 @@ frozen and untouched throughout. Implementation, if and when it happens,
 should follow the same order already used for every Sensemaking Engine
 component: this spec first (done), then build one component at a time,
 starting wherever the user directs.
+
+**2026-07-05 — Instrumentation built first: reliability/schema-validation metrics (first real System Architecture v2 component)**
+
+Explicit ask: build Instrumentation first, since it already had a real
+head start (`src/instrumentation/usage.py`'s `UsageTracker`/`LLMUsage`
+already covered execution tracing/latency/token accounting/cost
+tracking/model usage logging -- five of the ten responsibilities listed
+in `engine/specs/system-architecture-v2-specification.md`).
+
+**Scoped down deliberately, same discipline as every prior "build X"
+task on this branch**: the two clearest, most evidence-backed gaps were
+schema validation metrics and reliability metrics -- both concretely
+motivated by real events this session (the Response Generator empty-
+response_text bug, the turn-4 Planner schema-validation failure, Baseline
+A's list-as-string schema failures) that were only ever visible by
+manually reading CI logs, never captured as structured instrumentation
+data. Did NOT attempt execution tracing (presupposes Orchestrator-level
+sequencing structure that doesn't exist yet -- building it now would be
+inventing capability ahead of the thing it's meant to observe) or
+unifying `src/evaluation/`'s own metrics with this tracker (a separate,
+larger task). Both explicitly deferred, not silently dropped.
+
+**What was added, all in `src/instrumentation/usage.py`**:
+- `AttemptRecord` (component, provider, model, outcome, detail) --
+  `outcome` is one of `success`/`provider_call_error`/`invalid_json`/
+  `schema_validation_failed`. `model` is always `None`: engine.py only
+  ever knows `provider` (the `resolve_provider_chain()` loop variable),
+  never the resolved model string, which is internal to
+  `call_openrouter`/`call_ollama` in `src/llm/providers.py` and never
+  returned to the caller -- same None-honesty rule as
+  reasoning_tokens/cached_tokens, not guessed or backfilled by reading
+  another record out of the tracker.
+- `UsageTracker.outcomes` (parallel to `.records`), `record_outcome()`
+  (same off-by-default gating as `record()`), `outcome_count()`/
+  `outcomes_since()` (mirroring `count()`/`since()` for turn-scoped
+  slicing), `reset()` now clears both lists.
+- `summary()` gained a `reliability` key: attempts/successes/failures/
+  success_rate (None, not 0.0, when there are zero attempts -- "no data"
+  and "confirmed 0% success" are different claims) plus
+  `failures_by_type` and `by_component`/`by_provider` breakdowns,
+  computed independently from `records`/`rs` (an AttemptRecord exists for
+  every provider attempt regardless of whether it produced a usable
+  LLMUsage record, so the two lists are deliberately not reconciled
+  against each other).
+- `print_turn_summary()` gained an optional `outcomes` parameter --
+  when passed, prints a `- Reliability: N/M succeeded (X%)` line per
+  component and in Pipeline Total; omitted entirely (unchanged output)
+  when not passed, so nothing about existing callers broke.
+
+**Wired into all four engine.py files** (Interpretation, Judgment,
+Planner, Response) at their EXISTING decision points -- no control-flow
+change, no new branch, purely additive `tracker.record_outcome(...)`
+calls at the same try/except blocks that were already there. Confirmed
+this holds Instrumentation's own "never changes cognition" contract
+(stated in its own spec section) the same way the original token/cost
+instrumentation phase confirmed byte-identical failure-path output
+before/after.
+
+**Real, useful asymmetry surfaced while wiring, not before**: Judgment,
+Planner, and Response share one loop shape (provider_call_error,
+invalid_json, and schema_validation_failed are all retried across every
+configured provider). Interpretation (frozen v1.0) has a genuinely
+different shape -- it only retries across providers for connection-level
+failures; a JSON-decode or schema-validation failure on the FIRST
+provider that returns raw content raises immediately, with no fallback
+attempt to the next provider. This was already true before this change;
+wiring instrumentation in just made the asymmetry visible and testable
+for the first time (see `tests/test_reliability_instrumentation.py`'s
+docstring) -- not something changed here, and not something this task
+had any reason to change.
+
+**Wired into both pipeline entry points** (`conversation_runner.py`,
+`scripts/run_worldstate_walkthrough.py`): both track `outcome_start =
+tracker.outcome_count()` alongside the existing `turn_start =
+tracker.count()`, and pass `tracker.outcomes_since(outcome_start)` into
+`print_turn_summary`. The walkthrough script's final aggregate summary
+block also gained a Reliability section (overall rate, failures by type,
+per-component rate).
+
+**Tests**: `tests/test_instrumentation.py` gained 10 new tests (
+`AttemptRecord` construction/defaults, `record_outcome`'s off-by-default
+gating, `outcome_count`/`outcomes_since`, `reset()` clearing both lists,
+and `summary()`'s `reliability` section -- counts, None-vs-zero
+success_rate, failures_by_type, by_component/by_provider). New
+`tests/test_reliability_instrumentation.py`, 12 tests, mocking
+`call_provider` at each engine module's own import path (same pattern as
+`tests/test_evaluation_harness.py`) to confirm each of the four engines
+actually calls `record_outcome` at the right point for each of the four
+outcomes -- full coverage for Judgment (representative of the shared
+loop shape) and Interpretation (the distinct shape), lighter
+success+one-failure coverage for Planner/Response since their wiring is
+otherwise identical to Judgment's. One test
+(`test_response_records_schema_validation_failed_outcome_for_empty_text`)
+is a direct regression test confirming the empty-`response_text` bug
+found earlier this session now shows up as a recorded
+`schema_validation_failed` outcome, not a silent gap. All 124 tests
+across the branch pass (103 existing + 21 new).
+
+**Not done, not claimed**: execution tracing, `src/evaluation/`
+unification, and "experiment instrumentation" as a distinct framework
+beyond what `UsageTracker`/`summary()` already provide are all still
+open -- Instrumentation is more complete than before, not finished.
+Sensemaking Engine v1 was not touched in any way that changes its
+behavior or output -- confirmed by the full existing 103-test suite
+passing unchanged plus the explicit byte-identical-failure-path
+reasoning above.

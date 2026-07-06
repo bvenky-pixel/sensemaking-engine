@@ -67,6 +67,7 @@ def main() -> int:
     for i, message in enumerate(TRANSCRIPT, start=1):
         print(f"\n{'=' * 70}\nTURN {i}: {message}\n{'=' * 70}")
         turn_start = tracker.count()
+        outcome_start = tracker.outcome_count()
 
         try:
             interp = run_interpretation(message, tracker=tracker)
@@ -120,7 +121,7 @@ def main() -> int:
         print(f"[confidence={response.confidence}]")
 
         if is_tracking_enabled():
-            print_turn_summary(tracker.since(turn_start))
+            print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
 
     print(f"\n{'=' * 70}\nDone: {len(TRANSCRIPT) - failures}/{len(TRANSCRIPT)} turns succeeded.")
     print("Read through the WORLDSTATE output above turn by turn: does it read as an")
@@ -160,6 +161,24 @@ def main() -> int:
             print(
                 f"  - [{provider}] {stats['calls']} calls, {stats['total_tokens']:,} tokens, "
                 f"{prov_cost_str}"
+            )
+
+        reliability = summary["reliability"]
+        rate = reliability["success_rate"]
+        rate_str = f"{rate:.0%}" if rate is not None else "N/A"
+        print(
+            f"- Reliability: {reliability['successes']}/{reliability['attempts']} "
+            f"attempts succeeded ({rate_str})"
+        )
+        if reliability["failures_by_type"]:
+            for failure_type, count in reliability["failures_by_type"].items():
+                print(f"  - {failure_type}: {count}")
+        for component, stats in reliability["by_component"].items():
+            comp_rate = stats["success_rate"]
+            comp_rate_str = f"{comp_rate:.0%}" if comp_rate is not None else "N/A"
+            print(
+                f"  - {component}: {stats['successes']}/{stats['attempts']} succeeded "
+                f"({comp_rate_str})"
             )
 
     return 1 if failures else 0

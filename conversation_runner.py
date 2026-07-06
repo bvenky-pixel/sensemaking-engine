@@ -51,6 +51,7 @@ def run(model: str) -> None:
         transcript.append(f"User: {message}")
 
         turn_start = tracker.count()
+        outcome_start = tracker.outcome_count()
         try:
             # 1. Interpretation (LLM)
             interp = run_interpretation(message, tracker=tracker)
@@ -96,7 +97,7 @@ def run(model: str) -> None:
             print(f"[confidence={response.confidence}]")
 
             if is_tracking_enabled():
-                print_turn_summary(tracker.since(turn_start))
+                print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
 
             print(DIVIDER)
 

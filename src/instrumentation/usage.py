@@ -28,12 +28,25 @@ provider/model genuinely doesn't expose them (e.g. Ollama, or a non-
 reasoning model) -- NEVER estimated or defaulted to 0, per explicit
 instruction, since 0 would falsely claim "confirmed zero" where the truth
 is "unknown."
+
+RELIABILITY METRICS (System Architecture v2 -- Instrumentation, first
+component built from engine/specs/system-architecture-v2-specification.md):
+`LLMUsage` only ever gets recorded for a call that actually returned
+content (see src/llm/providers.py) -- it says nothing about whether that
+content went on to parse as JSON or validate against the target schema.
+`AttemptRecord`/`record_outcome` fill that gap: every engine.py records
+one outcome per provider attempt (success, provider_call_error,
+invalid_json, or schema_validation_failed), so "how did Confidant
+perform" can finally include "how often did a structured-output attempt
+actually succeed," not just token/cost/latency for the attempts that
+happened to return SOMETHING. Same off-by-default gating as `LLMUsage`;
+same None-honesty rule for `model` (see AttemptRecord below).
 """
 
 from __future__ import annotations
 
 import os
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, Literal, NamedTuple, Optional
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +126,35 @@ def build_usage(
         frontier_cost_comparison_usd=estimate_frontier_costs_usd(prompt_tokens, completion_tokens),
         raw_usage=raw_usage,
     )
+
+
+CallOutcome = Literal["success", "provider_call_error", "invalid_json", "schema_validation_failed"]
+
+
+class AttemptRecord(BaseModel):
+    """
+    One provider attempt's structured-output outcome -- recorded by each
+    engine.py's run_X function at the same decision points it already
+    has (the ProviderCallError/JSONDecodeError/ValidationError catches,
+    and the successful return), never a new decision point of its own.
+    Purely additive: recording an outcome never changes which provider
+    is tried next or what gets returned/raised -- that control flow is
+    unchanged, per Instrumentation's "never changes cognition" contract.
+
+    `model` is None for every AttemptRecord -- engine.py only knows
+    `provider` (the resolve_provider_chain() loop variable); the actual
+    resolved model string is internal to call_openrouter/call_ollama in
+    src/llm/providers.py and never returned to the caller. This is the
+    same None-honesty rule as reasoning_tokens/cached_tokens above:
+    genuinely unknown at this call site, not guessed or backfilled by
+    reading another record out of the tracker.
+    """
+
+    component: str  # e.g. "Interpretation", "Judgment", "Planner", "Response"
+    provider: str  # e.g. "openrouter", "ollama"
+    model: Optional[str] = None
+    outcome: CallOutcome
+    detail: Optional[str] = None  # short failure message; None on success
 
 
 class ParsedUsage(NamedTuple):
@@ -203,13 +245,21 @@ class UsageTracker:
 
     def __init__(self) -> None:
         self.records: List[LLMUsage] = []
+        self.outcomes: List[AttemptRecord] = []
 
     def record(self, usage: LLMUsage) -> None:
         if is_tracking_enabled():
             self.records.append(usage)
 
+    def record_outcome(self, outcome: AttemptRecord) -> None:
+        if is_tracking_enabled():
+            self.outcomes.append(outcome)
+
     def count(self) -> int:
         return len(self.records)
+
+    def outcome_count(self) -> int:
+        return len(self.outcomes)
 
     def since(self, start_index: int) -> List[LLMUsage]:
         """Records added after `start_index` (from a prior .count()) --
@@ -217,10 +267,20 @@ class UsageTracker:
         tracker to know about turn boundaries itself."""
         return self.records[start_index:]
 
+    def outcomes_since(self, start_index: int) -> List[AttemptRecord]:
+        """Same idea as `.since()`, for outcomes -- pair with
+        `.outcome_count()` the same way `.since()` pairs with `.count()`."""
+        return self.outcomes[start_index:]
+
     def reset(self) -> None:
         self.records = []
+        self.outcomes = []
 
-    def summary(self, records: Optional[List[LLMUsage]] = None) -> Dict:
+    def summary(
+        self,
+        records: Optional[List[LLMUsage]] = None,
+        outcomes: Optional[List[AttemptRecord]] = None,
+    ) -> Dict:
         """
         Structured aggregate stats for the given records (defaults to all
         of them) -- returned as a plain dict/number structure (not
@@ -238,8 +298,16 @@ class UsageTracker:
         reports a value, the aggregate sums the ones that did (silently
         treating a record with None for that field as not contributing,
         since "this call didn't expose it" isn't "this call used zero").
+
+        `reliability` is built from `outcomes` (defaults to all of
+        `self.outcomes`), independent of `records`/`rs` above -- an
+        AttemptRecord exists for every provider attempt regardless of
+        whether it produced a usable LLMUsage record, so the two lists
+        are deliberately not the same length or reconciled against each
+        other here (see AttemptRecord's docstring for why).
         """
         rs = self.records if records is None else records
+        os_ = self.outcomes if outcomes is None else outcomes
 
         return {
             "calls": len(rs),
@@ -258,6 +326,7 @@ class UsageTracker:
             "frontier_cost_comparison_usd": _sum_frontier_costs(rs),
             "by_component": _group_by(rs, key=lambda r: r.component),
             "by_provider": _group_by(rs, key=lambda r: r.provider),
+            "reliability": _reliability_summary(os_),
         }
 
 
@@ -278,6 +347,48 @@ def _avg_optional(values) -> Optional[float]:
 
 def _cost_fully_known(records: List[LLMUsage]) -> bool:
     return len(records) > 0 and all(r.estimated_cost_usd is not None for r in records)
+
+
+def _reliability_summary(outcomes: List[AttemptRecord]) -> Dict:
+    """Attempt/success/failure counts overall and per component/provider.
+    `success_rate` is None (not 0.0) when there are zero attempts --
+    "no data" and "confirmed 0% success" are different claims."""
+    attempts = len(outcomes)
+    successes = sum(1 for o in outcomes if o.outcome == "success")
+    failures = attempts - successes
+
+    failures_by_type: Dict[str, int] = {}
+    for o in outcomes:
+        if o.outcome != "success":
+            failures_by_type[o.outcome] = failures_by_type.get(o.outcome, 0) + 1
+
+    return {
+        "attempts": attempts,
+        "successes": successes,
+        "failures": failures,
+        "success_rate": (successes / attempts) if attempts else None,
+        "failures_by_type": failures_by_type,
+        "by_component": _group_outcomes_by(outcomes, key=lambda o: o.component),
+        "by_provider": _group_outcomes_by(outcomes, key=lambda o: o.provider),
+    }
+
+
+def _group_outcomes_by(outcomes: List[AttemptRecord], key) -> Dict[str, Dict]:
+    groups: Dict[str, List[AttemptRecord]] = {}
+    for o in outcomes:
+        groups.setdefault(key(o), []).append(o)
+
+    result: Dict[str, Dict] = {}
+    for group_key, group_outcomes in groups.items():
+        attempts = len(group_outcomes)
+        successes = sum(1 for o in group_outcomes if o.outcome == "success")
+        result[group_key] = {
+            "attempts": attempts,
+            "successes": successes,
+            "failures": attempts - successes,
+            "success_rate": (successes / attempts) if attempts else None,
+        }
+    return result
 
 
 def _sum_frontier_costs(records: List[LLMUsage]) -> Dict[str, float]:
@@ -347,7 +458,9 @@ def _fmt_frontier_costs(costs: Dict[str, float]) -> str:
     return ", ".join(f"{model_id}=${cost:.4f}" for model_id, cost in costs.items())
 
 
-def print_turn_summary(records: List[LLMUsage]) -> None:
+def print_turn_summary(
+    records: List[LLMUsage], outcomes: Optional[List[AttemptRecord]] = None
+) -> None:
     """
     Console output: one block per component (in first-seen order), then a
     Pipeline Total block. Every field that isn't available for a given
@@ -355,6 +468,12 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
     reasoning) prints "N/A", never a guessed or silently-zeroed value.
     No-op if `records` is empty (e.g. tracking disabled, or nothing
     recorded).
+
+    `outcomes`: optional AttemptRecord list (e.g. `tracker.outcomes_since(...)`)
+    -- when given, a "Reliability" line is added per component and to
+    Pipeline Total (attempts/successes/failures). Omitted entirely if not
+    passed, so existing callers that only track LLMUsage keep working
+    unchanged.
     """
     if not records:
         return
@@ -365,6 +484,11 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
         grouped.setdefault(r.component, []).append(r)
         if r.component not in order:
             order.append(r.component)
+
+    outcomes_by_component: Dict[str, List[AttemptRecord]] = {}
+    if outcomes:
+        for o in outcomes:
+            outcomes_by_component.setdefault(o.component, []).append(o)
 
     for component in order:
         crs = grouped[component]
@@ -390,6 +514,8 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
         print(f"- Latency: {latency_s:.1f} s")
         print(f"- Estimated Cost: {_fmt_cost(cost)}")
         print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(frontier_costs)}")
+        if component in outcomes_by_component:
+            print(f"- Reliability: {_fmt_reliability(outcomes_by_component[component])}")
 
     total_prompt = sum(r.prompt_tokens for r in records)
     total_completion = sum(r.completion_tokens for r in records)
@@ -409,3 +535,12 @@ def print_turn_summary(records: List[LLMUsage]) -> None:
     print(f"- Total Cost: {_fmt_cost(total_cost)}")
     print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(total_frontier_costs)}")
     print(f"- Total Latency: {total_latency_s:.1f} s")
+    if outcomes:
+        print(f"- Reliability: {_fmt_reliability(outcomes)}")
+
+
+def _fmt_reliability(outcomes: List[AttemptRecord]) -> str:
+    attempts = len(outcomes)
+    successes = sum(1 for o in outcomes if o.outcome == "success")
+    rate = (successes / attempts * 100) if attempts else 0.0
+    return f"{successes}/{attempts} succeeded ({rate:.0f}%)"

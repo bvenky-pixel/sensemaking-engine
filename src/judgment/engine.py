@@ -29,7 +29,7 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
-from src.instrumentation.usage import UsageTracker, default_tracker
+from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.judgment.prompt import build_messages
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.judgment.schema import Judgment
@@ -89,6 +89,10 @@ def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> J
             )
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Judgment", provider=provider_name,
+                outcome="provider_call_error", detail=str(exc),
+            ))
             continue
 
         raw = raw.replace("```json", "").replace("```", "").strip()
@@ -97,13 +101,26 @@ def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> J
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
             failures.append(f"{provider_name}: model output was not valid JSON: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Judgment", provider=provider_name,
+                outcome="invalid_json", detail=str(exc),
+            ))
             continue
 
         try:
-            return Judgment(**data)
+            result = Judgment(**data)
         except ValidationError as exc:
             failures.append(f"{provider_name}: model output failed schema validation: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Judgment", provider=provider_name,
+                outcome="schema_validation_failed", detail=str(exc),
+            ))
             continue
+
+        tracker.record_outcome(AttemptRecord(
+            component="Judgment", provider=provider_name, outcome="success",
+        ))
+        return result
 
     raise JudgmentError("All configured LLM providers failed: " + "; ".join(failures))
 

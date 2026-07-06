@@ -18,6 +18,7 @@ import pytest
 from src.instrumentation.frontier_pricing import estimate_frontier_costs_usd
 from src.instrumentation.pricing import estimate_cost_usd
 from src.instrumentation.usage import (
+    AttemptRecord,
     LLMUsage,
     ParsedUsage,
     UsageTracker,
@@ -370,3 +371,98 @@ def test_by_component_breakdown_includes_frontier_cost_comparison():
     summary = tracker.summary()
     interp = summary["by_component"]["Interpretation"]
     assert interp["frontier_cost_comparison_usd"]["claude-opus-4-8"] == pytest.approx(5.00)
+
+
+# --- Reliability metrics (AttemptRecord / record_outcome) -- System
+# Architecture v2 Instrumentation, see engine/decisions.md and
+# engine/specs/system-architecture-v2-specification.md ---
+
+
+def test_record_outcome_is_noop_when_tracking_disabled():
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
+    assert tracker.outcomes == []
+
+
+def test_record_outcome_appends_when_tracking_enabled():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
+    assert tracker.outcome_count() == 1
+    assert tracker.outcomes[0].component == "Judgment"
+
+
+def test_attempt_record_model_defaults_to_none():
+    """engine.py never knows the resolved model string -- only
+    src/llm/providers.py does -- so AttemptRecord.model must default to
+    None (genuinely unknown), never a guessed value."""
+    record = AttemptRecord(component="Planner", provider="ollama", outcome="provider_call_error", detail="boom")
+    assert record.model is None
+
+
+def test_outcomes_since_isolates_a_single_turn():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
+    start = tracker.outcome_count()
+    tracker.record_outcome(AttemptRecord(component="Planner", provider="openrouter", outcome="success"))
+    assert len(tracker.outcomes_since(start)) == 1
+    assert tracker.outcomes_since(start)[0].component == "Planner"
+
+
+def test_reset_clears_outcomes_too():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
+    tracker.reset()
+    assert tracker.outcomes == []
+    assert tracker.records == []
+
+
+def test_reliability_summary_counts_and_rate():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="x"))
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="ollama", outcome="success"))
+    tracker.record_outcome(AttemptRecord(component="Planner", provider="openrouter", outcome="schema_validation_failed", detail="y"))
+
+    reliability = tracker.summary()["reliability"]
+    assert reliability["attempts"] == 3
+    assert reliability["successes"] == 1
+    assert reliability["failures"] == 2
+    assert reliability["success_rate"] == pytest.approx(1 / 3)
+    assert reliability["failures_by_type"] == {"provider_call_error": 1, "schema_validation_failed": 1}
+
+
+def test_reliability_success_rate_is_none_not_zero_when_no_attempts():
+    """No data and 'confirmed 0% success' are different claims -- same
+    None-honesty rule as every other optional aggregate in this module."""
+    tracker = UsageTracker()
+    reliability = tracker.summary()["reliability"]
+    assert reliability["attempts"] == 0
+    assert reliability["success_rate"] is None
+
+
+def test_reliability_by_component_and_by_provider_breakdowns():
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="x"))
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="ollama", outcome="success"))
+
+    reliability = tracker.summary()["reliability"]
+    assert reliability["by_component"]["Judgment"] == {
+        "attempts": 2, "successes": 1, "failures": 1, "success_rate": pytest.approx(0.5),
+    }
+    assert reliability["by_provider"]["openrouter"]["successes"] == 0
+    assert reliability["by_provider"]["ollama"]["successes"] == 1
+
+
+def test_reliability_uses_explicit_outcomes_param_over_self_outcomes():
+    """summary(outcomes=...) isolates a slice the same way summary(records=...)
+    already does -- doesn't fall back to self.outcomes when an explicit
+    (even empty) list is passed."""
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    tracker = UsageTracker()
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
+    reliability = tracker.summary(outcomes=[])["reliability"]
+    assert reliability["attempts"] == 0
