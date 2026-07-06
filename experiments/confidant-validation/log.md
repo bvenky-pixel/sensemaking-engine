@@ -425,3 +425,114 @@ Retry count: 0. Estimated cost: $0.0000.
 ### Overall Verdict
 
 **Good.** Strong performance across nearly every dimension, anchored by the most sophisticated Judgment reasoning seen in the dataset so far (the blocker/unknown distinction) and the best Planner/Response pairing to date. Held below "Excellent" because the now-fully-confirmed `supporting_evidence` scope-creep pattern in Judgment remains present in every single test run so far, and the facts/claims tier-blurring recurred again, just in a softer, paraphrased form.
+
+---
+
+## C05 -- Career -- Emotional reasoning
+
+**Timestamp**: 2026-07-06T14:03:43Z - 14:08:06Z
+**Git commit**: `936dc18f93c01613b5e7139650f522d3e173f87e`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28797408507
+**Model / Provider**: Interpretation and Planner fell back to ollama/llama3.2:3b after an openrouter failure each; Judgment and Response both succeeded directly on openrouter/free -- unmodified default configuration
+**Provider fallback**: yes -- Interpretation and Planner each fell back openrouter -> ollama (1/2 each); this is the **first test where Interpretation itself needed the fallback**
+
+### Input
+
+> I feel like everyone else at work is progressing faster than I am.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'high', 'impact_domains': ['professional', 'personal'], 'emotional_signals': [{'emotion': 'anxiety', 'intensity': 0.6, 'confidence': 0.4, 'source': 'inferred'}, {'emotion': 'frustration', 'intensity': 0.5, 'confidence': 0.3, 'source': 'inferred'}], 'surface_complaint': 'I feel like everyone else at work is progressing faster than I am.', 'core_question': 'How can I improve my progress and catch up with my colleagues?', 'core_question_confidence': 0.6, 'observed_facts': ['perceived', "colleagues' success"], 'claims': ['myself', 'others'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': ['what is holding me back'], 'biases': [], 'entities': ['work'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | I feel like everyone else at work is progressing faster than I am.
+core_question            | How can I improve my progress and catch up with my colleagues?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - perceived (status=active)
+                          | - colleagues' success (status=active)
+claims                   | - myself (status=active)
+                          | - others (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - what is holding me back (status=open)
+entities                 | - work (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "Feeling that progress is slower than colleagues' progress.", 'primary_goal': '', 'current_focus': 'Seeking ways to improve progress and catch up with colleagues.', 'key_blockers': ['Unclear what is holding me back'], 'open_unknowns': ['what is holding me back'], 'active_decisions': [], 'contradictions': [], 'risks': ['Unclear what is holding me back may prevent effective improvement efforts.'], 'opportunities': ["Perceived colleagues' success provides a benchmark for improvement."], 'confidence': 0.3, 'supporting_evidence': ['perceived', "colleagues' success", 'myself', 'others', 'what is holding me back', 'I feel like everyone else at work is progressing faster than I am.', 'How can I improve my progress and catch up with my colleagues?']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': '', 'rationale': '["Seeking ways to improve progress and catch up with colleagues."]', 'conversational_strategy': '["Clarify what is holding me back"]', 'resolution_blocker': '["Unclear what is holding me back"]', 'priority_topics': [], 'questions_to_explore': [], 'assumptions_to_test': ['what is holding me back'], 'planning_constraints': [], 'desired_outcome': '', 'temporal_horizon': 'near_term', 'confidence': 0.3}
+```
+
+**Response** (verbatim, user-facing):
+```
+I hear that you feel others at work are progressing faster and you'd like to catch up. To explore what might be holding you back, could you tell me more about any specific challenges, obstacles, or areas where you feel stuck?
+```
+`[confidence=0.3]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | ollama/llama3.2:3b | 42 | 312 | N/A | 354 | 52.3s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Judgment | openrouter/free | 1,954 | 1,516 | 1,505 | 3,470 | 38.5s | 1/1 (100%) |
+| Planner | ollama/llama3.2:3b | 2,857 | 722 | 373 | 3,579 | 81.1s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | openrouter/free | 1,750 | 233 | 206 | 1,983 | 3.1s | 1/1 (100%) |
+| **Pipeline Total** | -- | 6,603 | 2,783 | 2,084 | 9,386 | 174.9s | 4/6 (67%) |
+
+Retry count: 2 (openrouter->ollama fallback for both Interpretation and Planner). Estimated cost: $0.0000. Notably, Interpretation's prompt was only 42 tokens on the ollama attempt that succeeded -- much shorter than every other test's Interpretation prompt (~3,500+ tokens on openrouter), suggesting the fallback path may be sending a materially different/truncated prompt to Ollama, worth checking in `src/llm/providers.py` if this pattern recurs.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 2 | Severely broken: `observed_facts` and `claims` are single-word/fragment content ("perceived", "colleagues' success", "myself", "others") with essentially no propositional meaning -- the worst extraction quality in the dataset so far, a sharp departure from every prior test's complete-sentence facts/claims. `inferences` is empty despite this being an emotional-reasoning-focused test with clear emotional content to interpret. `clarity_score=0.8` is badly miscalibrated against the actual (very poor) quality of what was extracted. Ran on the ollama fallback -- the first test where Interpretation itself needed it. |
+| State quality | 6 | Faithfully mirrors Interpretation's broken output, exactly as WorldState is designed to do -- not a State Builder defect, but the resulting artifact inherits Interpretation's poor quality. |
+| Judgment quality | 6 | Notably resilient: recovered a coherent `primary_problem` and an appropriately low, honest confidence (0.3) despite deeply fragmentary upstream facts/claims -- likely leaning on `surface_complaint`/`core_question` rather than the broken list. Deducted for `supporting_evidence` again absorbing non-fact content (5th consecutive occurrence, now fully systemic across every test run). |
+| Planning quality | 2 | The most broken Planner output in the dataset: `primary_objective` and `desired_outcome` both empty, `questions_to_explore` and `planning_constraints` both empty (matching C03's regression), and three separate fields (`rationale`, `conversational_strategy`, `resolution_blocker`) contain literal stringified-list artifacts (e.g. `'["Clarify what is holding me back"]'`) instead of clean text -- a new failure category beyond C03's mere sparseness. Ran on the ollama fallback. |
+| Response quality | 8 | Surprisingly strong recovery: natural second-person voice, coherent clarifying question, and did not propagate any of Planner's malformed list-string artifacts into the user-facing text. Ran on openrouter (not the fallback), consistent with the pattern that openrouter-served stages hold quality even when fed badly broken input. |
+| Epistemic discipline | 5 | Confidence stayed low and internally consistent (0.6 core question -> 0.3 Judgment -> 0.3 Planner -> 0.3 Response), honest given how little solid information actually existed. But `clarity_score=0.8` badly misrepresents the actual extraction quality -- a concrete calibration failure -- and the recurring evidence-scope/facts-claims issues persist. |
+
+### Failure Analysis
+
+- **Interpretation severely degraded under ollama fallback (most severe finding in the dataset so far)**: `observed_facts`/`claims` reduced to single-word fragments with no real propositional content, and `inferences` empty despite an emotional-reasoning test. This is the first test where Interpretation itself (not just later stages) fell back to ollama, directly confirming the fallback model's weakness extends to the very first pipeline stage, not just downstream reasoning -- and produces the worst output yet when it does.
+- **Planner schema-fidelity defect (new category)**: three fields contain literal stringified-list text (e.g. `'["Clarify what is holding me back"]'`) instead of clean strings, on top of four other fields being empty -- a more severe failure mode than C03's mere sparseness, again on the ollama fallback.
+- **`clarity_score` miscalibration**: Interpretation reports 0.8 despite producing fragment-level, near-meaningless facts/claims -- the self-reported metric doesn't track actual extraction quality here.
+- **Judgment's `supporting_evidence` scope creep (5th consecutive occurrence, fully confirmed)**: again absorbs the unknown, surface_complaint, and core_question alongside the (broken) facts/claims.
+- **Interpretation's fallback prompt was anomalously short (42 tokens)** compared to every other test's ~3,500+ token Interpretation prompt -- worth checking whether the fallback path sends a truncated/different prompt to Ollama if this recurs.
+
+### Success Analysis
+
+- **Judgment showed real resilience**: recovered a coherent `primary_problem` and an honest, appropriately low confidence despite deeply broken upstream facts/claims, suggesting it leans on `surface_complaint`/`core_question` rather than the raw facts/claims list when those are unusable.
+- **Response Generator showed the strongest resilience in this run**: produced a coherent, natural, second-person clarifying question and did not leak any of Planner's malformed artifacts into the user-facing text -- a genuinely good recovery, and notably this stage ran on openrouter rather than the fallback.
+- Confidence stayed low and internally consistent (0.6 -> 0.3 -> 0.3 -> 0.3) throughout -- an honest signal given how little solid information the pipeline actually had.
+- **Strongest, most direct evidence yet for the fallback-quality hypothesis first raised in C03**: this is the first test where Interpretation itself ran on ollama, and it produced the single worst Interpretation output in the dataset. Combined with C01/C03's fallback-stage degradation and C02/C04's clean all-openrouter runs, five tests now consistently show the same pattern: openrouter-served stages hold quality; ollama-fallback-served stages are where breakage concentrates, regardless of which pipeline stage it happens to hit.
+
+### Overall Verdict
+
+**Needs Investigation.** Similar category to C03, but the failure is more foundational this time: the very first pipeline stage (Interpretation) broke down under the ollama fallback, producing near-meaningless fragment-level facts/claims, and the fallback-served Planner introduced a new failure mode (malformed stringified-list content) beyond mere sparseness. The pipeline's downstream resilience -- Judgment and especially Response Generator recovering something coherent despite this -- is a genuine positive and worth noting. But the root cause (the fallback model's reliability under this pipeline's prompting, now implicated in 2 of 5 tests, with a possible truncated-prompt clue in this one) is a concrete, priority investigation area rather than an assumption of isolated bad luck. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+### Category checkpoint: Career (C01-C05) complete
+
+All five Career-category tests are now done. Cross-test patterns confirmed so far, carried forward as context for the remaining 25 tests:
+
+1. **Judgment's `supporting_evidence` absorbs non-fact content in 5/5 tests** -- unknowns, inferences, the core_question, or the surface_complaint keep appearing alongside actual facts/claims. Fully systemic, not incidental.
+2. **Interpretation's `observed_facts`/`claims` show content overlap in 4/5 tests** (C01-C04; less clear-cut in C05 since C05's facts/claims were fragments rather than duplicates) -- ranging from verbatim duplication to paraphrase.
+3. **A clear, repeated correlation between ollama-fallback stages and degraded output**: C02 and C04 (zero fallback, all openrouter) both produced strong Planner/Response quality. C01 and C03 (Planner/Response fell back) showed degraded output at exactly those stages. C05 (Interpretation and Planner fell back) showed the single worst Interpretation output and a new Planner failure mode (stringified-list artifacts) in the dataset. Five tests in, this is a well-evidenced pattern worth flagging as a priority finding, not five separate coincidences.
+4. Positive, consistent findings across the category: `key_blockers` population logic tracks goal/blocker presence sensibly (not arbitrary) across C02-C05; sparse-by-default holds correctly throughout (empty goals/entities/decisions when nothing was stated); confidence mostly stays non-inflating and reasonably calibrated except in C03.
