@@ -536,3 +536,107 @@ All five Career-category tests are now done. Cross-test patterns confirmed so fa
 2. **Interpretation's `observed_facts`/`claims` show content overlap in 4/5 tests** (C01-C04; less clear-cut in C05 since C05's facts/claims were fragments rather than duplicates) -- ranging from verbatim duplication to paraphrase.
 3. **A clear, repeated correlation between ollama-fallback stages and degraded output**: C02 and C04 (zero fallback, all openrouter) both produced strong Planner/Response quality. C01 and C03 (Planner/Response fell back) showed degraded output at exactly those stages. C05 (Interpretation and Planner fell back) showed the single worst Interpretation output and a new Planner failure mode (stringified-list artifacts) in the dataset. Five tests in, this is a well-evidenced pattern worth flagging as a priority finding, not five separate coincidences.
 4. Positive, consistent findings across the category: `key_blockers` population logic tracks goal/blocker presence sensibly (not arbitrary) across C02-C05; sparse-by-default holds correctly throughout (empty goals/entities/decisions when nothing was stated); confidence mostly stays non-inflating and reasonably calibrated except in C03.
+
+---
+
+## R01 -- Relationships -- Perspective taking
+
+**Timestamp**: 2026-07-06T14:29:24Z - 14:33:54Z
+**Git commit**: `c71e09fc6b0fb0cd8c970ed397fc623d07783343`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28799125528
+**Model / Provider**: Interpretation and Response succeeded directly on openrouter/free; Judgment and Planner both fell back to ollama/llama3.2:3b after an openrouter failure each
+**Provider fallback**: yes -- Judgment and Planner each fell back openrouter -> ollama (1/2 each)
+
+### Input
+
+> My partner says I never listen, but I think they're overreacting.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': ['personal'], 'emotional_signals': [{'emotion': 'defensiveness', 'intensity': 0.5, 'confidence': 0.6, 'source': 'inferred'}], 'surface_complaint': 'Partner accuses me of not listening', 'core_question': "How can I address my partner's perception that I don't listen?", 'core_question_confidence': 0.6, 'observed_facts': ['Partner claims user never listens', 'User believes partner is overreacting'], 'claims': ['Partner claims user never listens', 'User believes partner is overreacting'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'Communication gap exists between user and partner', 'confidence': 0.4}], 'unknowns': ['Why does the partner feel unheard?', "What specific instances led to the partner's accusation?"], 'biases': [], 'entities': ['partner'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | Partner accuses me of not listening
+core_question            | How can I address my partner's perception that I don't listen?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | ['Communication gap exists between user and partner (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - Partner claims user never listens (status=active)
+                          | - User believes partner is overreacting (status=active)
+claims                   | - Partner claims user never listens (status=active)
+                          | - User believes partner is overreacting (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - Why does the partner feel unheard? (status=open)
+                          | - What specific instances led to the partner's accusation? (status=open)
+entities                 | - partner (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "How can I address my partner's perception that I don't listen?", 'primary_goal': 'Improve communication with the partner to resolve the issue of not being listened to.', 'current_focus': "Discovering the root cause of the problem and understanding the partner's perspective.", 'key_blockers': ['Communication gap exists between user and partner (confidence=0.40)', 'Partner claims user never listens'], 'open_unknowns': ['Why does the partner feel unheard?', "What specific instances led to the partner's accusation?"], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.6, 'supporting_evidence': []}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'Improve communication with the partner to resolve the issue of not being listened to.', 'rationale': "The primary problem is a communication gap between the user and their partner, which has led to the perception that the user does not listen. To address this, we need to improve communication and understand the partner's perspective.", 'conversational_strategy': 'Open-ended questions and active listening', 'resolution_blocker': 'Communication gap exists between user and partner (confidence=0.40)', 'priority_topics': ['Active listening', 'Open-ended questions'], 'questions_to_explore': [], 'assumptions_to_test': ['Communication gap exists between user and partner (confidence=0.40)', 'Partner claims user never listens'], 'planning_constraints': [], 'desired_outcome': "Improved communication and a better understanding of each other's needs and concerns.", 'temporal_horizon': 'near_term', 'confidence': 0.6}
+```
+
+**Response** (verbatim, user-facing):
+```
+I hear that you feel I'm not listening. Could you share what specific moments or situations led you to feel that way? Also, what would help you feel heard when we talk?
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openrouter/free | 3,555 | 1,579 | 1,556 | 5,134 | 46.3s | 1/1 (100%) |
+| Judgment | ollama/llama3.2:3b | 445 | 148 | N/A | 593 | 55.8s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Planner | ollama/llama3.2:3b | 620 | 216 | N/A | 836 | 44.7s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | openrouter/free | 1,877 | 245 | 241 | 2,122 | 8.5s | 1/1 (100%) |
+| **Pipeline Total** | -- | 6,497 | 2,188 | 1,797 | 8,685 | 155.3s | 4/6 (67%) |
+
+Retry count: 2 (openrouter->ollama fallback for both Judgment and Planner). Estimated cost: $0.0000.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 8 | Strong handling of the targeted capability: both the partner's claim and the user's dismissal ("overreacting") are captured as parallel, unendorsed facts; `core_question` is reframed toward addressing the partner's perception rather than adopting the user's dismissive framing; both `unknowns` explicitly orient toward understanding the partner's experience. Correctly flagged the user's own defensiveness as an emotional signal. Deducted for a 6th-consecutive-test instance of facts/claims duplication (verbatim this time). |
+| State quality | 8 | Clean, faithful mirror; correctly sparse (`goals=[]`, `decisions=[]`). |
+| Judgment quality | 5 | Positive: `current_focus` explicitly names "understanding the partner's perspective." Negative, and new: `primary_goal` is fabricated -- "Improve communication..." doesn't correspond to any entry in WorldState's `goals` (which is empty) -- the first observed instance of Judgment inventing content ungrounded in any upstream field, a genuine sparse-by-default violation. `supporting_evidence` is empty despite clearly relevant facts existing, showing the field's unreliability runs in both directions (over-inclusion in every prior test, omission here). A confidence-annotation string ("(confidence=0.40)") leaks into `key_blockers`, not just `supporting_evidence` as before. Ran on the ollama fallback. |
+| Planning quality | 4 | `questions_to_explore` and `planning_constraints` both empty -- now a confirmed 4/4 correlation with every ollama-fallback Planner run in the dataset (C01, C03, C05, R01), against 2/2 rich outputs from every openrouter-served Planner run (C02, C04). `primary_objective` inherits and compounds Judgment's fabricated goal, framing this turn prematurely as "resolve the issue" rather than "understand both sides" -- though `conversational_strategy` (open-ended questions, active listening) and `desired_outcome`'s genuinely mutual framing ("each other's needs and concerns") partially correct this. |
+| Response quality | 5 | Content is well-targeted (asks for specific instances, asks what would help the partner feel heard), faithfully executing the "active listening" strategy. But a new, subtler voice defect: "I hear that you feel I'm not listening" reads as though Confidant is speaking in the partner's voice to the user, rather than addressing the user directly about their own situation -- a confused-perspective variant of the third-person voice issues seen in C01/C03. |
+| Epistemic discipline | 5 | Judgment's fabricated `primary_goal` is a real, novel sparse-by-default violation not seen in any earlier test. `supporting_evidence` being empty (rather than over-inclusive) shows the field's population logic is broadly unreliable, not just overly permissive. Confidence stayed steady (0.6 throughout) without inflating. Interpretation's handling of the two competing perspectives was epistemically strong. |
+
+### Failure Analysis
+
+- **Judgment fabricates a `primary_goal` ungrounded in WorldState (new, first-observed defect)**: "Improve communication with the partner..." doesn't correspond to any entry in `WorldState.goals`, which is empty -- the first time Judgment has invented content rather than reflecting only what an upstream field actually contains, a direct violation of the sparse-by-default principle this architecture is built on.
+- **Judgment's `supporting_evidence` is empty despite relevant facts existing**: contrasts with the over-inclusion pattern confirmed in every prior test -- suggests this field's population logic is broadly unreliable in both directions, not simply "too permissive."
+- **Response Generator pronoun/voice confusion (new defect)**: "I hear that you feel I'm not listening" reads as Confidant speaking in the partner's voice rather than addressing the user about their own situation -- a subtler, distinct variant of the third-person narration problems seen in C01/C03.
+- **Planner's `questions_to_explore`/`planning_constraints` empty -- now a fully confirmed 4/4 correlation** with ollama-fallback Planner runs (C01, C03, C05, R01), against 2/2 rich outputs whenever Planner stays on openrouter (C02, C04). This is no longer a hypothesis; it's a consistent pattern across every relevant data point so far.
+- **Facts/claims duplication (6th consecutive test, verbatim this time)**: `observed_facts` and `claims` are character-identical again.
+- Minor: the confidence-annotation-embedded-in-string formatting leak (previously only seen in `supporting_evidence`) now also appears in `key_blockers` and `assumptions_to_test`.
+
+### Success Analysis
+
+- **Strong perspective-taking handling in Interpretation, the exact capability this test targets**: both the partner's claim and the user's dismissal are captured as parallel, unendorsed facts rather than the user's framing being adopted uncritically; `core_question` reframes toward understanding the partner rather than validating "they're overreacting"; both `unknowns` explicitly orient toward the partner's experience.
+- Interpretation correctly flagged the user's own defensiveness as an inferred emotional signal -- a subtle, valuable piece of self-aware framing that avoids one-sidedness.
+- Judgment's `current_focus` explicitly names "understanding the partner's perspective."
+- Planner's `desired_outcome` uses genuinely mutual, bilateral language rather than one-sided framing.
+- Response content, despite its voicing defect, asks well-targeted questions oriented at understanding the partner's experience.
+- **The ollama-fallback-Planner-empty-fields pattern is now a fully confirmed, 4-for-4 correlation** -- a genuinely actionable finding about the free-tier fallback path's fitness for planning-quality output.
+
+### Overall Verdict
+
+**Acceptable.** Interpretation handled the targeted capability (perspective taking) well -- a genuine strength, and the clearest positive signal in this run. But two new, first-observed defects emerged: Judgment fabricating a goal ungrounded in any upstream field, and Response Generator's confused pronoun/voice framing -- on top of the now-fully-confirmed formatting-leak and ollama-fallback-quality patterns. Held below "Good" specifically because of the goal-fabrication issue: inventing content not grounded in upstream fields is a more serious category of defect than sparseness or formatting glitches, since it directly contradicts the sparse-by-default principle the whole architecture depends on. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
