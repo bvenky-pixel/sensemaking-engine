@@ -120,3 +120,104 @@ Retry count: 2 (one openrouter->ollama fallback each for Planner and Response). 
 ### Overall Verdict
 
 **Acceptable.** The architecture's core targeted capability -- recognizing missing information and asking rather than jumping to advice -- worked, and epistemic discipline (confidence calibration, evidence/inference separation, no fabrication) was strong. It falls short of "Good" because of one concrete, user-facing defect (Response Generator's third-person voice leak) plus two smaller but real cross-stage inconsistencies (Interpretation's `requires_clarification` flag, Judgment's evidence/unknown blending) that don't break this turn but are worth tracking across the dataset if they recur.
+
+---
+
+## C02 -- Career -- Ambiguity
+
+**Timestamp**: 2026-07-06T08:09:17Z - 08:11:52Z
+**Git commit**: `e3aa0537891c08cbcd5946ff856b14509e508632`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28777225216
+**Model / Provider**: openrouter/free throughout -- unmodified default configuration
+**Provider fallback**: none -- all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> My manager says I'm doing great, but I was passed over for promotion again.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['professional'], 'emotional_signals': [{'emotion': 'disappointment', 'intensity': 0.6, 'confidence': 0.5, 'source': 'inferred'}], 'surface_complaint': 'Manager says performance is good but user was passed over for promotion again.', 'core_question': 'Why was I passed over for promotion despite receiving positive feedback?', 'core_question_confidence': 0.4, 'observed_facts': ['Manager says user is doing great.', 'User was passed over for promotion again.'], 'claims': ['Manager says user is doing great.', 'User was passed over for promotion again.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User may feel undervalued despite positive feedback.', 'confidence': 0.4}, {'reading': 'There is a mismatch between feedback and promotion outcome.', 'confidence': 0.6}], 'unknowns': ['Has the manager given any specific reasons for not promoting the user?', 'What are the promotion criteria or process in this organization?'], 'biases': [], 'entities': ['manager'], 'clarity_score': 0.85, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | Manager says performance is good but user was passed over for promotion again.
+core_question            | Why was I passed over for promotion despite receiving positive feedback?
+core_question_confidence | 0.4
+assumptions              | []
+inferences               | ['User may feel undervalued despite positive feedback. (confidence=0.40)', 'There is a mismatch between feedback and promotion outcome. (confidence=0.60)']
+biases                   | []
+clarity_level            | 0.85
+phase                    | discover
+facts                    | - Manager says user is doing great. (status=active)
+                          | - User was passed over for promotion again. (status=active)
+claims                   | - Manager says user is doing great. (status=active)
+                          | - User was passed over for promotion again. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - Has the manager given any specific reasons for not promoting the user? (status=open)
+                          | - What are the promotion criteria or process in this organization? (status=open)
+entities                 | - manager (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'Mismatch between positive performance feedback and being passed over for promotion.', 'primary_goal': '', 'current_focus': 'investigating the discrepancy between feedback and promotion outcomes', 'key_blockers': [], 'open_unknowns': ['Has the manager given any specific reasons for not promoting the user?', 'What are the promotion criteria or process in this organization?'], 'active_decisions': [], 'contradictions': ['Manager says user is doing great vs User was passed over for promotion again.'], 'risks': [], 'opportunities': [], 'confidence': 0.4, 'supporting_evidence': ['Manager says user is doing great.', 'User was passed over for promotion again.', 'There is a mismatch between feedback and promotion outcome. (confidence=0.60)']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'clarify uncertainty', 'rationale': "Judgment identifies the primary problem as a mismatch between positive feedback and promotion outcome, and lists open unknowns about the manager's specific reasons and promotion criteria; clarifying these uncertainties directly addresses the core discrepancy.", 'conversational_strategy': "ask exploratory questions to uncover the manager's stated reasons and the organization's promotion criteria.", 'resolution_blocker': "missing information about the manager's specific reasons for the promotion decision and the formal promotion criteria/process.", 'priority_topics': ["manager's specific reasons for not promoting", 'promotion criteria and process'], 'questions_to_explore': ['What specific feedback or areas for improvement did the manager mention?', 'What are the documented promotion criteria or steps in this organization?', 'Has the manager indicated any non-performance factors influencing the decision?'], 'assumptions_to_test': ['Positive performance feedback guarantees promotion eligibility.', 'Promotion decisions are based solely on measurable performance metrics.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user with multiple topics', 'focus on one unresolved issue at a time', 'do not assume managerial intent without evidence', 'maintain conversational momentum'], 'desired_outcome': 'user gains clarity about possible reasons for the promotion decision and understands the promotion criteria, enabling them to distinguish feedback from promotion requirements.', 'temporal_horizon': 'immediate', 'confidence': 0.4}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand you've received positive feedback but were passed over for promotion again. To help clarify this, could you tell me what specific feedback or areas for improvement the manager mentioned when discussing the promotion decision?
+```
+`[confidence=0.4]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openrouter/free | 3,560 | 1,624 | 1,582 | 5,184 | 26.3s | 1/1 (100%) |
+| Judgment | openrouter/free | 2,153 | 214 | 0 | 2,367 | 16.0s | 1/1 (100%) |
+| Planner | openrouter/free | 2,349 | 1,182 | 1,189 | 3,531 | 10.0s | 1/1 (100%) |
+| Response | openrouter/free | 2,034 | 337 | 378 | 2,371 | 17.5s | 1/1 (100%) |
+| **Pipeline Total** | -- | 10,096 | 3,357 | 3,149 | 13,453 | 69.9s | 4/4 (100%) |
+
+Retry count: 0 -- no provider fallback needed this run (contrast with C01, where Planner and Response each fell back once). Estimated cost: $0.0000. Notably faster end-to-end than C01 (69.9s vs. 215.2s), consistent with no fallback overhead.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | Emotional signal (disappointment) correctly hedged, confidence-scored, and marked `source: 'inferred'`; `requires_clarification=True` correctly matches the genuine ambiguity. Deducted for `observed_facts` and `claims` containing the exact same two strings duplicated verbatim across both supposedly-distinct tiers, and for labeling the objectively-evident contradiction as a hedged "inference" (confidence=0.6) rather than surfacing it as directly observable -- Judgment has to separately re-derive it as a `contradiction`. |
+| State quality | 8 | Clean, faithful mirror of Interpretation; correctly sparse (`goals=[]`, `decisions=[]`) given nothing was stated. Inherits Interpretation's tier-blurring but adds no defects of its own. |
+| Judgment quality | 8 | Correctly identifies and explicitly flags the contradiction -- the capability this test targets. `key_blockers=[]` is a sound call (no stated goal to be blocked), not sloppiness. Confidence (0.4) stays consistent with Interpretation. Deducted for `supporting_evidence` again absorbing non-fact content (an inference string, confidence annotation included) -- same pattern flagged in C01, now confirmed recurring. |
+| Planning quality | 9 | `desired_outcome` is concretely achievable this turn (contrast with C01's premature, hoped-for-future framing); explicit `planning_constraints` ("preserve user agency," "do not assume managerial intent without evidence," "focus on one unresolved issue at a time") show real, visible restraint; `questions_to_explore` are well-targeted and non-leading. Clear improvement over C01. |
+| Response quality | 9 | Speaks directly to the user in natural second person (fixes C01's third-person voice leak); faithfully executes Planner's first `questions_to_explore` entry; briefly validates the user's situation without overstepping into reassurance or premature advice. |
+| Epistemic discipline | 9 | Confidence stayed at 0.4 consistently from Interpretation through Response (fixes C01's unexplained Response confidence jump); contradiction explicitly flagged rather than silently resolved either direction; emotional inference explicitly marked as inferred, not stated. Minor deduction for the same facts/claims duplication and contradiction-as-inference issues noted above. |
+
+### Failure Analysis
+
+- **Interpretation tier duplication**: `observed_facts` and `claims` contain the identical two strings verbatim -- blurs the epistemic-tier boundary the schema exists to enforce (facts vs. how the user frames them).
+- **Contradiction mislabeled as inference**: the objectively-evident contradiction (positive feedback vs. no promotion) is recorded in Interpretation as a hedged, confidence-scored "inference" (0.6) rather than surfaced directly; Judgment has to separately and correctly re-derive it as a `contradiction`.
+- **Judgment's `supporting_evidence` scope creep (confirmed recurring)**: absorbs an inference string (with its own confidence annotation baked into the text) rather than only observed facts/claims -- the same pattern flagged in C01's entry, now seen in a second, unrelated test. Worth watching as a systemic pattern rather than a one-off.
+
+### Success Analysis
+
+- Correctly detected and explicitly flagged the core contradiction (manager's praise vs. no promotion) -- the exact capability C02 targets.
+- Emotional signal (disappointment) was inferred, confidence-scored, and explicitly marked `source: 'inferred'` rather than stated -- strong epistemic hygiene.
+- `requires_clarification=True` this time, correctly matching the genuine ambiguity and low `core_question_confidence` -- contrasts with C01's questionable `False`, suggesting the flag does respond sensibly when the ambiguity signal is clear.
+- Planner produced a concretely achievable `desired_outcome` and explicit self-imposed `planning_constraints` -- a genuine, visible display of restraint, and a clear step up from C01's Planner output.
+- Response spoke in natural second person, faithfully executed the chosen question, and matched upstream confidence (0.4) exactly -- resolves both defects flagged in C01's Response, suggesting those were run-to-run variance rather than fixed, deterministic bugs.
+- All four stages succeeded on the first attempt (4/4, 100%), no provider fallback needed -- fastest, cleanest run of the experiment so far.
+
+### Overall Verdict
+
+**Good.** Clearly stronger than C01 across planning and response quality, and the core targeted capability (ambiguity/contradiction detection) worked correctly and was explicitly surfaced in Judgment's `contradictions` field. Held back from "Excellent" by the now-twice-confirmed pattern of non-evidence content leaking into Judgment's `supporting_evidence`, plus Interpretation's facts/claims duplication and its mislabeling of the contradiction as a hedged inference.
