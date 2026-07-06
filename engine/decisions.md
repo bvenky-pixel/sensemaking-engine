@@ -2379,3 +2379,48 @@ approved: write the actual System Architecture v2 specification
 incorporating these four recommendations, following the same
 spec-first-then-implement discipline used for every Sensemaking Engine
 component so far.
+
+**2026-07-05 — System Architecture v2 review corrected: Clarity Briefs don't need a Planner extension**
+
+Direct feedback on the review above accepted four of five points as-is
+(Executor/Response Generator wording split, mechanical-orchestration
+restriction, Learning/WorldState boundary, four processes sufficient) and
+rejected one: the recommendation that Planner be extended to produce an
+"artifact plan" so Executor could genuinely never reason about a Clarity
+Brief.
+
+**The counter-argument is correct, and the original recommendation is
+wrong for a specific, nameable reason**: it conflated *per-instance
+content selection* (a runtime judgment call) with *applying a fixed
+template decided once at design time* (not a runtime decision at all). A
+Clarity Brief is governed by a template -- Situation from WorldState,
+Insights from Judgment, Direction from Planner, Unknowns from
+WorldState/Judgment, Decisions from WorldState -- authored once and
+applied uniformly every time, the same way Response Generator's own
+prompt is authored once and applied faithfully every turn. The only
+judgment involved (what a Clarity Brief structurally contains) was made
+once, not freshly per conversation, so Executor rendering it is genuinely
+"expression, not cognition" without any Planner extension. An empty
+section from an empty upstream field is a structural consequence, not a
+fresh decision -- the same "sparse by default" pattern used everywhere
+else in this pipeline.
+
+**Corrected, more general test, replacing the original recommendation**:
+does the artifact need information/decisions that don't already exist in
+WorldState + Judgment + Planner, or does it just reorganize what's
+already there? Reorganizing (a Clarity Brief) needs no Planner extension.
+Genuinely new decisions (the given example: a "90-day action plan"
+needing sequencing/milestones/timeframes none of the three cognitive
+layers currently produce) would legitimately need one -- but no such
+artifact is in scope today, so nothing is extended.
+
+`engine/specs/system-architecture-v2-review.md` updated in place: the
+original recommendation is struck through (not silently deleted) with
+the correction and its reasoning inserted directly after, plus Sections
+2, 4, and the Summary updated to match. This is the first time a review
+document on this branch has been revised post-publication based on
+direct pushback rather than new dispatch data -- logged explicitly, same
+discipline as every other correction in this file.
+
+**Status**: all five review points now agreed. Still review only --
+nothing implemented, Sensemaking Engine v1 remains frozen and untouched.

@@ -6,6 +6,13 @@ touched by this review. This mirrors how the Judgment v2 calibration
 review was handled earlier on this branch: analysis and recommendations
 first, implementation only after explicit confirmation.
 
+**Revision note (post-review discussion)**: Section 1's original
+recommendation to extend Planner so Executor could "never reason" about
+a Clarity Brief was reviewed against direct feedback and corrected --
+see the "Clarity Briefs are formatting, not planning" callout in Section
+1. The original text is struck through and replaced rather than quietly
+edited, so the correction itself is part of the record.
+
 ## Context
 
 The Sensemaking Engine v1 is frozen:
@@ -58,29 +65,61 @@ two blur or duplicate effort.
 conversational reply."* That one clause resolves the overlap without
 adding a component.
 
-**Executor's "never performs reasoning" claim doesn't hold yet,
+~~**Executor's "never performs reasoning" claim doesn't hold yet,
 structurally.** For Response Generator to never reason, Planner must
 already have decided the complete plan (objective, strategy,
 constraints) — Response Generator only renders it. For Executor to
 genuinely never reason about a Clarity Brief, *something* upstream has
 to have already decided what belongs in that brief and what it's trying
-to accomplish. Today, Planner's contract (v1, frozen) is scoped to
-conversational objectives (`primary_objective`, `conversational_strategy`,
-`desired_outcome`, ...) — it has no notion of "produce an artifact-shaped
-objective." Until that exists, Executor either quietly performs its own
-selection/prioritization (reasoning about the user's world — a
-Sensemaking Engine job, violating its own non-goal) or it has nothing to
-render.
+to accomplish. Recommendation: extend Planner to be able to produce a
+plan for non-conversational artifacts too, not just conversational
+replies.**~~ **Corrected below.**
 
-**This is not a missing fifth component — it is a gap in Planner's
-remit.** Recommendation: extend Planner (still inside the Sensemaking
-Engine, since deciding what matters is reasoning about the user's world)
-to be able to produce a plan for non-conversational artifacts too, not
-just conversational replies. Then Executor stays a pure renderer, exactly
-mirroring how Response Generator relates to Planner today.
+### Clarity Briefs are formatting, not planning (correction)
 
-With those two clarifications, four is sufficient. See Section 5 for
-candidate fifth-component ideas considered and rejected.
+The recommendation above was wrong, for a reason worth stating precisely
+rather than just reversing the conclusion. It conflated two different
+things: *selecting content per instance* (a runtime judgment call) and
+*applying a fixed template decided once at design time* (not a runtime
+decision at all).
+
+A Clarity Brief is not a new plan — it is a different rendering of the
+same cognitive state Planner already produced. Planner has already
+answered what the objective is, what blocks progress, and what matters
+next. A Clarity Brief is simply an organized presentation of:
+
+- Situation ← WorldState
+- Key insights ← Judgment
+- Current direction ← Planner
+- Remaining unknowns ← WorldState/Judgment
+- Decisions ← WorldState
+
+Executor doesn't need Planner to produce an "artifact plan." It needs a
+*template* — authored once, applied uniformly every time, the same way
+Response Generator's own prompt is authored once and applied faithfully
+every turn. That template is design-time work, not a runtime reasoning
+act, so Executor rendering it is genuinely "expression, not cognition,"
+exactly like Response Generator: the only judgment involved (what a
+Clarity Brief structurally contains) was made once, not freshly decided
+per conversation. An empty section (e.g., no remaining unknowns) is a
+structural consequence of an upstream field being empty, not a fresh
+decision either — the same "sparse by default" pattern already used
+everywhere else in this pipeline.
+
+**The corrected test, more general than the original recommendation**:
+does the artifact require information or decisions that don't already
+exist in WorldState + Judgment + Planner, or does it just reorganize
+what's already there? A Clarity Brief reorganizes — no Planner extension
+needed. A hypothetical "generate a 90-day action plan" artifact would
+need genuinely NEW decisions (sequencing, milestones, timeframes) that
+none of the three cognitive layers currently produce — *that* would
+legitimately need an upstream extension. Only extend Planner when an
+artifact actually clears that bar; a Clarity Brief does not.
+
+With this correction, Executor's "never reasons" claim holds for any
+artifact governed by a fixed, uniformly-applied template. Four processes
+remain sufficient. See Section 5 for candidate fifth-component ideas
+considered and rejected.
 
 ---
 
@@ -116,9 +155,10 @@ and policy-level decisions; call-level HTTP retry/fallback stays exactly
 where it is today, in the shared provider layer, underneath all four
 system processes and all five sensemaking processes alike.
 
-**Executor**: single responsibility is real once the Planner-extension
-above is resolved; until then it risks a second, hidden responsibility
-(silently deciding artifact content).
+**Executor**: single responsibility holds once its contract is
+explicitly template-driven (see Section 1's correction) — a fixed,
+design-time template per artifact type, applied uniformly, with no
+per-instance content judgment at runtime.
 
 ---
 
@@ -144,12 +184,14 @@ Everything else reviewed is correctly assigned.
 
 ## 4. Is anything here actually part of the Sensemaking Engine?
 
-Only the one piece flagged in Section 1: whatever reasoning decides
-*what a Clarity Brief or artifact should contain and accomplish* is
-Sensemaking Engine work (specifically, an extension of Planner), even
-though it's triggered by Executor's system-level need to produce that
-artifact. The materialization itself (formatting, structuring,
-rendering into the target medium) correctly stays with Executor.
+No, once Section 1's correction is applied. A fixed, design-time
+template (Clarity Brief: Situation/Insights/Direction/Unknowns/Decisions,
+each mapped to a specific upstream field) is not sensemaking work — it's
+the same kind of authored-once contract Response Generator's own prompt
+already is. Sensemaking Engine involvement is only required for an
+artifact that needs genuinely NEW decisions beyond reorganizing
+WorldState/Judgment/Planner content (the 90-day-action-plan example in
+Section 1) — no such artifact is in scope today.
 
 ---
 
@@ -223,15 +265,23 @@ that means for a given conversation, not Learning directly.
 
 ---
 
-## Summary of recommendations
+## Summary of recommendations (post-correction)
 
 Four components, kept as four, with three precision edits rather than
 new architecture:
 
-1. Tighten Executor's contract to explicitly exclude the live
-   conversational reply (Response Generator's job).
-2. Extend Planner (inside the Sensemaking Engine) to produce plans for
-   non-conversational artifacts, so Executor can genuinely never reason.
+1. Tighten Executor's contract: *"materializes completed sensemaking
+   into persistent artifacts or external actions"* — explicitly distinct
+   from Response Generator, which *"materializes sensemaking into the
+   next conversational turn."*
+2. Executor's artifacts (Clarity Briefs, etc.) are governed by a fixed,
+   design-time template mapping WorldState/Judgment/Planner content into
+   sections — authored once, applied uniformly, no per-instance runtime
+   judgment. This is what keeps Executor's "never reasons" claim true,
+   without any Planner extension. Only extend Planner (inside the
+   Sensemaking Engine) if a future artifact needs genuinely NEW decisions
+   the three cognitive layers don't already produce (e.g. a 90-day action
+   plan needing sequencing/milestones) — no such artifact is in scope now.
 3. State explicitly that Orchestrator's model-selection/retry ownership
    is interaction-level policy, not the call-level HTTP plumbing already
    living in the shared provider layer (`src/llm/providers.py`) — and
@@ -254,4 +304,4 @@ Nothing in this document has been implemented. Next step, if this
 direction is approved: write the actual System Architecture v2
 specification (mirroring how `engine/specs/planner-specification-v1.md`
 and `engine/specs/response-generator-specification-v1.md` were written),
-incorporating these four recommendations before any code exists.
+incorporating these recommendations before any code exists.
