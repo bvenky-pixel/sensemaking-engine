@@ -2424,3 +2424,45 @@ discipline as every other correction in this file.
 
 **Status**: all five review points now agreed. Still review only --
 nothing implemented, Sensemaking Engine v1 remains frozen and untouched.
+
+**2026-07-05 — System Architecture v2 specification written (spec only, no code)**
+
+With all five review points agreed, wrote
+`engine/specs/system-architecture-v2-specification.md` -- the actual
+spec, distinct from the review document, incorporating every agreed
+correction directly rather than leaving them as review commentary to be
+reconciled later:
+
+- Orchestrator: model-selection/retry responsibilities explicitly scoped
+  as interaction-level policy and stage-level recovery, distinct from
+  the call-level plumbing already in `src/llm/providers.py`; skip logic
+  explicitly restricted to mechanical/structural triggers.
+- Instrumentation: "evaluation logging"/"benchmarking support" explicitly
+  defined as producing raw comparative material only -- drawing a
+  conclusion from it stays a human call today or Learning's job later,
+  never Instrumentation's own.
+- Learning: named process with a one-sentence contract, explicitly NOT
+  implemented -- a reserved slot, same restraint already applied
+  repeatedly to Judgment and Planner, pending real operational volume to
+  learn from. Explicit non-goal: never writes directly into a live
+  WorldState; outputs feed future Sensemaking Engine runs as external
+  input/config instead.
+- Executor: contract explicitly split from Response Generator ("next
+  conversational turn" vs. "persistent artifacts or external actions"),
+  governed by a fixed, design-time template per artifact type (the
+  Clarity Brief template given as the worked example), with the general
+  test for when an artifact would need a Sensemaking Engine change
+  (reorganizing existing content vs. needing genuinely new decisions)
+  stated explicitly as ongoing guidance, not just a one-off resolution.
+
+Also states the Governing Test ("a new component exists only if it
+answers a system-level question none of the existing components
+should") as a standing rule for any future fifth-component proposal, not
+a one-time judgment already spent.
+
+**Status**: SPEC ONLY. No code, schema, or prompt exists yet for any of
+the four System Architecture processes. Sensemaking Engine v1 remains
+frozen and untouched throughout. Implementation, if and when it happens,
+should follow the same order already used for every Sensemaking Engine
+component: this spec first (done), then build one component at a time,
+starting wherever the user directs.
