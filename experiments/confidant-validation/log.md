@@ -640,3 +640,105 @@ Retry count: 2 (openrouter->ollama fallback for both Judgment and Planner). Esti
 ### Overall Verdict
 
 **Acceptable.** Interpretation handled the targeted capability (perspective taking) well -- a genuine strength, and the clearest positive signal in this run. But two new, first-observed defects emerged: Judgment fabricating a goal ungrounded in any upstream field, and Response Generator's confused pronoun/voice framing -- on top of the now-fully-confirmed formatting-leak and ollama-fallback-quality patterns. Held below "Good" specifically because of the goal-fabrication issue: inventing content not grounded in upstream fields is a more serious category of defect than sparseness or formatting glitches, since it directly contradicts the sparse-by-default principle the whole architecture depends on. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+## R02 -- Relationships -- Assumption detection
+
+**Timestamp**: 2026-07-06T19:03:27Z - 19:07:46Z
+**Git commit**: `9666a0c376a061fd56268df5e09faabaefba29ee`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28816192815
+**Model / Provider**: Interpretation succeeded directly on openrouter/free; Judgment, Planner, and Response ALL fell back to ollama/llama3.2:3b after an openrouter failure each -- the most extensive fallback usage of any test so far (3 of 4 stages)
+**Provider fallback**: yes -- Judgment, Planner, and Response each fell back openrouter -> ollama (1/2 each)
+
+### Input
+
+> My friend hasn't replied in three days. I think they're angry with me.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': ['personal'], 'emotional_signals': [{'emotion': 'concern', 'intensity': 0.6, 'confidence': 0.4, 'source': 'inferred'}], 'surface_complaint': "Friend hasn't replied in three days and I think they're angry.", 'core_question': "Why hasn't my friend responded in three days?", 'core_question_confidence': 0.9, 'observed_facts': ["Friend hasn't replied in three days", 'User believes friend is angry'], 'claims': ["Friend hasn't replied in three days", 'User believes friend is angry'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'Lack of reply suggests friend is angry', 'confidence': 0.6}], 'unknowns': ["Why hasn't the friend replied?", 'Is the friend actually angry?'], 'biases': [], 'entities': ['friend'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | Friend hasn't replied in three days and I think they're angry.
+core_question            | Why hasn't my friend responded in three days?
+core_question_confidence | 0.9
+assumptions              | []
+inferences               | ['Lack of reply suggests friend is angry (confidence=0.60)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - Friend hasn't replied in three days (status=active)
+                          | - User believes friend is angry (status=active)
+claims                   | - Friend hasn't replied in three days (status=active)
+                          | - User believes friend is angry (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - Why hasn't the friend replied? (status=open)
+                          | - Is the friend actually angry? (status=open)
+entities                 | - friend (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "Friend hasn't replied in three days and I think they're angry.", 'primary_goal': "Discover why the friend hasn't replied.", 'current_focus': 'Lack of reply suggests friend is angry (confidence=0.60)', 'key_blockers': [], 'open_unknowns': ["Why hasn't the friend replied?", 'Is the friend actually angry?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.8, 'supporting_evidence': []}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': "Discover why the friend hasn't replied.", 'rationale': "The primary problem is that the friend hasn't replied in three days, and there's a high confidence (0.9) that this suggests they're angry. The current focus is on the inference that lack of reply implies anger, with a confidence level of 0.60. However, there are still open unknowns regarding why the friend hasn't replied or if they're actually angry.", 'conversational_strategy': "Investigate the friend's response to determine the cause of the silence.", 'resolution_blocker': 'Lack of reply suggests friend is angry (confidence=0.60)', 'priority_topics': [], 'questions_to_explore': [], 'assumptions_to_test': [], 'planning_constraints': [], 'desired_outcome': "Discover why the friend hasn't replied and address any underlying issues.", 'temporal_horizon': 'near_term', 'confidence': 0.8}
+```
+
+**Response** (verbatim, user-facing):
+```
+I think your friend might be angry or upset about something. Have you tried reaching out to them again to see if there's a problem?
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openrouter/free | 3,556 | 1,600 | 1,438 | 5,156 | 48.1s | 1/1 (100%) |
+| Judgment | ollama/llama3.2:3b | 445 | 112 | N/A | 557 | 36.4s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Planner | ollama/llama3.2:3b | 582 | 195 | N/A | 777 | 30.2s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | ollama/llama3.2:3b | 2,620 | 477 | 395 | 3,097 | 26.1s | 1/2 (50%, openrouter attempt failed, fell back) |
+| **Pipeline Total** | -- | 7,203 | 2,384 | 1,833 | 9,587 | 140.9s | 4/7 (57%) |
+
+Retry count: 3 (openrouter->ollama fallback for Judgment, Planner, and Response). Estimated cost: $0.0000. Lowest pipeline-total reliability rate recorded in the dataset so far.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 8 | Excellent handling of the targeted capability: "friend is angry" is kept OUT of `observed_facts` (only "user believes friend is angry" is recorded as fact -- an accurate claim about the user's belief, not the friend's actual state); the actual claim lives correctly in `inferences` with a moderate hedge (0.6); `unknowns` explicitly names "Is the friend actually angry?" as unresolved. One of the most textbook-correct epistemic-tier separations in the dataset for exactly the distinction this test probes. Deducted for a 7th-consecutive facts/claims duplication and a `core_question_confidence` of 0.9 that's hard to justify for a question about someone else's motivations that can't be resolved without asking them. |
+| State quality | 8 | Faithful, clean mirror; correctly sparse. |
+| Judgment quality | 4 | Fabricates a `primary_goal` ("Discover why the friend hasn't replied") not grounded in `WorldState.goals` (empty) -- the 2nd consecutive occurrence of this defect (after R01), both times on the ollama fallback, now a confirmed pattern rather than a one-off. `supporting_evidence` is empty for the 2nd consecutive test -- now clearly correlated with which provider served Judgment: every openrouter-served Judgment in the dataset (C01-C05, 5/5) over-includes non-fact content; every ollama-served Judgment (R01, R02, 2/2) returns nothing. Confidence (0.8) looks poorly calibrated given two major unknowns remain fully unresolved -- the 2nd instance of this specific concern (after C03). |
+| Planning quality | 3 | The emptiest Planner output in the dataset: `priority_topics`, `questions_to_explore`, `assumptions_to_test`, AND `planning_constraints` are all empty (previous ollama-fallback Planners left at least one of these populated). `conversational_strategy` ("investigate...to determine the cause") is correctly oriented toward verification rather than premature reassurance -- a sound instinct that never gets operationalized into actual questions. |
+| Response quality | 2 | The most severe, capability-specific failure in the dataset: "I think your friend might be angry or upset about something" actively validates the user's unverified assumption instead of examining it -- directly undoing the exact distinction Interpretation had correctly drawn ("Is the friend actually angry?" as an open unknown). The practical follow-up ("have you tried reaching out again") is reasonable but is offered on top of an unexamined, reinforced assumption rather than inviting the user to question their own read on the situation. |
+| Epistemic discipline | 4 | Interpretation's epistemic-tier handling was excellent, but that discipline was completely undone by the end of the pipeline: confidence inflated to 0.8 despite two unresolved unknowns, and the final Response reinforced the very assumption Interpretation had correctly flagged as unverified. A case of correct upstream reasoning being fully lost by the time it reaches the user. |
+
+### Failure Analysis
+
+- **Response Generator validates the user's unverified assumption instead of examining it (most severe, capability-specific failure in the dataset so far)**: directly contradicts the open unknown ("Is the friend actually angry?") Interpretation itself correctly surfaced -- the first time a Response has actively undone correct upstream epistemic work rather than merely adding no value.
+- **Judgment fabricates a `primary_goal` (2nd consecutive occurrence, now a confirmed recurring pattern)**: both instances (R01, R02) occurred when Judgment ran on the ollama fallback.
+- **Judgment's `supporting_evidence` is empty (2nd consecutive occurrence) -- now clearly provider-correlated, not just "unreliable"**: openrouter-served Judgment over-includes (5/5 in C01-C05); ollama-served Judgment omits entirely (2/2 in R01-R02). Two distinct, opposite failure modes, each tied to which provider actually served the call.
+- **Judgment's confidence (0.8) looks poorly calibrated** given two major open unknowns remain fully unresolved -- the 2nd instance of this specific concern (after C03).
+- **Planner's output is the emptiest recorded**: four fields (`priority_topics`, `questions_to_explore`, `assumptions_to_test`, `planning_constraints`) are all empty in the same output, extending the now-6/6 (counting this test) ollama-fallback-Planner-empty-fields correlation to a near-total field wipeout.
+- Facts/claims duplication recurs a 7th consecutive time (verbatim); the confidence-annotation-embedded-in-string formatting leak recurs, this time in `current_focus`.
+- This run needed 3 fallbacks (Judgment, Planner, Response) -- the most extensive fallback usage of any test so far -- and pipeline reliability (4/7, 57%) is the lowest recorded in the dataset.
+
+### Success Analysis
+
+- **Interpretation handled the targeted capability -- assumption detection -- about as well as anywhere in this dataset**: the assumption itself was kept out of `observed_facts`, correctly hedged as an `inference`, and explicitly re-raised as an open `unknown` naming the exact question this test is designed to probe.
+- Planner's `conversational_strategy` was correctly oriented toward verification rather than premature reassurance, even though it never got operationalized into actual questions.
+- The `supporting_evidence` pattern is now precisely characterized rather than just "unreliable": over-inclusion on openrouter, omission on ollama -- a specific, testable, provider-correlated claim rather than a vague one.
+
+### Overall Verdict
+
+**Needs Investigation.** Interpretation's handling of the targeted capability was arguably the strongest in the dataset for its specific test -- but that careful epistemic work was completely undone by the time it reached the user: Judgment inflated confidence and fabricated a goal, and Response actively validated the very assumption Interpretation had correctly flagged as unverified. Since this test's whole purpose is assumption detection, and the final user-facing output fails that test directly, the run cannot be scored higher despite Interpretation's strength -- a pipeline is only as trustworthy as what actually reaches the user, and here the correct upstream reasoning was overwritten rather than carried through. This run's unusually heavy fallback usage (3 of 4 stages, the most of any test) and lowest-yet pipeline reliability (57%) reinforce the fallback-quality investigation priority raised in C03/C05, and the newly-precise `supporting_evidence` finding (over-inclusion on openrouter vs. omission on ollama) sharpens that investigation's scope. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
