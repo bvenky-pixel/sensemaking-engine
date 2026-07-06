@@ -2572,3 +2572,93 @@ Sensemaking Engine v1 was not touched in any way that changes its
 behavior or output -- confirmed by the full existing 103-test suite
 passing unchanged plus the explicit byte-identical-failure-path
 reasoning above.
+
+**2026-07-05 — Orchestrator built second (System Architecture v2): sequencing extraction, and a real bug fixed**
+
+Explicit ask: build Orchestrator next. Traced
+`engine/specs/system-architecture-v2-specification.md`'s Orchestrator
+section against the actual codebase before writing anything, same
+discipline as every other component.
+
+**Real gap found, not invented**: "which Sensemaking Engine processes
+execute, in what order" was never owned by any shared module -- it was
+duplicated inline in two driver scripts, `conversation_runner.py` and
+`scripts/run_worldstate_walkthrough.py`, each with its own ad hoc
+try/except sequencing. Building Orchestrator meant extracting this
+already-working coordination logic into one tested module, not inventing
+new behavior.
+
+**Real bug found while doing that extraction**: `conversation_runner.py`
+wrapped the entire turn (Interpretation through Response Generator) in
+one try/except, and on ANY exception printed "State unchanged." This was
+FALSE whenever Judgment, Planner, or Response Generator failed --
+`state = update_state(state, interp)` had already executed and mutated
+the local variable by that point, so WorldState genuinely HAD changed,
+but the user was told otherwise. This was pure luck-of-control-flow, not
+a deliberate design -- Python doesn't roll back a local variable
+assignment on a later exception, so the state update silently survived
+while the print statement lied about it.
+
+**Scoped down deliberately, same discipline as Instrumentation's build**:
+built sequencing/coordination + accurate stage-level failure reporting
+only. Explicitly NOT built, named in the spec but deferred:
+- "Skipping unnecessary computation" -- no evidence yet this optimization
+  is needed, and the spec's own restriction (skip logic must stay
+  mechanical/structural, never semantic) means a real trigger design is
+  needed first, not a guess.
+- "Selecting models" as interaction-level policy -- no criteria for
+  "higher-stakes interaction" exists anywhere in this codebase; inventing
+  one now would be exactly the kind of ungrounded capability this project
+  avoids building ahead of evidence.
+- "Managing retries" beyond stage-level stop-and-report -- no evidence
+  retrying a whole failed STAGE (as opposed to the call-level provider
+  fallback each engine already does via `src/llm/providers.py`) would
+  help; that call-level chain stays exactly where the spec says it
+  should, untouched.
+
+**New package `src/orchestrator/`**: `schema.py` (`TurnResult` --
+`state` always present and accurate, `interpretation`/`judgment`/
+`planner`/`response` each `Optional`, populated for exactly the stages
+that completed; `failed_stage`/`error` describing where a turn stopped,
+both `None` on full success). Deliberately no `prompt.py` -- unlike every
+Sensemaking Engine component, Orchestrator makes no LLM call of its own;
+it only coordinates calls to the five that do. `engine.py`
+(`run_turn(message, state, tracker=None) -> TurnResult`) implements the
+fixed Interpretation -> WorldState update/phase -> Judgment -> Planner ->
+Response Generator sequence -- the only order the Sensemaking Engine
+spec supports today -- and NEVER RAISES: every stage failure becomes
+data (a returned `TurnResult`), not an exception the caller has to catch.
+
+**Both driver scripts refactored to delegate to `run_turn`** rather than
+duplicating the sequencing themselves:
+- `conversation_runner.py`: now prints only the stages that actually
+  completed (previously: any failure meant NOTHING printed except a raw
+  exception, even if Interpretation/Judgment/Planner had all genuinely
+  succeeded and only Response Generator failed) -- a real usability
+  improvement that falls directly out of TurnResult's design, not a
+  separate change. Kept a broad outer try/except as an explicit backstop
+  for genuinely unexpected bugs (e.g. in `render()`) -- not the primary
+  error path anymore, which is TurnResult; labeled `[Unexpected error]`
+  to keep the two failure classes visually distinct.
+- `scripts/run_worldstate_walkthrough.py`: same per-stage FAIL-message/
+  continue-to-next-turn behavior preserved exactly (verified line by
+  line against the prior version), just sourced from `TurnResult` fields
+  instead of duplicated try/except blocks.
+
+**Tests**: new `tests/test_orchestrator.py`, 6 tests, mocking each
+Sensemaking Engine stage's `run_X` function at
+`src.orchestrator.engine`'s own import path (no real LLM calls). Five
+cover each possible stopping point (full success, and failure at each of
+the four stages) -- the judgment/planner/response failure tests are
+direct regression tests for the state-reporting bug above, each
+asserting `result.state` reflects the real, updated WorldState (contains
+the goal from Interpretation) even though a later stage failed. The
+sixth confirms `run_turn` never raises regardless of which stage fails.
+All 130 tests across the branch pass (124 existing + 6 new).
+
+**Not done, not claimed**: no skip-unnecessary-computation logic, no
+model-tier selection policy, no stage-level retry beyond stop-and-report
+-- all three remain named, unimplemented responsibilities in the spec,
+same status as Learning. Sensemaking Engine v1 was not touched in any way
+that changes its behavior -- confirmed by the full pre-existing 124-test
+suite passing unchanged.

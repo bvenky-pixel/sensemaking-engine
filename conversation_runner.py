@@ -12,12 +12,8 @@ from engine.state_inspector import render
 
 from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
-from src.interpretation.engine import run_interpretation
-from src.planner.engine import run_planner
-from src.response.engine import run_response_generator
-from src.state.builder import update_state
+from src.orchestrator.engine import run_turn
 from src.state.world_state import WorldState
-from src.judgment.engine import recommend_phase_transition, run_judgment
 
 
 DIVIDER = "=" * 50
@@ -52,59 +48,54 @@ def run(model: str) -> None:
 
         turn_start = tracker.count()
         outcome_start = tracker.outcome_count()
+
         try:
-            # 1. Interpretation (LLM)
-            interp = run_interpretation(message, tracker=tracker)
-            analyze_interpretation(interp)
+            # Orchestrator coordinates the fixed Interpretation -> WorldState
+            # -> Judgment -> Planner -> Response Generator sequence and
+            # reports exactly how far the turn got, even on a mid-pipeline
+            # failure -- see src/orchestrator/engine.py. `result.state`
+            # always reflects what's actually true (genuinely unchanged
+            # only if Interpretation itself failed), so state is never lost
+            # or misreported the way it was before Orchestrator existed.
+            result = run_turn(message, state, tracker=tracker)
+            state = result.state
 
-            # 2. State Builder -- WorldState must be updated with this
-            # turn's Interpretation BEFORE Judgment runs, since Judgment
-            # only ever sees WorldState (never the raw Interpretation).
-            state = update_state(state, interp)
+            if result.interpretation:
+                analyze_interpretation(result.interpretation)
+                print("\n--- INTERPRETATION (internal) ---")
+                print(result.interpretation.model_dump())
 
-            next_phase = recommend_phase_transition(state)
-            if next_phase:
-                state.phase = next_phase
+                print("\n--- STATE (internal) ---")
+                render(state)
 
-            # 3. Judgment (LLM, over the now-updated WorldState)
-            judgment = run_judgment(state, tracker=tracker)
+            if result.judgment:
+                print("\n--- JUDGMENT (internal) ---")
+                print(result.judgment.model_dump())
 
-            # 4. Planner (LLM, over WorldState + Judgment -- never the raw
-            # conversation or Interpretation, per the Planner spec's Inputs
-            # section)
-            plan = run_planner(state, judgment, tracker=tracker)
+            if result.planner:
+                print("\n--- PLANNER (internal) ---")
+                print(result.planner.model_dump())
 
-            # 5. Response Generator (LLM, over WorldState + Judgment +
-            # Planner -- never the raw conversation or Interpretation).
-            # This is the only artifact actually meant for the user;
-            # everything above is internal, shown here for inspection.
-            response = run_response_generator(state, judgment, plan, tracker=tracker)
+            if result.response:
+                print("\n--- RESPONSE (user-facing) ---")
+                print(result.response.response_text)
+                print(f"[confidence={result.response.confidence}]")
 
-            print("\n--- INTERPRETATION (internal) ---")
-            print(interp.model_dump())
-
-            print("\n--- STATE (internal) ---")
-            render(state)
-
-            print("\n--- JUDGMENT (internal) ---")
-            print(judgment.model_dump())
-
-            print("\n--- PLANNER (internal) ---")
-            print(plan.model_dump())
-
-            print("\n--- RESPONSE (user-facing) ---")
-            print(response.response_text)
-            print(f"[confidence={response.confidence}]")
+            if result.error:
+                print(f"\n[Error at {result.failed_stage}] {result.error}")
 
             if is_tracking_enabled():
                 print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
 
-            print(DIVIDER)
-
         except Exception as exc:
-            print(f"\n[Error] {exc}")
-            print("State unchanged.")
-            print(DIVIDER)
+            # Backstop only -- every EXPECTED failure mode (a stage's LLM
+            # call failing) is already handled above via TurnResult, never
+            # raised. This catches a genuinely unexpected bug (e.g. in
+            # render() or analyze_interpretation()) so the REPL loop
+            # survives instead of crashing outright.
+            print(f"\n[Unexpected error] {exc}")
+
+        print(DIVIDER)
 
 
 def main() -> None:

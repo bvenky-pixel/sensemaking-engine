@@ -35,11 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.state_inspector import render
 from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
-from src.interpretation.engine import InterpretationError, run_interpretation
-from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
-from src.planner.engine import PlannerError, run_planner
-from src.response.engine import ResponseGeneratorError, run_response_generator
-from src.state.builder import update_state
+from src.orchestrator.engine import run_turn
 from src.state.world_state import WorldState
 
 # Career-decision scenario, deliberately built to exercise: an accumulating
@@ -69,56 +65,47 @@ def main() -> int:
         turn_start = tracker.count()
         outcome_start = tracker.outcome_count()
 
-        try:
-            interp = run_interpretation(message, tracker=tracker)
-        except InterpretationError as exc:
+        # Orchestrator coordinates the fixed pipeline and reports exactly
+        # how far this turn got -- see src/orchestrator/engine.py.
+        # `result.state` always reflects what actually happened, so it's
+        # safe to reassign unconditionally even on a mid-pipeline failure.
+        result = run_turn(message, state, tracker=tracker)
+        state = result.state
+
+        if not result.interpretation:
             failures += 1
-            print(f"[FAIL] turn {i} (interpretation): {exc}")
+            print(f"[FAIL] turn {i} (interpretation): {result.error}")
             continue
 
-        analyze_interpretation(interp)
-
-        # WorldState must be updated with this turn's Interpretation
-        # BEFORE Judgment runs -- Judgment only ever sees WorldState.
-        state = update_state(state, interp)
-
-        next_phase = recommend_phase_transition(state)
-        if next_phase:
-            state.phase = next_phase
+        analyze_interpretation(result.interpretation)
 
         print("\n--- WORLDSTATE AFTER TURN", i, "---")
         render(state)
 
-        try:
-            judgment = run_judgment(state, tracker=tracker)
-        except JudgmentError as exc:
+        if not result.judgment:
             failures += 1
-            print(f"[FAIL] turn {i} (judgment): {exc}")
+            print(f"[FAIL] turn {i} (judgment): {result.error}")
             continue
 
         print("\n--- JUDGMENT ---")
-        print(judgment.model_dump())
+        print(result.judgment.model_dump())
 
-        try:
-            plan = run_planner(state, judgment, tracker=tracker)
-        except PlannerError as exc:
+        if not result.planner:
             failures += 1
-            print(f"[FAIL] turn {i} (planner): {exc}")
+            print(f"[FAIL] turn {i} (planner): {result.error}")
             continue
 
         print("\n--- PLANNER ---")
-        print(plan.model_dump())
+        print(result.planner.model_dump())
 
-        try:
-            response = run_response_generator(state, judgment, plan, tracker=tracker)
-        except ResponseGeneratorError as exc:
+        if not result.response:
             failures += 1
-            print(f"[FAIL] turn {i} (response generator): {exc}")
+            print(f"[FAIL] turn {i} (response generator): {result.error}")
             continue
 
         print("\n--- RESPONSE (user-facing) ---")
-        print(response.response_text)
-        print(f"[confidence={response.confidence}]")
+        print(result.response.response_text)
+        print(f"[confidence={result.response.confidence}]")
 
         if is_tracking_enabled():
             print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
