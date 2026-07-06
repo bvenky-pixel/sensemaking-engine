@@ -2717,3 +2717,75 @@ decision instead of a guess.
 **Status**: three of four System Architecture v2 components now exist
 (Instrumentation, Orchestrator, Learning-as-reserved-slot). Executor
 remains. Sensemaking Engine v1 untouched throughout.
+
+**2026-07-05 — Executor built fourth and last (System Architecture v2): Clarity Brief only, no LLM call**
+
+Scoped to exactly the one worked example the spec itself gives -- the
+Clarity Brief -- not email drafts/reminders/documents, which stay
+named-but-unimplemented (same status as Learning) until a real need for
+one exists.
+
+**Real design decision made explicit, not guessed at call time**: a
+Clarity Brief needs no LLM call at all. Per the corrected review
+(`engine/specs/system-architecture-v2-review.md`'s "Clarity Briefs are
+formatting, not planning" section), the brief is a FIXED, design-time
+template mapping WorldState/Judgment/Planner content into named
+sections -- reorganizing already-decided content, not generating new
+language or making a new judgment call. `build_clarity_brief` is
+therefore plain, deterministic field mapping (the same category of thing
+`engine/state_inspector.py`'s `render()` already does for WorldState),
+not a prompt+schema+engine trio. No `prompt.py` in this package -- the
+first System Architecture v2 component (alongside Orchestrator) to make
+this explicit in its own structure, not just its docstring.
+
+**Field mapping, stated for the record so it's a reviewable design
+choice, not an implicit guess**:
+- `situation` <- `WorldState.surface_complaint`
+- `key_insights` <- `Judgment.primary_problem` + `Judgment.risks` +
+  `Judgment.opportunities` (the assessed MEANING, not a WorldState
+  restatement)
+- `current_direction` <- `Planner.desired_outcome` (Planner's own
+  forward-facing field, the closest existing concept to "direction")
+- `remaining_unknowns` <- `Judgment.open_unknowns` (the already-curated
+  subset of WorldState's unknowns Judgment determined materially
+  relevant -- using this instead of raw `WorldState.unknowns` avoids
+  re-doing that filtering ourselves, which would itself be a new
+  judgment call, not a template)
+- `decisions` <- `WorldState.decisions` (every currently tracked
+  decision's content, as-is)
+
+Deliberately NOT pulled into the brief: `Judgment.key_blockers`,
+`active_decisions`, `contradictions` -- the mapping is a specific,
+bounded choice, not "everything Judgment/WorldState happen to contain."
+
+**`render_clarity_brief`** produces the actual markdown document (the
+real persistent artifact, not internal JSON) -- an empty section prints
+`"(none)"` rather than a blank heading, so the document always reads as
+complete rather than broken. This is a formatting choice, not a claim
+that something's missing that shouldn't be -- same sparse-by-default
+principle as everywhere else in the pipeline, just applied to a
+human-facing document instead of a JSON field.
+
+**Not wired into `conversation_runner.py` or the walkthrough script**,
+deliberately: a Clarity Brief is explicitly NOT generated every turn the
+way Response Generator's reply is -- there's no established trigger
+criteria yet for when one should be produced (that's an Orchestrator-
+level policy question with no evidence behind it today, same category as
+Orchestrator's deferred "skip unnecessary computation"). Left as a pure
+library function, exercised by tests, until a real invocation need
+exists.
+
+**Tests**: new `tests/test_executor.py`, 4 tests -- confirms the exact
+field mapping above field-by-field, confirms fields deliberately NOT in
+the mapping don't leak in, and confirms `render_clarity_brief` produces
+all five sections and shows `"(none)"` for every section when the
+inputs are empty. All deterministic, no LLM calls (none needed). All 135
+tests across the branch pass (131 existing + 4 new).
+
+**Status: all four System Architecture v2 components now exist.**
+Instrumentation (schema validation + reliability metrics), Orchestrator
+(sequencing + the state-reporting bug fix), Learning (reserved slot,
+confirmed deliberately unimplemented), Executor (Clarity Brief, fixed
+template, no LLM call). Sensemaking Engine v1 was not touched by any of
+the four builds -- confirmed by the full pre-existing test suite passing
+unchanged at every step.
