@@ -221,3 +221,105 @@ Retry count: 0 -- no provider fallback needed this run (contrast with C01, where
 ### Overall Verdict
 
 **Good.** Clearly stronger than C01 across planning and response quality, and the core targeted capability (ambiguity/contradiction detection) worked correctly and was explicitly surfaced in Judgment's `contradictions` field. Held back from "Excellent" by the now-twice-confirmed pattern of non-evidence content leaking into Judgment's `supporting_evidence`, plus Interpretation's facts/claims duplication and its mislabeling of the contradiction as a hedged inference.
+
+---
+
+## C03 -- Career -- Decision making
+
+**Timestamp**: 2026-07-06T10:03:33Z - 10:08:58Z
+**Git commit**: `75bc77450b3bfd701fe196c79ce5166eb1a624c2`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28783643714
+**Model / Provider**: openrouter/free for Interpretation+Judgment; ollama/llama3.2:3b (automatic fallback) for Planner+Response -- unmodified default configuration
+**Provider fallback**: yes -- Planner and Response each fell back openrouter -> ollama after one failed openrouter attempt each
+
+### Input
+
+> I have two job offers and can't decide which one to accept.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['professional'], 'emotional_signals': [{'emotion': 'uncertainty', 'intensity': 0.4, 'confidence': 0.3, 'source': 'inferred'}], 'surface_complaint': 'User has two job offers and cannot decide which to accept.', 'core_question': 'Which job offer should the user accept?', 'core_question_confidence': 0.95, 'observed_facts': ['User has two job offers.', 'User cannot decide which job offer to accept.'], 'claims': ['User has two job offers.', 'User is unable to decide which job offer to accept.'], 'goals': ['Decide which job offer to accept.'], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User is experiencing decision paralysis regarding the job offers.', 'confidence': 0.5}], 'unknowns': ['What are the details (salary, role, location, etc.) of each job offer?', 'What factors are most important to the user in deciding between the offers?'], 'biases': [], 'entities': [], 'clarity_score': 0.9, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User has two job offers and cannot decide which to accept.
+core_question            | Which job offer should the user accept?
+core_question_confidence | 0.95
+assumptions              | []
+inferences               | ['User is experiencing decision paralysis regarding the job offers. (confidence=0.50)']
+biases                   | []
+clarity_level            | 0.9
+phase                    | discover
+facts                    | - User has two job offers. (status=active)
+                          | - User cannot decide which job offer to accept. (status=active)
+claims                   | - User has two job offers. (status=active)
+                          | - User is unable to decide which job offer to accept. (status=active)
+goals                    | - Decide which job offer to accept. (status=active)
+decisions                | []
+unknowns                 | - What are the details (salary, role, location, etc.) of each job offer? (status=open)
+                          | - What factors are most important to the user in deciding between the offers? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User cannot decide which job offer to accept.', 'primary_goal': 'Decide which job offer to accept.', 'current_focus': 'User is experiencing decision paralysis regarding the job offers.', 'key_blockers': ['What are the details (salary, role, location, etc.) of each job offer?', 'What factors are most important to the user in deciding between the offers?'], 'open_unknowns': ['What are the details (salary, role, location, etc.) of each job offer?', 'What factors are most important to the user in deciding between the offers?'], 'active_decisions': [], 'contradictions': [], 'risks': ['Lack of details about salary, role, or location could lead to an uninformed decision.', "Unclear user priorities may result in choosing an offer that doesn't align with their needs."], 'opportunities': ["Clarifying the user's priorities could resolve decision paralysis.", 'Obtaining specific details about each offer could enable a data-driven choice.'], 'confidence': 0.75, 'supporting_evidence': ['User has two job offers.', 'User cannot decide which job offer to accept.', 'What are the details (salary, role, location, etc.) of each job offer?', 'What factors are most important to the user in deciding between the offers?']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'Decide which job offer to accept', 'rationale': "The primary problem is that the user cannot decide which job offer to accept. The current focus is on the user's decision paralysis regarding the job offers. The key blockers are the lack of details about each job offer and the unclear user priorities. The open unknowns include what are the details (salary, role, location, etc.) of each job offer and what factors are most important to the user in deciding between the offers.", 'conversational_strategy': "Clarify the user's priorities and obtain specific details about each job offer", 'resolution_blocker': 'Lack of details about salary, role, or location could lead to an uninformed decision.', 'priority_topics': ['clarify_user_priorities', 'obtain_job_offer_details'], 'questions_to_explore': [], 'assumptions_to_test': ["User's priorities are clear and consistent.", 'Job offer details (salary, role, location, etc.) are available.'], 'planning_constraints': [], 'desired_outcome': 'The user can make a well-informed decision about which job offer to accept', 'temporal_horizon': 'near_term', 'confidence': 0.75}
+```
+
+**Response** (verbatim, user-facing):
+```
+The planner suggests clarifying the user's priorities and obtaining specific details about each job offer to enable a data-driven choice. The primary problem is that the user cannot decide which job offer to accept, and the current focus is on decision paralysis regarding the job offers. The key blockers are the lack of details about each job offer and unclear user priorities. To overcome this, the planner proposes clarifying the user's priorities through conversation and obtaining specific details about each job offer. This approach aims to resolve decision paralysis by providing a clear understanding of the user's needs and preferences.
+```
+`[confidence=0.8]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openrouter/free | 3,557 | 1,525 | 1,460 | 5,082 | 45.7s | 1/1 (100%) |
+| Judgment | openrouter/free | 2,031 | 988 | 811 | 3,019 | 43.0s | 1/1 (100%) |
+| Planner | ollama/llama3.2:3b | 771 | 275 | N/A | 1,046 | 100.9s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | ollama/llama3.2:3b | 1,051 | 138 | N/A | 1,189 | 44.2s | 1/2 (50%, openrouter attempt failed, fell back) |
+| **Pipeline Total** | -- | 7,410 | 2,926 | 2,271 | 10,336 | 233.8s | 4/6 (67%) |
+
+Retry count: 2 (openrouter->ollama fallback for both Planner and Response, same pattern as C01). Estimated cost: $0.0000.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Reasonable fact/goal/unknown extraction; emotional signal appropriately hedged. Deducted for `core_question_confidence=0.95` sitting oddly overconfident given zero entities were extracted and two major unknowns remain fully unaddressed, and for a third-consecutive-test instance of `observed_facts`/`claims` content duplication. |
+| State quality | 7 | Faithful mirror, correctly sparse (`entities=[]`, `decisions=[]`). Inherits Interpretation's inflated confidence and duplication; no defects of its own. |
+| Judgment quality | 5 | Correctly carries the goal forward and correctly populates `key_blockers` (tied to the existing goal -- consistent with C02's correct empty `key_blockers` when no goal existed, a positive, consistent pattern across tests). Correctly leaves `contradictions=[]` since none exist. Deducted for confidence jumping to 0.75 -- notably higher than C01/C02's 0.3-0.4 for a comparably early, unknown-heavy situation -- and for `supporting_evidence` again absorbing the two open unknowns (3rd consecutive occurrence). |
+| Planning quality | 4 | `primary_objective` ("Decide which job offer to accept") prematurely frames the immediate objective as the final decision itself, directly at odds with this same output's own, better-scoped `conversational_strategy` ("clarify priorities and obtain details"). `questions_to_explore` and `planning_constraints` are both empty despite the chosen strategy explicitly calling for exploratory questions -- a sharp regression from C01/C02's populated equivalents, produced on the ollama fallback rather than openrouter. |
+| Response quality | 2 | Severe defect: the response is third-person meta-narration of internal pipeline state ("The planner suggests...", "the planner proposes...") rather than an actual message to the user -- it asks no question at all, despite the Plan's own strategy being to ask about priorities/details. Far more severe than C01's milder third-person opening (which still contained a usable clarifying question); this response is not usable as a reply to a real user. |
+| Epistemic discipline | 4 | Confidence climbs from Interpretation's 0.95 (core question) through Judgment/Planner's 0.75 up to Response's 0.8, even as the two major unknowns remain completely unaddressed and output quality visibly degrades at exactly those two stages -- confidence and quality moved in opposite directions this run, a real epistemic red flag. Facts/claims duplication and unknowns-as-evidence patterns both recur. |
+
+### Failure Analysis
+
+- **Response Generator severe regression (most severe finding across all tests so far)**: the response is pure third-person narration of internal state, contains no message or question directed at the user, and completely fails to execute Planner's own chosen strategy (ask about priorities/offer details). A real user would receive this as a broken, un-actionable reply.
+- **Planner quality drop under ollama fallback**: `questions_to_explore` and `planning_constraints` both empty despite the stated strategy explicitly calling for exploratory questions -- a sharp drop from C01/C02's populated equivalents. This stage ran on ollama/llama3.2:3b (fallback) rather than openrouter/free, same as the Response stage -- both of this run's weakest outputs came from the fallback model, a concrete, testable hypothesis worth investigating rather than assuming coincidence.
+- **Confidence inflation disconnected from resolution**: `core_question_confidence=0.95` in Interpretation despite zero entities extracted and two major unknowns outstanding; Judgment/Planner compound this to 0.75; Response reaches 0.8 -- confidence rose while the two unknowns stayed fully unaddressed and output quality fell, the opposite of what calibrated confidence should do.
+- **Facts/claims duplication (confirmed 3rd occurrence)**: `observed_facts` and `claims` again contain near-duplicate content -- now consistent across all three tests run so far.
+- **Judgment's `supporting_evidence` scope creep (confirmed 3rd occurrence)**: again absorbs the two open unknowns as if they were evidence.
+- **Intra-stage inconsistency in Planner**: `primary_objective` contradicts this same output's own `conversational_strategy` about what this turn should actually accomplish.
+
+### Success Analysis
+
+- Correctly carried the stated goal ("decide which offer") from Interpretation through Judgment's `primary_goal` -- good continuity when a goal is genuinely present.
+- `key_blockers` population continues to track goal presence consistently across tests (populated here where a goal exists; correctly empty in C02 where none did) -- a real, consistent architectural behavior, not arbitrary.
+- No contradiction was fabricated where none existed (`contradictions=[]`) -- correct restraint given this input, unlike C02, had no actual contradiction to surface.
+- Interpretation and Judgment both succeeded on openrouter on the first attempt; the existing fallback mechanism did prevent the turn from failing outright even though it produced markedly weaker output at the two stages that needed it.
+
+### Overall Verdict
+
+**Needs Investigation.** The Response Generator output is not a usable conversational reply at all -- a severe, user-facing failure distinct in kind from (and worse than) C01's milder third-person voice issue -- and Planner's output was visibly thinner than either prior run. Confidence rose across the pipeline even as actual resolution and output quality both fell, which is a real epistemic-discipline concern in its own right. The clean correlation between "ran on the ollama fallback" and "produced the weakest output" at exactly the two affected stages is a concrete, actionable signal worth investigating specifically -- is there a real quality gap between openrouter/free and the local llama3.2:3b fallback under this pipeline, or is this an isolated bad sample? -- before drawing broader conclusions from the rest of the dataset. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
