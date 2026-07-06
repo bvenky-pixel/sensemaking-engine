@@ -2662,3 +2662,58 @@ model-tier selection policy, no stage-level retry beyond stop-and-report
 same status as Learning. Sensemaking Engine v1 was not touched in any way
 that changes its behavior -- confirmed by the full pre-existing 124-test
 suite passing unchanged.
+
+**2026-07-05 — Learning built third (System Architecture v2): reserved slot only, by explicit choice**
+
+Explicit ask: build Learning next. This one needed a check-in first,
+not just tracing the spec against code: the spec's own status for
+Learning already said "deliberately NOT implemented yet... until
+Instrumentation has accumulated enough real operational history to learn
+from" -- a recommendation the user had explicitly agreed with during the
+architecture review. "Build Learning" could reasonably mean the reserved
+slot only, the real prerequisite (persisting Instrumentation data across
+runs so real history can start accumulating), or actually reopening the
+deferral to build real pattern-detection logic despite low data volume.
+Asked directly rather than guessing; answer: reserved slot only,
+confirming the standing caution stands.
+
+**What was built**: `src/learning/__init__.py` -- a real, importable
+module (so the slot exists structurally the same way
+Orchestrator/Instrumentation/Executor do), with the full contract from
+`engine/specs/system-architecture-v2-specification.md` restated in its
+docstring (question answered, responsibilities, the never-writes-to-
+WorldState boundary), and one function, `run_learning(*args, **kwargs)`,
+that raises `NotImplementedError` with the reasoning attached. No
+`schema.py` -- defining a concrete output shape ("what a durable pattern
+or calibration adjustment looks like") before any real data exists to
+justify one would be exactly the same premature-structure mistake this
+codebase avoided with WorldState ("v1, not WorldState Ultimate") and
+Interpretation (five tiers only added once real testing showed a single
+bucket was inadequate, never speculatively upfront).
+
+**Why the stub raises instead of silently no-op-ing**: an explicit,
+informative `NotImplementedError` means anyone (a future session, a
+future contributor) who tries to actually wire Learning in gets stopped
+and pointed at this decision, rather than either an `ImportError` (looks
+broken) or a silent no-op (looks implemented but isn't). This is a
+deliberate design choice for a reserved slot, not an oversight.
+
+**Tests**: new `tests/test_learning.py`, one test, explicitly described
+as a canary rather than coverage -- confirms the stub still raises
+`NotImplementedError`, so if real logic gets added later without
+deliberately revisiting this decision, the test starts failing and
+forces the question instead of passing silently. All 131 tests across
+the branch pass (130 existing + 1 new).
+
+**Concrete path to actually implementing Learning for real, stated for
+the record**: (1) a persistence layer for Instrumentation's
+`AttemptRecord`/`LLMUsage` data across runs -- today `UsageTracker` is
+per-process and nothing writes it to disk, so no later run can see an
+earlier one's data at all; (2) real accumulated volume once that exists;
+(3) only then does replacing this stub (not extending it in place) with
+real pattern-detection logic become a evidence-grounded engineering
+decision instead of a guess.
+
+**Status**: three of four System Architecture v2 components now exist
+(Instrumentation, Orchestrator, Learning-as-reserved-slot). Executor
+remains. Sensemaking Engine v1 untouched throughout.
