@@ -2789,3 +2789,94 @@ confirmed deliberately unimplemented), Executor (Clarity Brief, fixed
 template, no LLM call). Sensemaking Engine v1 was not touched by any of
 the four builds -- confirmed by the full pre-existing test suite passing
 unchanged at every step.
+
+**2026-07-06 — Bug/consistency check of all four components against the spec; one real bug found and fixed; Confidant System Architecture v2 declared FROZEN**
+
+Systematic pass requested directly: check the whole architecture for bugs
+and spec drift, then freeze it. Re-read
+`engine/specs/system-architecture-v2-specification.md` in full (all four
+component sections, the Relationship/Non-Goals/Design Philosophy closing
+sections) and every file built across the four prior entries --
+`src/instrumentation/usage.py`, `src/orchestrator/schema.py` +
+`engine.py`, `src/learning/__init__.py`, `src/executor/schema.py` +
+`engine.py`, both driver scripts (`conversation_runner.py`,
+`scripts/run_worldstate_walkthrough.py`), and the four Sensemaking Engine
+`engine.py` files' `AttemptRecord` call sites (Interpretation, Judgment,
+Planner, Response Generator) -- against the spec, field by field.
+
+**One real bug found**, in `print_turn_summary`
+(`src/instrumentation/usage.py`): the function returned immediately with
+`if not records: return`, and separately built its per-component grouping
+entirely from `records`. Consequence: if every provider attempt for a
+component failed at the call-error stage during a turn (a real, possible
+outcome -- `LLMUsage` is only ever created for a call that returned
+content; see `src/llm/providers.py`), that component would never
+generate an `LLMUsage` record, only `AttemptRecord` failures. Two
+compounding effects: (1) if this happened to be the ONLY component
+touched during a given `print_turn_summary` call, the whole function
+would silently print nothing at all, even though real recorded failure
+data existed in `outcomes`; (2) even once past that guard, a component
+with outcomes but zero records would never appear in the per-component
+loop at all, since `order`/`grouped` were built by iterating `records`
+only. This directly undercut Instrumentation's own contract ("how did
+Confidant perform" -- including *especially* the calls that failed
+outright), and directly contradicts the Instrumentation section's promise
+that reliability metrics close the gap where "a call that returned
+content but failed to parse/validate looked identical to a fully
+successful one" -- a call that never returned content at all was landing
+in an even worse spot: invisible, not just indistinguishable.
+
+**Fix**: guard changed to `if not records and not outcomes: return`;
+`order` is now built from the union of components present in `records`
+and `outcomes` (records first, outcomes-only components appended after,
+preserving first-seen order); a component with no `LLMUsage` record
+prints `"- Provider: N/A (no call returned content)"` instead of its
+token/cost/latency block, then its `Reliability` line as before, driven
+off `outcomes_by_component` exactly as it already was. `Pipeline Total`
+follows the same shape: token/cost fields print only if `records` is
+non-empty (real aggregate data exists), otherwise `"N/A (no call returned
+content)"`, and the `Reliability` line remains driven off `outcomes`
+alone, unconditionally. This is additive and format-only -- no existing
+caller's output changes when every component actually has records (the
+common case today); the new code paths only fire when a component has
+zero records, which was previously either invisible or under-reported.
+
+Everything else re-checked against the spec held with no changes needed:
+Orchestrator's `TurnResult`/`run_turn` (never raises, `state` always
+accurate, call-level retry/model-selection correctly left in
+`src/llm/providers.py`, skip-computation/model-tier/stage-retry correctly
+left unimplemented with no invented triggers); Learning's stub (still
+raises `NotImplementedError`, still no `schema.py`, still never touches
+WorldState); Executor's `ClarityBrief` template (mapping matches the
+spec's own worked example field-for-field, still no LLM call, still not
+wired into any driver); both driver scripts (both delegate to
+`run_turn`, neither reintroduces the old "State unchanged" bug); all four
+Sensemaking Engine `engine.py` files (each records exactly the four
+documented outcomes -- success, provider_call_error, invalid_json,
+schema_validation_failed -- at their existing decision points, no new
+control flow). No responsibility has drifted across a component
+boundary; no component reasons about the user's world; none of the four
+makes an LLM call.
+
+**Tests**: 3 new tests added to `tests/test_instrumentation.py`,
+covering the fixed bug directly -- the true no-op case (both `records`
+and `outcomes` empty), a component with outcomes but zero records
+(confirms it still prints, confirms the exact `"N/A (no call returned
+content)"` text, confirms its `Reliability` line and the `Pipeline Total`
+reliability line both appear), and a mixed case (one component with a
+real record, one with outcomes only, confirms both appear correctly and
+`Pipeline Total`'s token fields reflect the real record rather than
+falling back to N/A). Full suite: 138 passed (135 existing + 3 new).
+
+**Status: Confidant System Architecture v2 is FROZEN as of this entry.**
+All four processes -- Orchestrator, Instrumentation, Learning, Executor --
+exist, match their spec sections field-for-field, stay within their
+Non-Goals, and the one real bug found in this review is fixed and
+covered by a regression test. Sensemaking Engine v1 remains untouched and
+frozen throughout. Any further change to any of the four System
+Architecture processes, or any expansion of Learning beyond its reserved
+slot, or any fifth process, requires deliberately reopening this freeze
+-- reapply the Governing Test first (does it answer a system-level
+question none of the existing four should answer?), update the spec,
+then implement -- the same discipline already applied to every frozen
+Sensemaking Engine component.

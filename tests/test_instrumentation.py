@@ -27,6 +27,7 @@ from src.instrumentation.usage import (
     extract_ollama_usage,
     extract_openai_compatible_usage,
     is_tracking_enabled,
+    print_turn_summary,
 )
 
 
@@ -466,3 +467,55 @@ def test_reliability_uses_explicit_outcomes_param_over_self_outcomes():
     tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="success"))
     reliability = tracker.summary(outcomes=[])["reliability"]
     assert reliability["attempts"] == 0
+
+
+def test_print_turn_summary_is_noop_when_both_records_and_outcomes_empty(capsys):
+    print_turn_summary([], [])
+    print_turn_summary([])
+    assert capsys.readouterr().out == ""
+
+
+def test_print_turn_summary_still_reports_a_component_with_zero_records(capsys):
+    """Bug found during the System Architecture v2 review pass: a component
+    whose every provider attempt fails at the call-error stage (see
+    src/llm/providers.py) never produces an LLMUsage record -- only
+    AttemptRecord failures exist. print_turn_summary used to bail out
+    entirely with `if not records: return`, silently dropping that
+    component's real, recorded failure data from the report. It must now
+    still print a block for that component (token/cost fields as N/A) and
+    the Reliability line for it, plus a Pipeline Total reliability line,
+    driven off outcomes alone."""
+    outcomes = [
+        AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="boom"),
+        AttemptRecord(component="Judgment", provider="ollama", outcome="provider_call_error", detail="boom"),
+    ]
+    print_turn_summary([], outcomes)
+    out = capsys.readouterr().out
+    assert "Judgment" in out
+    assert "N/A (no call returned content)" in out
+    assert "Reliability: 0/2 succeeded (0%)" in out
+    assert "Pipeline Total" in out
+
+
+def test_print_turn_summary_mixes_recorded_and_record_less_components(capsys):
+    """One component succeeded (has an LLMUsage record), another failed
+    every attempt (outcomes only, no record) -- both must appear, each
+    with accurate per-component data, not just the one with records."""
+    records = [
+        build_usage(
+            component="Planner", provider="openrouter", model="m",
+            prompt_tokens=10, completion_tokens=5, latency_ms=100,
+        )
+    ]
+    outcomes = [
+        AttemptRecord(component="Planner", provider="openrouter", outcome="success"),
+        AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="boom"),
+    ]
+    print_turn_summary(records, outcomes)
+    out = capsys.readouterr().out
+    assert "Planner" in out and "Judgment" in out
+    assert "Reliability: 1/1 succeeded (100%)" in out
+    assert "Reliability: 0/1 succeeded (0%)" in out
+    # Pipeline Total token fields come from the one real record, not N/A,
+    # since `records` isn't empty overall.
+    assert "Prompt Tokens: 10" in out

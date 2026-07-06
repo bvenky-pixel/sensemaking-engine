@@ -466,16 +466,24 @@ def print_turn_summary(
     Pipeline Total block. Every field that isn't available for a given
     group (e.g. no reasoning_tokens because the model doesn't do
     reasoning) prints "N/A", never a guessed or silently-zeroed value.
-    No-op if `records` is empty (e.g. tracking disabled, or nothing
-    recorded).
+    No-op only if BOTH `records` and `outcomes` are empty (e.g. tracking
+    disabled, or nothing recorded at all).
 
     `outcomes`: optional AttemptRecord list (e.g. `tracker.outcomes_since(...)`)
     -- when given, a "Reliability" line is added per component and to
     Pipeline Total (attempts/successes/failures). Omitted entirely if not
     passed, so existing callers that only track LLMUsage keep working
     unchanged.
+
+    A component can have outcomes with zero LLMUsage records -- every
+    provider attempt failed at the call-error stage, so nothing ever
+    returned content to record token/cost/latency for (see
+    src/llm/providers.py). That component still gets a printed block here,
+    token/cost fields shown as "N/A" rather than silently vanishing from
+    the report, since its reliability data (real, recorded failures) is
+    exactly the thing this report exists to surface.
     """
-    if not records:
+    if not records and not outcomes:
         return
 
     order: List[str] = []
@@ -489,52 +497,63 @@ def print_turn_summary(
     if outcomes:
         for o in outcomes:
             outcomes_by_component.setdefault(o.component, []).append(o)
+            if o.component not in order:
+                order.append(o.component)
 
     for component in order:
-        crs = grouped[component]
-        provider = crs[-1].provider
-        model = crs[-1].model
-        prompt_tokens = sum(r.prompt_tokens for r in crs)
-        completion_tokens = sum(r.completion_tokens for r in crs)
-        reasoning_tokens = _sum_optional(r.reasoning_tokens for r in crs)
-        cached_tokens = _sum_optional(r.cached_tokens for r in crs)
-        total_tokens = sum(r.total_tokens for r in crs)
-        latency_s = sum(r.latency_ms for r in crs) / 1000
-        cost = _sum_optional(r.estimated_cost_usd for r in crs)
-        frontier_costs = _sum_frontier_costs(crs)
-
+        crs = grouped.get(component)
         print(f"\n{component}")
-        print(f"- Provider: {provider}")
-        print(f"- Model: {model}")
-        print(f"- Prompt Tokens: {prompt_tokens:,}")
-        print(f"- Completion Tokens: {completion_tokens:,}")
-        print(f"- Reasoning Tokens: {_fmt_optional_int(reasoning_tokens)}")
-        print(f"- Cached Tokens: {_fmt_optional_int(cached_tokens)}")
-        print(f"- Total Tokens: {total_tokens:,}")
-        print(f"- Latency: {latency_s:.1f} s")
-        print(f"- Estimated Cost: {_fmt_cost(cost)}")
-        print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(frontier_costs)}")
+        if crs:
+            provider = crs[-1].provider
+            model = crs[-1].model
+            prompt_tokens = sum(r.prompt_tokens for r in crs)
+            completion_tokens = sum(r.completion_tokens for r in crs)
+            reasoning_tokens = _sum_optional(r.reasoning_tokens for r in crs)
+            cached_tokens = _sum_optional(r.cached_tokens for r in crs)
+            total_tokens = sum(r.total_tokens for r in crs)
+            latency_s = sum(r.latency_ms for r in crs) / 1000
+            cost = _sum_optional(r.estimated_cost_usd for r in crs)
+            frontier_costs = _sum_frontier_costs(crs)
+
+            print(f"- Provider: {provider}")
+            print(f"- Model: {model}")
+            print(f"- Prompt Tokens: {prompt_tokens:,}")
+            print(f"- Completion Tokens: {completion_tokens:,}")
+            print(f"- Reasoning Tokens: {_fmt_optional_int(reasoning_tokens)}")
+            print(f"- Cached Tokens: {_fmt_optional_int(cached_tokens)}")
+            print(f"- Total Tokens: {total_tokens:,}")
+            print(f"- Latency: {latency_s:.1f} s")
+            print(f"- Estimated Cost: {_fmt_cost(cost)}")
+            print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(frontier_costs)}")
+        else:
+            # Every provider attempt for this component failed before
+            # returning content -- no LLMUsage exists to report.
+            print("- Provider: N/A (no call returned content)")
         if component in outcomes_by_component:
             print(f"- Reliability: {_fmt_reliability(outcomes_by_component[component])}")
 
-    total_prompt = sum(r.prompt_tokens for r in records)
-    total_completion = sum(r.completion_tokens for r in records)
-    total_reasoning = _sum_optional(r.reasoning_tokens for r in records)
-    total_cached = _sum_optional(r.cached_tokens for r in records)
-    total_tokens = sum(r.total_tokens for r in records)
-    total_latency_s = sum(r.latency_ms for r in records) / 1000
-    total_cost = _sum_optional(r.estimated_cost_usd for r in records)
-    total_frontier_costs = _sum_frontier_costs(records)
+    if records:
+        total_prompt = sum(r.prompt_tokens for r in records)
+        total_completion = sum(r.completion_tokens for r in records)
+        total_reasoning = _sum_optional(r.reasoning_tokens for r in records)
+        total_cached = _sum_optional(r.cached_tokens for r in records)
+        total_tokens = sum(r.total_tokens for r in records)
+        total_latency_s = sum(r.latency_ms for r in records) / 1000
+        total_cost = _sum_optional(r.estimated_cost_usd for r in records)
+        total_frontier_costs = _sum_frontier_costs(records)
 
-    print("\nPipeline Total")
-    print(f"- Prompt Tokens: {total_prompt:,}")
-    print(f"- Completion Tokens: {total_completion:,}")
-    print(f"- Reasoning Tokens: {_fmt_optional_int(total_reasoning)}")
-    print(f"- Cached Tokens: {_fmt_optional_int(total_cached)}")
-    print(f"- Total Tokens: {total_tokens:,}")
-    print(f"- Total Cost: {_fmt_cost(total_cost)}")
-    print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(total_frontier_costs)}")
-    print(f"- Total Latency: {total_latency_s:.1f} s")
+        print("\nPipeline Total")
+        print(f"- Prompt Tokens: {total_prompt:,}")
+        print(f"- Completion Tokens: {total_completion:,}")
+        print(f"- Reasoning Tokens: {_fmt_optional_int(total_reasoning)}")
+        print(f"- Cached Tokens: {_fmt_optional_int(total_cached)}")
+        print(f"- Total Tokens: {total_tokens:,}")
+        print(f"- Total Cost: {_fmt_cost(total_cost)}")
+        print(f"- Frontier Cost Comparison: {_fmt_frontier_costs(total_frontier_costs)}")
+        print(f"- Total Latency: {total_latency_s:.1f} s")
+    else:
+        print("\nPipeline Total")
+        print("- Tokens/Cost/Latency: N/A (no call returned content)")
     if outcomes:
         print(f"- Reliability: {_fmt_reliability(outcomes)}")
 
