@@ -843,3 +843,103 @@ Retry count: 3 (openrouter->ollama fallback for Interpretation, Planner, and Res
 ### Overall Verdict
 
 **Needs Investigation.** The pipeline's single most important obligation for this exact test -- treat "should I apologize" as a genuinely open decision, not a foregone conclusion -- failed at the very first stage and was never corrected downstream, despite some good, honest restraint elsewhere (no fabricated facts, appropriately low confidence, asking rather than advising at a surface level). Combined with the dataset's worst-yet `supporting_evidence` corruption (duplicated entries, nonsensical placeholder items) and a new, more severe malformed-`rationale` schema defect, this run surfaces enough concrete, reproducible problems to warrant investigation rather than being read as an acceptable pass. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+## R04 -- Relationships -- Conflicting goals
+
+**Timestamp**: 2026-07-07T00:06:08Z - 00:14:12Z
+**Git commit**: `d5cd068ca1c4c3ff07f8ce7b060e1c90a1c697ae`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28831902770
+**Model / Provider**: Judgment succeeded directly on openrouter/free; Interpretation, Planner, and Response ALL fell back to ollama/llama3.2:3b after an openrouter failure each -- the third consecutive test (R02, R03, R04) with this exact heavy-fallback signature
+**Provider fallback**: yes -- Interpretation, Planner, and Response each fell back openrouter -> ollama (1/2 each)
+
+### Input
+
+> My parents want me to move back home, but I don't want to.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['personal', 'financial'], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.2, 'confidence': 1.0, 'source': 'inferred'}, {'emotion': 'anxiety', 'intensity': 0.3, 'confidence': 0.5, 'source': 'inferred'}], 'surface_complaint': 'parents want me to move back home', 'core_question': "don't want to move back home", 'core_question_confidence': 1.0, 'observed_facts': ['parents have offered support'], 'claims': ['I need independence', "I don't want to be a burden"], 'goals': [], 'decision_options': ['move back home'], 'assumptions': [], 'inferences': [{'reading': 'moving back home may be a temporary solution to financial struggles', 'confidence': 0.4}, {'reading': 'staying independent may lead to increased stress and anxiety', 'confidence': 0.4}], 'unknowns': ["how will my parents react if I don't move back home?", 'what are the long-term consequences of staying independent?'], 'biases': [], 'entities': ['parents'], 'clarity_score': 0.6, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | parents want me to move back home
+core_question            | don't want to move back home
+core_question_confidence | 1.0
+assumptions              | []
+inferences               | ['moving back home may be a temporary solution to financial struggles (confidence=0.40)', 'staying independent may lead to increased stress and anxiety (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.6
+phase                    | discover
+facts                    | - parents have offered support (status=active)
+claims                    | - I need independence (status=active)
+                          | - I don't want to be a burden (status=active)
+goals                    | []
+decisions                | - move back home (status=open)
+unknowns                 | - how will my parents react if I don't move back home? (status=open)
+                          | - what are the long-term consequences of staying independent? (status=open)
+entities                 | - parents (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'uncertainty about whether to move back home', 'primary_goal': '', 'current_focus': "gathering information about parents' reaction and long-term consequences of staying independent", 'key_blockers': ["lack of knowledge about parents' reaction if I don't move back home", 'lack of knowledge about long-term consequences of staying independent'], 'open_unknowns': ["how will my parents react if I don't move back home?", 'what are the long-term consequences of staying independent?'], 'active_decisions': ['move back home'], 'contradictions': [], 'risks': ['staying independent may lead to increased stress and anxiety', "parents may react negatively if I don't move back home, potentially straining the relationship", 'financial struggles may arise if I stay independent'], 'opportunities': ['parents have offered support, which could help if I move back home', 'moving back home may provide temporary financial relief'], 'confidence': 0.4, 'supporting_evidence': ['"move back home" is an open decision', '"how will my parents react if I don\'t move back home?" is an open unknown', '"what are the long-term consequences of staying independent?" is an open unknown', '"parents have offered support" is an active fact', '"staying independent may lead to increased stress and anxiety" is an inference', '"moving back home may be a temporary solution to financial struggles" is an inference']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': '', 'rationale': 'uncertainty about whether to move back home', 'conversational_strategy': 'gather more information', 'resolution_blocker': 'lack of knowledge', 'priority_topics': ["parents' reaction", 'long-term consequences'], 'questions_to_explore': ["how will my parents react if I don't move back home?", 'what are the long-term consequences of staying independent?'], 'assumptions_to_test': [], 'planning_constraints': [], 'desired_outcome': 'move forward with decision making', 'temporal_horizon': 'long_term', 'confidence': 0.4}
+```
+
+**Response** (verbatim, user-facing):
+```
+I can offer you support, but ultimately the decision is yours. You might consider weighing the pros and cons of staying independent versus moving back home. For instance, moving back home could provide temporary financial relief, as your parents have offered to help. On the other hand, staying independent may lead to increased stress and anxiety. It's also worth considering the long-term consequences of each option. What are your thoughts on this?
+```
+`[confidence=0.4]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | ollama/llama3.2:3b | 44 | 433 | N/A | 477 | 67.8s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Judgment | openrouter/free | 2,014 | 1,230 | 942 | 3,244 | 110.4s | 1/1 (100%) |
+| Planner | ollama/llama3.2:3b | 813 | 135 | N/A | 948 | 79.0s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | ollama/llama3.2:3b | 969 | 106 | N/A | 1,075 | 31.4s | 1/2 (50%, openrouter attempt failed, fell back) |
+| **Pipeline Total** | -- | 3,840 | 1,904 | 942 | 5,744 | 288.6s | 4/7 (57%) |
+
+Retry count: 3 (openrouter->ollama fallback for Interpretation, Planner, and Response). Estimated cost: $0.0000. Highest total latency recorded in the dataset so far (288.6s). Third consecutive test with this exact 3-of-4-stage fallback signature -- plausibly tied to openrouter/free's documented rate limits (20 req/min, 50 req/day; see `.env.example`) being exhausted by repeated sequential triggering across this experiment.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 3 | Fabricates `observed_facts` ("parents have offered support") and `claims` ("I need independence," "I don't want to be a burden") with zero textual grounding -- none of this appears in or is reasonably inferable from the input. `core_question` contains a declarative restatement ("don't want to move back home"), not a question, given a maximal, unjustified confidence of 1.0 -- a schema-contract violation compounded by severe overconfidence (echoed in `frustration`'s own confidence=1.0 emotional signal). `goals` stays empty despite the input containing an implicit goal (stay independent), missing this test's targeted capability at the very first stage. Ran on the ollama fallback. |
+| State quality | 4 | Faithfully mirrors Interpretation -- which means it also faithfully mirrors the fabricated facts/claims and malformed core_question into the artifact a person would eventually see. |
+| Judgment quality | 5 | Positive: unlike R01-R03, does not fabricate a `primary_goal` (stays correctly empty); `current_focus` reorients toward closing real unknowns rather than presuming an answer; `risks`/`opportunities` are genuinely balanced across both sides of the tension. Central, on-target miss: `contradictions` stays empty despite a genuine, explicit tension in the input (parents want X, user wants not-X) -- exactly what this field exists to capture, and exactly this test's targeted capability. `supporting_evidence` continues the established openrouter over-inclusion pattern and additionally propagates the fabricated "parents have offered support" fact forward as legitimate evidence. |
+| Planning quality | 3 | `primary_objective`, `assumptions_to_test`, and `planning_constraints` are all empty; `desired_outcome` ("move forward with decision making") and `rationale` (a near-verbatim echo of Judgment's `primary_problem`) are both vague and content-free rather than malformed -- a new manifestation of the ollama-fallback-Planner degradation pattern (genericness, not just emptiness). `questions_to_explore` are mechanical copies of the unknowns rather than genuine reformulation, and neither engages the actual conflicting-goals tension directly. |
+| Response quality | 5 | Genuinely balanced articulation of both sides of the tradeoff, and correctly defers the decision to the user ("the decision is yours") -- the right high-level instinct for a conflicting-goals test. But directly repeats the fabricated "parents have offered to help" detail as established fact to the user -- a serious, concrete hallucination reaching the user-facing output, undermining the otherwise-reasonable balance. |
+| Epistemic discipline | 2 | The most severe epistemic failure in the dataset to date: `observed_facts` and `claims` -- the two tiers specifically meant to be directly text-grounded -- both contain entirely invented content with zero basis in the actual input, and that invented "fact" survives uncorrected all the way to the user-facing Response. A more serious category of failure than the goal-fabrication seen in R01-R03: here the fabrication is presented as directly-observed truth about the user's own parents. |
+
+### Failure Analysis
+
+- **Interpretation fabricates `observed_facts` and `claims` with zero textual grounding (most severe hallucination in the dataset)**: "parents have offered support," "I need independence," and "I don't want to be a burden" are all invented -- none appear in or are reasonably inferable from the actual input. The fabricated fact survives, uncorrected, all the way into the user-facing Response ("as your parents have offered to help").
+- **`core_question` contains a non-question, assigned maximal (1.0) confidence**: "don't want to move back home" is a declarative restatement, not a question -- the field's own contract is violated while simultaneously being overconfident about it.
+- **`goals` and `contradictions` both stay empty despite this being exactly the "conflicting goals" test**: neither the user's nor the parents' goal is ever extracted as a goal, and the genuine tension between them is never flagged as a `contradiction` -- the two fields best suited to representing this test's actual capability both miss it entirely.
+- **Planner's output is vague/generic rather than substantive**: `desired_outcome` and `rationale` both add no real content -- continuing the ollama-fallback-Planner degradation pattern in a new form (genericness, not just empty fields).
+- **Third consecutive test (R02, R03, R04) with the same heavy-fallback signature** (3 of 4 stages fall back to ollama, 57% pipeline reliability, and now the dataset's highest total latency at 288.6s) -- no longer occasional; a consistent, converging pattern across this recent stretch, plausibly tied to openrouter/free's documented rate limits being exhausted by repeated sequential triggering across the experiment.
+
+### Success Analysis
+
+- Unlike R01-R03, Judgment does not fabricate a `primary_goal` here -- a break in that specific recurring pattern, even if only because Interpretation's own `goals` was already (incorrectly) empty.
+- Judgment's `risks` and `opportunities` are genuinely balanced across both sides of the tension, and `current_focus` correctly reorients toward closing real unknowns rather than presuming an answer.
+- The final Response presents both options fairly and explicitly defers the decision to the user ("the decision is yours") -- the right high-level instinct for a conflicting-goals test, not picking a side.
+- Confidence stayed reasonably moderate and non-inflating throughout (0.4 at Judgment/Planner/Response).
+
+### Overall Verdict
+
+**Failed.** The first verdict in this dataset to warrant the most severe category, on the strength of one specific, unambiguous defect: Interpretation invented facts and claims about the user's own parents that were never stated, and that invention reached the user as an assertion of established fact rather than a hedged or flagged uncertainty. This is a direct, severe violation of the epistemic-grounding discipline this entire architecture is built on, independent of the test's own targeted capability (which the pipeline also largely missed, never representing the conflicting goals as goals or as a contradiction). The balanced tone and user-ownership framing in the final Response are genuine positives, but they do not offset a hallucinated detail being stated as established fact to the person it's supposedly about. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
