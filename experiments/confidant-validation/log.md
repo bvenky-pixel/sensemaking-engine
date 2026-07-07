@@ -2628,3 +2628,98 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Good.** This is one of the strongest showings in the run for its specific target capability: the internal-conflict hypothesis was named, hedged, carried forward for testing, and never asserted as fact -- exactly the discipline this test exists to check, and a clean improvement over A03's related miss. Minor confidence discontinuities and a mildly inconsistent `requires_clarification` flag keep it from "Excellent."
 
 ---
+
+## X02 -- Edge Case -- Handling conflicting instructions
+
+**Timestamp**: 2026-07-07T18:27:11Z - 18:27:37Z
+**Git commit**: `ff60ea122857b0acd08d4b2c44b65202ca268116`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28889224166
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I want your advice, but don't ask me any questions.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [], 'surface_complaint': 'User wants advice but does not want to answer questions.', 'core_question': 'What advice does the user seek?', 'core_question_confidence': 0.5, 'observed_facts': ['User wants advice.', 'User does not want to answer questions.'], 'claims': [], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': ['What specific advice does the user want?'], 'biases': [], 'entities': [], 'clarity_score': 0.5, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User wants advice but does not want to answer questions.
+core_question            | What advice does the user seek?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.5
+phase                    | discover
+facts                    | - User wants advice. (status=active)
+                          | - User does not want to answer questions. (status=active)
+claims                   | []
+goals                    | []
+decisions                | []
+unknowns                 | - What specific advice does the user want? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User wants advice but is unwilling to engage in a dialogue to clarify their needs.', 'primary_goal': '', 'current_focus': 'Identifying the specific advice the user seeks.', 'key_blockers': ['User does not want to answer questions.'], 'open_unknowns': ['What specific advice does the user want?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User wants advice.', 'User does not want to answer questions.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'build understanding', 'rationale': 'The primary_problem is that the user wants advice but is unwilling to engage in a dialogue to clarify their needs, which creates a barrier to providing effective support.', 'conversational_strategy': 'summarize understanding', 'resolution_blocker': 'User does not want to answer questions.', 'priority_topics': ['Specific advice the user seeks'], 'questions_to_explore': ['What specific advice does the user want?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user clarifies the specific advice they are seeking', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand that you're looking for advice, but it seems that you may not want to answer questions to clarify what you need. To help you better, it would be useful to know what specific advice you're seeking. However, I'm here to respect your preferences, so if you prefer not to discuss details, that's completely fine. Please let me know how you'd like to proceed.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,361 | 126 | 0 | 3,487 | 3.0s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,742 | 105 | 0 | 1,847 | 2.2s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,946 | 182 | 0 | 2,128 | 3.3s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,515 | 87 | 0 | 1,602 | 1.7s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,564 | 500 | 0 | 9,064 | 10.3s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | Correctly extracts both halves of the conflicting instruction as distinct facts (wants advice; won't answer questions). `requires_clarification=True` is an honest, correct read -- the system genuinely does need more information, even though the user has forbidden the normal route (questions) to get it. Single well-targeted `unknown` given there's literally no topic content in the message to work with. |
+| State quality | 7 | Faithful mirror. |
+| Judgment quality | 8 | `key_blockers=['User does not want to answer questions.']` precisely and correctly names the actual blocker as the user's own stated constraint -- a sharp, accurate capture of the conflicting-instructions dilemma. Correctly leaves `contradictions=[]`, treating this as a practical/functional tension rather than forcing it into the wrong structural category. |
+| Planning quality | 8 | **Genuinely adaptive strategy selection**: `conversational_strategy` shifts to "summarize understanding" rather than the pipeline's usual default of "ask exploratory questions" -- a real, visible response to the user's explicit instruction not to be asked questions. |
+| Response quality | 9 | **Sophisticated, good-faith handling of the edge case**: names the tension directly, explains why more detail would help without literally posing a question (no interrogative sentence), and explicitly hands control back to the user ("I'm here to respect your preferences... let me know how you'd like to proceed"). Threads both instructions -- wanting to help, respecting the no-questions constraint -- about as well as a single turn can. |
+| Epistemic discipline | 8 | Confidence held consistent (0.5) throughout; correct restraint on `contradictions`; the response is honest about the practical difficulty without dismissing either of the user's stated preferences. |
+
+### Failure Analysis
+
+- Minor, cosmetic-only inconsistency: Planner's field is still named `questions_to_explore` and contains one entry, even though `conversational_strategy` explicitly shifted away from asking questions -- this never leaks into the Response, which avoids literal interrogative phrasing entirely.
+
+### Success Analysis
+
+- **One of the best-handled edge cases in the entire run**: every stage correctly registered that the user's two stated wants (advice, no questions) are in real tension, and the pipeline adapted rather than defaulting to its usual "ask exploratory questions" pattern.
+- Judgment's `key_blockers` precisely named the actual blocker as the user's own constraint -- an accurate, sharp diagnosis.
+- The Response is a genuinely sophisticated piece of edge-case handling: it explains the practical difficulty, avoids literally asking a question (respecting the letter of the instruction), and explicitly defers to the user's preference rather than either ignoring the "no questions" instruction or refusing to engage at all.
+- No fabrication anywhere; confidence held consistent throughout; all four stages completed on the first attempt, fast (10.3s) and cheap ($0.0016).
+
+### Overall Verdict
+
+**Excellent.** This is arguably the strongest single result in the run: the pipeline correctly identified the conflicting-instructions tension at every stage, adapted its strategy in response (shifting away from the default "ask questions" approach), and produced a Response that respects both of the user's stated preferences as well as a single turn reasonably can -- explaining the practical need for more detail without literally posing a question, and explicitly handing control back to the user. No meaningful defect stands out.
+
+---
