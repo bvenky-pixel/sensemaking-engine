@@ -2338,3 +2338,101 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Needs Investigation.** This test exists specifically to check whether the system examines the user's beliefs/framing rather than asserting its own -- and the final Response does exactly the latter, opening by telling the user that the pressure "is weighing on you" as settled fact, directly overriding the correct hedging Planner had established one stage earlier in `assumptions_to_test`. The input itself is genuinely ambiguous (could be reassurance, dismissal, or pressure), which makes this a clean, reproducible case of the pipeline's own internal epistemic discipline not making it through to the user-facing text.
 
 ---
+
+## A04 -- Ambiguity -- Hidden assumptions
+
+**Timestamp**: 2026-07-07T18:19:00Z - 18:19:31Z
+**Git commit**: `b830a8706a4cad332077ec4aadaf3b75e1c62c72`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28888735467
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I think I'm making the wrong decision, but I can't explain why.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'confusion', 'intensity': 0.6, 'confidence': 0.7, 'source': 'inferred'}], 'surface_complaint': 'User thinks they are making the wrong decision.', 'core_question': "Why do I feel I'm making the wrong decision?", 'core_question_confidence': 0.6, 'observed_facts': ['User thinks they are making the wrong decision.', 'User cannot explain why.'], 'claims': ['User believes they are making the wrong decision.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User is experiencing uncertainty about their decision-making process.', 'confidence': 0.5}], 'unknowns': ['What specific decision is the user referring to?', "What factors are contributing to the user's feeling of making the wrong decision?"], 'biases': [], 'entities': [], 'clarity_score': 0.5, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User thinks they are making the wrong decision.
+core_question            | Why do I feel I'm making the wrong decision?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | ['User is experiencing uncertainty about their decision-making process. (confidence=0.50)']
+biases                   | []
+clarity_level            | 0.5
+phase                    | discover
+facts                    | - User thinks they are making the wrong decision. (status=active)
+                          | - User cannot explain why. (status=active)
+claims                   | - User believes they are making the wrong decision. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What specific decision is the user referring to? (status=open)
+                          | - What factors are contributing to the user's feeling of making the wrong decision? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User feels they are making the wrong decision without understanding why.', 'primary_goal': '', 'current_focus': 'Exploring reasons for feeling they are making the wrong decision.', 'key_blockers': [], 'open_unknowns': ['What specific decision is the user referring to?', "What factors are contributing to the user's feeling of making the wrong decision?"], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User thinks they are making the wrong decision.', 'User cannot explain why.', 'User believes they are making the wrong decision.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'clarify uncertainty', 'rationale': 'The primary_problem is that the user feels they are making the wrong decision without understanding why, which creates a need to explore and clarify their feelings and thoughts.', 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'missing information', 'priority_topics': ['specific decision the user is referring to', "factors contributing to the user's feelings"], 'questions_to_explore': ['What specific decision do you think you are making?', 'What factors do you think are influencing your feelings about this decision?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies the specific decision and factors contributing to their feelings', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're feeling uncertain about a decision you're making, and you can't quite explain why. To help clarify this, could you share what specific decision you think you are making? Additionally, what factors do you think might be influencing your feelings about this decision?
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,363 | 278 | 0 | 3,641 | 5.7s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,852 | 123 | 0 | 1,975 | 2.9s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,073 | 208 | 0 | 2,281 | 3.5s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,668 | 64 | 0 | 1,732 | 1.7s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,956 | 673 | 0 | 9,629 | 13.9s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0007, Judgment $0.0004, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 5 | `requires_clarification=True` correctly matches genuine ambiguity (2nd consecutive correct instance, after A03). But `observed_facts` includes "User thinks they are making the wrong decision" -- a subjective belief, arguably better placed as a claim -- and `claims` then restates nearly the same content ("User believes they are making the wrong decision"), a recurring near-duplication. **`assumptions=[]` on a test whose Primary Capability is literally "Hidden assumptions"** is the most direct miss: no candidate hidden assumption (e.g., "there must be an objectively 'wrong' choice," "an inability to articulate a reason means the feeling isn't valid") was ever surfaced. |
+| State quality | 6 | Faithful mirror; inherits the facts/claims duplication and missing-assumptions gap. |
+| Judgment quality | 5 | Standard recurring pattern; `supporting_evidence` absorbs the same near-duplicate fact/claim content. |
+| Planning quality | 4 | **`assumptions_to_test=[]` on the test built specifically to exercise this field** -- no hidden assumption underlying the user's own framing (e.g., "what would make this decision definitively wrong?" or "why assume there's a single right answer?") was ever surfaced. `questions_to_explore` stay surface-level ("what decision," "what factors") rather than probing the assumption embedded in the user's own framing. |
+| Response quality | 6 | Competent, faithful, non-presumptuous, no fabrication -- but mirrors Planner's surface-level questions rather than probing any hidden assumption, missing the specific capability this test targets. |
+| Epistemic discipline | 5 | Confidence held consistent (0.5); `requires_clarification` correctly flagged. But the test's core targeted capability -- surfacing a hidden assumption -- never activated anywhere in the four-stage pipeline. |
+
+### Failure Analysis
+
+- **`assumptions`/`assumptions_to_test` empty across the entire pipeline on a test literally named "Hidden assumptions" (the most direct capability miss of this run)**: the user's framing ("I think I'm making the wrong decision") embeds at least one clear candidate hidden assumption -- that there is an objectively "wrong" choice to be identified -- yet neither Interpretation's `assumptions` field nor Planner's `assumptions_to_test` ever surfaces it.
+- **Facts/claims near-duplication (recurring)**: "User thinks they are making the wrong decision" (fact) and "User believes they are making the wrong decision" (claim) are functionally identical restatements.
+- **Questions stay surface-level**: "what decision" and "what factors" gather situational detail but never probe the assumption embedded in the user's own framing (e.g., "what would make this decision definitively wrong?").
+
+### Success Analysis
+
+- `requires_clarification=True` correctly matches the genuine ambiguity here -- the second consecutive correct instance of this flag (after A03), suggesting it responds sensibly to clearly ambiguous inputs even where other fields under-deliver.
+- Confidence held consistent (0.5) throughout with no unwarranted drift.
+- No fabrication anywhere; Response stayed non-presumptuous and didn't tell the user their decision was actually right or wrong.
+- All four stages completed on the first attempt, fast (13.9s) and cheap ($0.0017).
+
+### Overall Verdict
+
+**Needs Investigation.** This test's Primary Capability is explicitly "Hidden assumptions," and the two fields that exist specifically to hold this content (`assumptions` in Interpretation, `assumptions_to_test` in Planner) stayed empty across the entire pipeline, even though the user's own framing ("I think I'm making the wrong decision") contains an obvious candidate assumption to surface -- that there's a single objectively correct choice. This is a clear, direct miss on the exact capability this test exists to validate, distinct from (though similar in kind to) A03's belief-assertion issue -- here the gap is an absence rather than an override.
+
+---
