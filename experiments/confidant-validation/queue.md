@@ -29,7 +29,7 @@ Status values: `pending` | `complete`
 | R02 | Relationships | complete | My friend hasn't replied in three days. I think they're angry with me. |
 | R03 | Relationships | complete | I don't know whether I should apologize first. |
 | R04 | Relationships | complete | My parents want me to move back home, but I don't want to. |
-| R05 | Relationships | pending | My colleague keeps interrupting me in meetings. |
+| R05 | Relationships | complete | My colleague keeps interrupting me in meetings. |
 | D01 | Decisions     | pending | I can afford either a house or an MBA, but not both. |
 | D02 | Decisions     | pending | I want to start a company, but I'm afraid of failing. |
 | D03 | Decisions     | pending | I'm considering moving to another country next year. |

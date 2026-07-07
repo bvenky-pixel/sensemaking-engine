@@ -943,3 +943,126 @@ Retry count: 3 (openrouter->ollama fallback for Interpretation, Planner, and Res
 ### Overall Verdict
 
 **Failed.** The first verdict in this dataset to warrant the most severe category, on the strength of one specific, unambiguous defect: Interpretation invented facts and claims about the user's own parents that were never stated, and that invention reached the user as an assertion of established fact rather than a hedged or flagged uncertainty. This is a direct, severe violation of the epistemic-grounding discipline this entire architecture is built on, independent of the test's own targeted capability (which the pipeline also largely missed, never representing the conflicting goals as goals or as a contradiction). The balanced tone and user-ownership framing in the final Response are genuine positives, but they do not offset a hallucinated detail being stated as established fact to the person it's supposedly about. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+## R05 -- Relationships -- Conflict analysis
+
+**Timestamp**: 2026-07-07T02:03:45Z - 02:09:14Z
+**Git commit**: `cff8f5aff9b6b42b7d2a5890e5d36736baedb0b8`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28836311023
+**Model / Provider**: Judgment succeeded directly on openrouter/free; Interpretation, Planner, and Response ALL fell back to ollama/llama3.2:3b after an openrouter failure each -- the fourth consecutive test (R02-R05) with this exact heavy-fallback signature
+**Provider fallback**: yes -- Interpretation, Planner, and Response each fell back openrouter -> ollama (1/2 each)
+
+### Input
+
+> My colleague keeps interrupting me in meetings.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'high', 'impact_domains': ['professional', 'personal'], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.7, 'confidence': 0.8, 'source': 'inferred'}], 'surface_complaint': 'My colleague keeps interrupting me in meetings.', 'core_question': 'How can I address this issue with my colleague?', 'core_question_confidence': 0.6, 'observed_facts': ['colleague interrupts frequently', 'meets are interrupted'], 'claims': ['colleague is not respecting boundaries', 'interrupting is rude'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'colleague may have different communication style', 'confidence': 0.4}], 'unknowns': ['How will my colleague respond to my approach?', 'Will setting clear expectations improve the situation?'], 'biases': [], 'entities': ['colleague', 'meetings'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | My colleague keeps interrupting me in meetings.
+core_question            | How can I address this issue with my colleague?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | ['colleague may have different communication style (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - colleague interrupts frequently (status=active)
+                          | - meets are interrupted (status=active)
+claims                   | - colleague is not respecting boundaries (status=active)
+                          | - interrupting is rude (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - How will my colleague respond to my approach? (status=open)
+                          | - Will setting clear expectations improve the situation? (status=open)
+entities                 | - colleague (status=active, type=unknown)
+                          | - meetings (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'colleague interrupts frequently', 'primary_goal': '', 'current_focus': "exploring strategies to address colleague's interruptions in meetings", 'key_blockers': ['How will my colleague respond to my approach?', 'Will setting clear expectations improve the situation?'], 'open_unknowns': ['How will my colleague respond to my approach?', 'Will setting clear expectations improve the situation?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['colleague interrupts frequently', 'meets are interrupted', 'colleague is not respecting boundaries', 'interrupting is rude', 'How can I address this issue with my colleague?', 'How will my colleague respond to my approach?', 'Will setting clear expectations improve the situation?']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': '', 'rationale': '', 'conversational_strategy': '', 'resolution_blocker': '', 'priority_topics': [], 'questions_to_explore': [], 'assumptions_to_test': [], 'planning_constraints': [], 'desired_outcome': '', 'temporal_horizon': 'long_term', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+One effective approach is to use the 'broken record' technique, where you respond briefly and then ask your colleague to continue when they finish speaking. This can help set clear boundaries while still allowing for respectful dialogue. Additionally, consider setting specific expectations around communication styles during meetings beforehand. You could say something like,
+
+'Hey, I want to make sure we have a productive discussion in this meeting. Can we agree on a rule that when one of us finishes speaking, the other person will wait until they've finished before responding?'
+
+This can help create a more respectful and efficient communication environment.
+
+What do you think about trying this approach with your colleague?
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | ollama/llama3.2:3b | 37 | 369 | N/A | 406 | 59.8s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Judgment | openrouter/free | 2,072 | 1,016 | 980 | 3,088 | 35.7s | 1/1 (100%) |
+| Planner | ollama/llama3.2:3b | 3,069 | 714 | 467 | 3,783 | 87.5s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | ollama/llama3.2:3b | 2,599 | 553 | 426 | 3,152 | 55.0s | 1/2 (50%, openrouter attempt failed, fell back) |
+| **Pipeline Total** | -- | 7,777 | 2,652 | 1,873 | 10,429 | 237.9s | 4/7 (57%) |
+
+Retry count: 3 (openrouter->ollama fallback for Interpretation, Planner, and Response). Estimated cost: $0.0000. Fourth consecutive test (R02-R05) with this exact heavy-fallback signature.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 3 | Fabricates evaluative `claims` ("colleague is not respecting boundaries," "interrupting is rude") attributed to the user, who never said this -- forecloses a single moralized interpretation rather than preserving the ambiguity this test's capability requires. Does surface one genuinely good alternative-explanation `inference` ("different communication style," appropriately hedged at 0.4) -- undermined by `claims` already having settled the question. `core_question` and `unknowns` both skip past cause-analysis straight to solution-execution framing. Minor: a garbled fact ("meets are interrupted"). Ran on the ollama fallback. |
+| State quality | 4 | Faithfully mirrors Interpretation, including the fabricated claims and premature solution-orientation. |
+| Judgment quality | 4 | Reasonable, neutral `primary_problem` phrasing (doesn't repeat the moralized language verbatim). But entirely drops the one alternative-explanation candidate already present in WorldState -- never reflected in `risks`, `opportunities`, or `current_focus`, the clearest on-target miss at this stage. Both `risks` and `opportunities` are empty despite derivable content being available. `supporting_evidence` continues the established openrouter over-inclusion pattern and propagates the fabricated claims forward as legitimate evidence. |
+| Planning quality | 1 | The most severe Planner failure recorded in the dataset: every substantive field (`primary_objective`, `rationale`, `conversational_strategy`, `resolution_blocker`, `priority_topics`, `questions_to_explore`, `assumptions_to_test`, `desired_outcome`) is empty -- a complete breakdown of the planning stage, not a degraded or generic one. |
+| Response quality | 2 | Despite Planner producing essentially nothing to execute, delivers a specific, named conflict-resolution technique and a scripted line for the user to say to their colleague -- no clarifying question, no engagement with the alternative-explanation possibility, moderate-high confidence (0.6) in an intervention never actually grounded in any analysis of *why* the interruptions happen. The most severe premature-advice instance in the dataset, for the test specifically designed to catch it. |
+| Epistemic discipline | 2 | The pipeline forecloses on a single interpretation (colleague is rude/boundary-violating) at the first stage via fabricated claims, drops its own better alternative-explanation inference entirely by the time Judgment and Response are produced, and delivers a confident, specific behavioral intervention without ever exploring the actual dynamic -- a clean, complete failure of the exact discipline (consider multiple causes before prescribing an intervention) this test exists to probe. |
+
+### Failure Analysis
+
+- **Interpretation fabricates evaluative claims attributed to the user** ("colleague is not respecting boundaries," "interrupting is rude") when the actual message contained no such judgment -- forecloses a moralized interpretation rather than preserving ambiguity, directly undermining this test's targeted capability at the first stage. Continues the fact/claim-fabrication pattern first flagged as severe in R04.
+- **The one genuine alternative-explanation candidate ("different communication style") is generated and then dropped entirely** -- never engaged with by Judgment's `risks`/`opportunities`, never mentioned in the final Response.
+- **Planner's output is completely empty across every substantive field** -- the single most severe Planner failure recorded in the dataset.
+- **Response delivers a specific, scripted conflict-resolution technique with no clarifying question and no engagement with alternative causes**, despite essentially no real Planner guidance to execute -- the most severe premature-advice instance in the dataset, for the exact test built to catch it.
+- **Fourth consecutive test (R02-R05) with the identical heavy-fallback signature** (3 of 4 stages to ollama, 57% reliability) -- now fully established across the back half of the Relationships category.
+- Minor: a garbled/typo'd fact ("meets are interrupted").
+
+### Success Analysis
+
+- Interpretation's `inferences` tier surfaces a genuinely good, appropriately-hedged alternative explanation -- even though subsequently dropped, its presence shows the extraction step is at least capable of considering more than one explanation when not pre-empted.
+- Judgment's `primary_problem` avoids repeating the moralized "rude"/"boundary violation" language verbatim, opting for more neutral phrasing.
+- `contradictions` and `active_decisions` are both correctly and defensibly empty, given no factual contradiction or explicit decision exists in this input.
+
+### Overall Verdict
+
+**Failed.** The second verdict in this dataset to warrant the most severe category, on two compounding, severe defects: Interpretation fabricating a moralized judgment attributed to the user, and a near-total Planner breakdown that nonetheless produced a confident, specific, scripted behavioral intervention with zero clarifying engagement -- the precise inversion of what a "conflict analysis" test requires (multiple causes considered before any intervention is proposed). The one genuine positive (the alternative-explanation inference) never survives to inform the actual output the user receives -- the same structural failure mode noted in earlier tests: correct upstream reasoning that gets lost rather than carried through. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+### Category checkpoint: Relationships (R01-R05) complete
+
+All five Relationships-category tests are now done. Cross-test patterns
+confirmed, carried forward as context for the remaining 20 tests:
+
+1. **`supporting_evidence`'s provider correlation is now confirmed 5/5 within this category alone**: every openrouter-served Judgment (R03, R04, R05) over-includes non-fact content; every ollama-served Judgment (R01, R02) returns empty. Combined with the Career category, this pattern has held in every single test where the relevant provider is known.
+2. **Fact/claim fabrication with zero textual grounding escalated from a Career-category absent issue to a severe, recurring Relationships-category defect**: first appeared in R04 (a fabricated situational fact) and recurred in R05 (fabricated evaluative judgments attributed to the user) -- both times the fabrication survived, uncorrected, into content that shaped or reached the final Response.
+3. **The heavy-fallback signature (3 of 4 stages to ollama) held for 4 of 5 tests (R02-R05)**, escalating from the Career category's more mixed fallback distribution -- plausibly reflecting cumulative openrouter/free rate-limit pressure from sustained sequential triggering across the experiment's now 10 completed tests, rather than per-test coincidence.
+4. **The ollama-fallback-Planner degradation pattern itself escalated in severity across the category**: empty specific fields (R01) -> vague, content-free genericness (R03, R04) -> complete, total emptiness across every substantive field (R05). This looks like a worsening trend, not a stable one.
+5. **Verdicts trended downward across the category**: Acceptable (R01) -> Needs Investigation (R02) -> Needs Investigation (R03) -> Failed (R04) -> Failed (R05). This tracks the escalating fallback/reliability problems above more plausibly than it tracks the tests themselves getting harder -- worth flagging explicitly as a trajectory, not just five independent scores.
+6. **The goal-fabrication pattern from R01-R03 did not recur in R04 or R05** (both correctly left `primary_goal` empty, consistent with empty upstream `goals`) -- suggesting that pattern is sampling-variance-dependent rather than a deterministic bug, unlike the fully consistent `supporting_evidence` and fallback-degradation patterns above.
+7. Positive, consistent findings: Interpretation's epistemic-tier separation (facts vs. claims vs. inferences vs. unknowns) stayed structurally intact throughout the category even when its *content* was wrong (fabricated or foreclosed); `contradictions` and `active_decisions` were left empty appropriately whenever no real contradiction or decision existed in the input.
