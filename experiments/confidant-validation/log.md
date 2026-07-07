@@ -2436,3 +2436,99 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0007, Judgment $0.000
 **Needs Investigation.** This test's Primary Capability is explicitly "Hidden assumptions," and the two fields that exist specifically to hold this content (`assumptions` in Interpretation, `assumptions_to_test` in Planner) stayed empty across the entire pipeline, even though the user's own framing ("I think I'm making the wrong decision") contains an obvious candidate assumption to surface -- that there's a single objectively correct choice. This is a clear, direct miss on the exact capability this test exists to validate, distinct from (though similar in kind to) A03's belief-assertion issue -- here the gap is an absence rather than an override.
 
 ---
+
+## A05 -- Ambiguity -- Information gathering
+
+**Timestamp**: 2026-07-07T18:22:02Z - 18:22:32Z
+**Git commit**: `0be1fa051721f828766e86ce481a33d4a645b949`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28888920075
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I feel stuck.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'stuck', 'intensity': 0.5, 'confidence': 0.7, 'source': 'explicit'}], 'surface_complaint': 'User feels stuck.', 'core_question': 'What does feeling stuck mean for the user?', 'core_question_confidence': 0.5, 'observed_facts': ['User feels stuck.'], 'claims': [], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.5, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User feels stuck.
+core_question            | What does feeling stuck mean for the user?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.5
+phase                    | discover
+facts                    | - User feels stuck. (status=active)
+claims                   | []
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User feels stuck.', 'primary_goal': '', 'current_focus': 'Exploring what feeling stuck means for the user.', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User feels stuck.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'build understanding', 'rationale': 'The primary_problem is that the user feels stuck, and exploring what this means for them can help clarify their situation and feelings.', 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'none identified', 'priority_topics': ["User's feelings about being stuck", 'Possible reasons for feeling stuck', "User's desired outcomes or changes"], 'questions_to_explore': ['What specific aspects of your life do you feel stuck in?', 'How long have you been feeling this way?', 'What do you think might help you feel less stuck?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about what feeling stuck means for them', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're feeling stuck, and I'd like to understand more about that. What specific aspects of your life do you feel stuck in? How long have you been feeling this way? And what do you think might help you feel less stuck? Your insights can really help clarify what this feeling means for you.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,353 | 187 | 0 | 3,540 | 4.4s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,659 | 70 | 0 | 1,729 | 2.3s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,818 | 217 | 0 | 2,035 | 3.5s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,422 | 73 | 0 | 1,495 | 2.1s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,252 | 547 | 0 | 8,799 | 12.3s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 4 | This is the sparsest input of the entire run (two words), yet `unknowns=[]` -- for a test whose Primary Capability is literally "Information gathering," the structured field that exists to enumerate what needs gathering stayed empty on precisely the input that most calls for it. `requires_clarification=False` is a clear miscalibration given `clarity_score=0.5` and total absence of context -- notably inconsistent with A03/A04's correct `True` flags on comparably (or less) ambiguous inputs earlier in this same category. |
+| State quality | 5 | Faithful mirror; inherits the significant `unknowns` gap. |
+| Judgment quality | 4 | Inherits the same emptiness with no correction; `supporting_evidence` stays minimal and non-fabricated at least. |
+| Planning quality | 7 | **Genuinely strong recovery**: despite the thin upstream stages, Planner's three questions (domain -- "what aspects of your life"; duration -- "how long"; desired change -- "what might help") form a well-structured, complementary information-gathering set -- arguably the best-organized exploration structure of the Ambiguity category so far. Deducted for the recurring `resolution_blocker: 'none identified'` self-contradiction (the same pattern seen in C03/E01) sitting alongside a strategy built entirely around exploring missing information. |
+| Response quality | 8 | Warm, faithful, executes all three well-targeted questions in natural flowing prose, ends by inviting the user's own insight rather than presuming an answer. |
+| Epistemic discipline | 4 | `requires_clarification=False` is a clear miscalibration relative to the maximally sparse input, especially set against A03/A04's correct handling of the same flag. Confidence stayed numerically consistent (0.5) at least. |
+
+### Failure Analysis
+
+- **`unknowns=[]` on the sparsest input of the run, for a test specifically about information gathering**: the structured field designed to enumerate exactly this kind of gap stayed empty despite two words of input providing essentially nothing to work with.
+- **`requires_clarification=False`** is glaringly inconsistent with `clarity_score=0.5` and the near-total absence of context -- especially notable set against A03 and A04's correct `True` flags earlier in this same test category.
+- **`resolution_blocker: 'none identified'` self-contradiction (recurring)**: Planner's entire strategy exists because information is missing, yet this field claims no blocker exists.
+
+### Success Analysis
+
+- **Planner recovered strongly despite thin upstream input**: the three-question structure (domain, duration, desired change) is well-organized and genuinely informative, the best information-gathering breadth seen in the Ambiguity category this run.
+- Response executed all three questions naturally and warmly, without presuming an answer or offering premature advice.
+- No fabrication anywhere; confidence held numerically consistent (0.5) throughout.
+- All four stages completed on the first attempt, fast (12.3s) and cheap ($0.0016).
+
+### Overall Verdict
+
+**Acceptable.** The actual conversational behavior -- Planner's well-structured three-question information-gathering plan and the Response that faithfully delivers it -- is genuinely solid, arguably the best-organized exploration of this test category. But the structural signals that should track this exact capability (`unknowns`, `requires_clarification`) both miscalibrated on precisely the input where they mattered most: two words of pure ambiguity. The gap between good final behavior and weak structural tracking is the throughline finding for this test.
+
+---
