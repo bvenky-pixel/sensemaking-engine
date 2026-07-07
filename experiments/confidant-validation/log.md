@@ -2144,3 +2144,100 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** Honest, well-calibrated uncertainty signals and a warm, non-presumptuous response, but the actual clarification-seeking behavior this test targets came out thin -- only a single, narrow question was generated across the entire pipeline for a maximally vague complaint that could support a richer set of clarifying angles. A minor formatting glitch in the inference text (duplicated confidence annotation baked into prose) is also worth noting as a recurring failure class, even at small scale.
 
 ---
+
+## A02 -- Ambiguity -- Structured exploration
+
+**Timestamp**: 2026-07-07T18:13:46Z - 18:14:13Z
+**Git commit**: `c9eef3fdc825393ac0117bed078d159b325beeb0`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28888430919
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I don't know what's wrong -- I just know I'm unhappy.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'unhappiness', 'intensity': 0.7, 'confidence': 0.95, 'source': 'explicit'}], 'surface_complaint': "User is unhappy but doesn't know why.", 'core_question': 'What is causing the unhappiness?', 'core_question_confidence': 0.8, 'observed_facts': [], 'claims': ['User is unhappy.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': ['What is causing the unhappiness?'], 'biases': [], 'entities': [], 'clarity_score': 0.5, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User is unhappy but doesn't know why.
+core_question            | What is causing the unhappiness?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.5
+phase                    | discover
+facts                    | []
+claims                   | - User is unhappy. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What is causing the unhappiness? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's unhappiness without a clear cause.", 'primary_goal': '', 'current_focus': 'Exploring the cause of unhappiness.', 'key_blockers': [], 'open_unknowns': ['What is causing the unhappiness?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User is unhappy.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'build understanding', 'rationale': "The primary_problem is the user's unhappiness without a clear cause, and the current_focus is on exploring this cause, which requires deeper understanding.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'open unknowns regarding the cause of unhappiness', 'priority_topics': ["User's feelings and experiences leading to unhappiness"], 'questions_to_explore': ['What specific situations or thoughts contribute to the feeling of unhappiness?', "Are there any recent changes in the user's life that might be affecting their mood?"], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about the potential causes of their unhappiness', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+I want to help you explore what might be contributing to your unhappiness. Could you share if there are specific situations or thoughts that have been bothering you lately? Additionally, have there been any recent changes in your life that could be affecting your mood? Understanding these aspects might help us gain some clarity together.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,361 | 137 | 0 | 3,498 | 3.7s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,700 | 80 | 0 | 1,780 | 1.8s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,873 | 209 | 0 | 2,082 | 3.2s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,469 | 72 | 0 | 1,541 | 2.1s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,403 | 498 | 0 | 8,901 | 10.7s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Correct claim/fact tier discipline (subjective unhappiness correctly placed as a `claim`, not a `fact`) and precisely sourced emotion (`explicit`). Deducted for `core_question_confidence=0.8` sitting oddly high right next to `clarity_score=0.5` -- the reverse of D01's well-calibrated split, where a higher clarity paired with appropriately lower confidence in the answer; here low clarity pairs with high confidence in the question framing, which doesn't cohere as well. |
+| State quality | 6 | Faithful mirror, inherits the clarity/confidence mismatch. |
+| Judgment quality | 6 | Confidence drops to a more honest 0.5 from Interpretation's 0.8 -- arguably the right direction (more epistemic humility), but unexplained, a real discontinuity even if it moved toward more appropriate caution rather than away from it. |
+| Planning quality | 7 | Two well-structured, complementary questions (specific situations/thoughts; recent life changes) -- reasonable breadth for a "Structured exploration" test, a step up from A01's single-question thinness. |
+| Response quality | 7 | Warm ("gain some clarity together"), faithfully executes both questions, no fabrication or premature advice. |
+| Epistemic discipline | 6 | The clarity/confidence mismatch at Interpretation and the unexplained confidence drop at Judgment are both real, if not severe, issues -- though notably the drift moved toward more honest calibration rather than inflating unjustifiably. |
+
+### Failure Analysis
+
+- **Clarity/confidence mismatch at Interpretation**: `core_question_confidence=0.8` sits oddly high given `clarity_score=0.5` -- if the situation itself is only moderately clear, high confidence in having framed the right core question doesn't fully cohere.
+- **Unexplained confidence drop between Interpretation and Judgment** (0.8 -> 0.5): no new information entered the pipeline to justify the change, even though the resulting value is arguably more honest.
+- `unknowns` contains only one item, which largely restates the `core_question` itself rather than adding a genuinely distinct gap.
+
+### Success Analysis
+
+- Correct epistemic-tier placement: the subjective claim ("User is unhappy") stays in `claims`, not `facts` -- consistent, careful discipline.
+- Emotion precisely sourced as `explicit` given the user's direct statement.
+- Planner produced two complementary, well-targeted questions (situations/thoughts and recent life changes) -- reasonable structured-exploration breadth, better than the single-question output seen in A01.
+- Response was warm, faithful, and appropriately restrained -- no premature advice or diagnosis.
+- All four stages completed on the first attempt, fast (10.7s) and the cheapest run so far ($0.0016), with no fabrication.
+
+### Overall Verdict
+
+**Acceptable.** No fabrication, correct claim/fact discipline, and a reasonably well-structured two-question exploration plan. Held back by an internal clarity/confidence mismatch at Interpretation and an unexplained (if directionally sensible) confidence drop between Interpretation and Judgment -- the kind of internal-consistency gap that would be worth tightening even though it didn't produce any user-facing harm this run.
+
+---
