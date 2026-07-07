@@ -648,3 +648,102 @@ Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** Mechanically clean (best epistemic-tier separation of the run, well-populated unknowns, steady confidence, no fabrication), and Planner's `assumptions_to_test` showed a genuinely good instinct not to take the user's framing at face value. But the test's own targeted capability -- perspective-taking -- came out one-sided in practice: every question and the final response explore only the partner's side, never inviting the user to examine their own "overreacting" framing, even though the Planner itself had flagged that framing as an assumption worth testing. A good idea that didn't make it into the actual conversation.
 
 ---
+
+## R02 -- Relationships -- Assumption detection
+
+**Timestamp**: 2026-07-07T15:20:41Z - 15:21:15Z
+**Git commit**: `57d5166df397578abe4ce1040a9882a1407d131d`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28877654870
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> My friend hasn't replied in three days. I think they're angry with me.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'concern', 'intensity': 0.6, 'confidence': 0.7, 'source': 'inferred'}, {'emotion': 'fear', 'intensity': 0.5, 'confidence': 0.6, 'source': 'inferred'}], 'surface_complaint': "Friend hasn't replied in three days.", 'core_question': 'Is my friend angry with me?', 'core_question_confidence': 0.7, 'observed_facts': ['User has a friend.', "User's friend hasn't replied in three days."], 'claims': ['User thinks their friend is angry with them.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': "User is worried about the friend's lack of communication.", 'confidence': 0.6}], 'unknowns': ["What is the reason for the friend's lack of response?", 'Has the friend expressed any anger previously?'], 'biases': [], 'entities': ['friend'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | Friend hasn't replied in three days.
+core_question            | Is my friend angry with me?
+core_question_confidence | 0.7
+assumptions              | []
+inferences               | ["User is worried about the friend's lack of communication. (confidence=0.60)"]
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User has a friend. (status=active)
+                          | - User's friend hasn't replied in three days. (status=active)
+claims                   | - User thinks their friend is angry with them. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What is the reason for the friend's lack of response? (status=open)
+                          | - Has the friend expressed any anger previously? (status=open)
+entities                 | - friend (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User is uncertain about the reason for their friend's lack of communication.", 'primary_goal': '', 'current_focus': 'Wondering if their friend is angry due to the lack of response.', 'key_blockers': [], 'open_unknowns': ["What is the reason for the friend's lack of response?", 'Has the friend expressed any anger previously?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.7, 'supporting_evidence': ["User's friend hasn't replied in three days.", 'User thinks their friend is angry with them.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is the user's uncertainty about the reason for their friend's lack of communication, which is causing them to wonder if their friend is angry.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': "open unknowns regarding the friend's lack of response and previous expressions of anger", 'priority_topics': ["Reasons for the friend's lack of response", 'Previous expressions of anger from the friend'], 'questions_to_explore': ["What might be some reasons for your friend's lack of communication?", 'Have there been any past instances where your friend seemed upset with you?'], 'assumptions_to_test': ['User assumes their friend is angry without confirming any reasons.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': "user gains clarity about the potential reasons for their friend's lack of communication", 'temporal_horizon': 'immediate', 'confidence': 0.7}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're feeling uncertain about your friend's lack of communication and whether they might be angry with you. To explore this further, what do you think might be some reasons for your friend's silence? Additionally, have there been any past instances where your friend seemed upset with you? Understanding these factors could help clarify the situation.
+```
+`[confidence=0.7]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,364 | 313 | 0 | 3,677 | 6.8s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,894 | 117 | 0 | 2,011 | 3.0s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,107 | 238 | 0 | 2,345 | 4.1s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,732 | 75 | 0 | 1,807 | 1.9s | 1/1 (100%) |
+| **Pipeline Total** | -- | 9,097 | 743 | 0 | 9,840 | 15.7s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.0004, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Both emotional signals (concern, fear) are appropriately hedged, confidence-scored, and marked `source: 'inferred'`; facts/claims stay genuinely distinct; `unknowns`/`entities` well-populated. But `assumptions=[]` is a real miss for a test whose Primary Capability is literally "Assumption detection" -- the user's entire message is built on one assumption ("no reply in 3 days means anger"), and the schema has a dedicated `assumptions` field for exactly this, yet it stayed empty at this layer (the assumption does get caught later, at Planner). No `biases` flagged either (a catastrophizing/mind-reading read would fit). |
+| State quality | 7 | Faithful mirror; inherits Interpretation's empty `assumptions`, no defects of its own. |
+| Judgment quality | 6 | `primary_problem`/`current_focus` stay neutrally framed (uncertainty about the reason, not "friend is angry") rather than presupposing the worst-case reading -- a genuinely good, non-leading framing choice. Standard recurring empty `key_blockers`/`risks`/`opportunities`, though less critical for this specific test's target capability than in C04. |
+| Planning quality | 8 | **The standout finding of this test**: `assumptions_to_test` explicitly and precisely names the core assumption -- "User assumes their friend is angry without confirming any reasons" -- exactly the capability this test exists to validate. `questions_to_explore` are well-designed to indirectly test that assumption by inviting alternative explanations. |
+| Response quality | 8 | Validates the user's feeling, then pivots to asking what *the user* thinks might explain the silence -- a gentle, non-confrontational way to let the user re-examine their own anger assumption rather than being told directly it might be wrong. Faithfully executes Planner's questions with no fabrication. |
+| Epistemic discipline | 7 | Confidence held remarkably steady (0.7) across all four stages -- consistent, no drift. Emotional signals and inference properly hedged throughout. Deducted for `assumptions=[]` at the one layer whose schema is specifically designed to hold it, and for `requires_clarification=False` sitting against two real, populated `unknowns`. |
+
+### Failure Analysis
+
+- **Assumption detected one stage later than the schema seems to intend**: Interpretation's dedicated `assumptions` field stayed empty despite the user's message being built entirely around one assumption (silence = anger); the assumption only gets named explicitly at Planner's `assumptions_to_test`, not at the layer whose field exists specifically for this purpose.
+- **No bias flagged**: a catastrophizing/mind-reading read (assuming the worst from ambiguous silence) would have been a reasonable `biases` entry; none was surfaced.
+- **`requires_clarification=False`** again sits against two real, populated `unknowns` -- the same recurring inconsistency seen in every test so far.
+
+### Success Analysis
+
+- **Best assumption-detection outcome of the run so far**: Planner's `assumptions_to_test` names the exact assumption this test targets, precisely and unambiguously, and the final Response operationalizes it well -- inviting the user to generate alternative explanations themselves rather than being told their assumption is wrong.
+- Both emotional signals correctly hedged, confidence-scored, and marked `source: 'inferred'`.
+- Judgment's neutral framing ("uncertain about the reason") avoided presupposing the worst-case anger conclusion, a subtle but real piece of epistemic restraint.
+- Confidence stayed at a single, consistent value (0.7) throughout -- no discontinuity.
+- All four stages completed on the first attempt, fast (15.7s) and cheap ($0.0018), with no fabrication anywhere.
+
+### Overall Verdict
+
+**Good.** This is the strongest assumption-detection outcome of the run: the core assumption underlying the user's entire message was correctly identified and translated into a response that lets the user re-examine it themselves, without ever being told directly that they might be wrong. Held below "Excellent" because the detection happened at Planner rather than at Interpretation's own dedicated `assumptions` field, which stayed empty despite existing for exactly this purpose, and the recurring `requires_clarification` inconsistency is present again.
+
+---
