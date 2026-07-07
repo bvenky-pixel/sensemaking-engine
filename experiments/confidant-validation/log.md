@@ -1656,3 +1656,101 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Good.** The pipeline successfully avoided the most tempting failure mode for this test -- offering premature burnout advice -- and instead built and delivered a genuinely exploratory, well-targeted set of causal questions. Held below "Excellent" by mildly solution-leaning framing language in Judgment/Planner (not acted upon in the final Response) and the recurring `resolution_blocker` self-contradiction and empty structured fields.
 
 ---
+
+## E02 -- Emotions -- Cognitive interpretation
+
+**Timestamp**: 2026-07-07T15:47:10Z - 15:47:39Z
+**Git commit**: `914ed3b7f62a8ac5de3e036af2cbb3b48f414a88`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28879451433
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I feel guilty even when I haven't done anything wrong.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'guilt', 'intensity': 0.7, 'confidence': 0.95, 'source': 'explicit'}], 'surface_complaint': "User feels guilty even when they haven't done anything wrong.", 'core_question': "Why do I feel guilty when I haven't done anything wrong?", 'core_question_confidence': 0.8, 'observed_facts': ['User feels guilty.', "User believes they haven't done anything wrong."], 'claims': ["User feels guilty even when they haven't done anything wrong."], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': ['What is causing the guilt?', 'Are there specific situations that trigger this feeling?'], 'biases': [], 'entities': [], 'clarity_score': 0.9, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User feels guilty even when they haven't done anything wrong.
+core_question            | Why do I feel guilty when I haven't done anything wrong?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.9
+phase                    | discover
+facts                    | - User feels guilty. (status=active)
+                          | - User believes they haven't done anything wrong. (status=active)
+claims                   | - User feels guilty even when they haven't done anything wrong. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What is causing the guilt? (status=open)
+                          | - Are there specific situations that trigger this feeling? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User feels guilty even when they haven't done anything wrong.", 'primary_goal': '', 'current_focus': 'Exploring the causes of guilt.', 'key_blockers': [], 'open_unknowns': ['What is causing the guilt?', 'Are there specific situations that trigger this feeling?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.8, 'supporting_evidence': ['User feels guilty.', "User believes they haven't done anything wrong.", "User feels guilty even when they haven't done anything wrong."]}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is that the user feels guilty even when they haven't done anything wrong, and understanding the underlying causes of this guilt is essential for clarity and resolution.", 'conversational_strategy': "ask exploratory questions about the user's feelings and experiences related to guilt.", 'resolution_blocker': 'open_unknowns regarding the causes of guilt and specific triggering situations.', 'priority_topics': ['Identifying specific situations that trigger feelings of guilt.', "Understanding the underlying causes of the user's guilt."], 'questions_to_explore': ['What specific situations make you feel guilty?', 'Can you recall any past experiences that might contribute to this feeling?', 'How do you typically respond when you feel guilty?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user', 'focus on one unresolved issue'], 'desired_outcome': 'user gains clarity about the causes of their guilt.', 'temporal_horizon': 'immediate', 'confidence': 0.8}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're experiencing guilt even when you believe you haven't done anything wrong. To better understand this feeling, I'd like to explore some specific situations with you. Can you think of any particular moments or scenarios that trigger this feeling of guilt for you?
+```
+`[confidence=0.8]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,360 | 243 | 0 | 3,603 | 4.6s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,827 | 109 | 0 | 1,936 | 2.2s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,034 | 247 | 0 | 2,281 | 5.5s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,668 | 62 | 0 | 1,730 | 1.9s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,889 | 661 | 0 | 9,550 | 14.2s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | Genuinely distinct facts this time -- "feels guilty" and "believes they haven't done anything wrong" are captured as two separate observed facts, correctly preserving both halves of the paradox rather than collapsing them. `unknowns` well-targeted (cause; specific triggers). Emotion correctly and precisely tagged `source: 'explicit'`. Deducted for `biases=[]`/`inferences=[]` never surfacing the obvious candidate cognitive pattern here (irrational or excessive guilt, possibly perfectionism/scrupulosity) -- directly relevant to this test's Primary Capability ("Cognitive interpretation"). |
+| State quality | 7 | Faithful mirror; no defects of its own. |
+| Judgment quality | 6 | Correctly and appropriately leaves `contradictions=[]` -- guilt coexisting with genuine innocence is a psychological tension, not a logical contradiction (both can simultaneously be true), so this is the right structural choice, consistent with D02's similar correct restraint. Deducted for `supporting_evidence` folding in a claim that largely restates the two facts already listed -- mild redundancy. |
+| Planning quality | 7 | `resolution_blocker` accurately reflects the actual `open_unknowns` this time (a positive contrast to the "none identified" self-contradiction seen in C03/E01). `questions_to_explore` reasonably covers triggers, history, and behavioral response. Deducted for `assumptions_to_test=[]` missing a natural opportunity to name the likely underlying cognitive pattern (e.g., "user assumes their guilt reflects real wrongdoing") as something to test. |
+| Response quality | 8 | Validates the feeling without pathologizing or prematurely diagnosing ("that sounds like anxiety/OCD" would have been a real overreach this test likely guards against); asks a single, well-paced question rather than all three of Planner's questions at once -- good restraint given the "avoid overwhelming" constraint. |
+| Epistemic discipline | 7 | Confidence held consistent (0.8) across all four stages, no drift. Correct restraint on `contradictions`. Emotion precisely sourced. |
+
+### Failure Analysis
+
+- **Cognitive-pattern recognition not surfaced**: the input describes a classic irrational-guilt pattern (guilt unaccompanied by actual wrongdoing), which is directly relevant to this test's "Cognitive interpretation" capability, yet neither `biases`, `inferences`, nor `assumptions_to_test` ever names a candidate interpretation of the pattern itself (e.g., possible perfectionism, excessive self-blame, or an assumption that the feeling must track real wrongdoing). The pipeline gathered good groundwork (triggers, history) but never took the interpretive step the test seems designed to probe.
+- **Minor `supporting_evidence` redundancy**: the claim largely restates content already present in the two facts.
+
+### Success Analysis
+
+- **Correct, appropriate restraint on `contradictions`**: guilt-without-wrongdoing is a psychological tension, not a strict logical contradiction, and the pipeline correctly didn't force it into that field -- consistent with D02's similarly correct handling of fear-vs-goal.
+- Facts stayed genuinely distinct this run (both halves of the paradox captured separately, not duplicated or blended).
+- `resolution_blocker` accurately matched the real `open_unknowns` -- fixes the self-contradictory pattern seen in a couple of earlier tests.
+- Response avoided the tempting failure mode of premature diagnosis or pop-psychology labeling, staying appropriately exploratory and validating.
+- Confidence held consistent (0.8) throughout, no fabrication, all four stages completed on the first attempt (14.2s, $0.0017).
+
+### Overall Verdict
+
+**Good.** Solid mechanics throughout -- distinct facts, appropriately restrained `contradictions`, internally consistent `resolution_blocker`, and a response that avoided both premature diagnosis and overwhelming the user. Held below "Excellent" because the specific capability this test targets -- recognizing and naming the cognitive pattern behind unwarranted guilt -- never quite surfaced explicitly in any structured field, even though the groundwork questions were reasonable first steps toward it.
+
+---
