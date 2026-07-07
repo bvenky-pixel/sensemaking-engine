@@ -742,3 +742,104 @@ Retry count: 3 (openrouter->ollama fallback for Judgment, Planner, and Response)
 ### Overall Verdict
 
 **Needs Investigation.** Interpretation's handling of the targeted capability was arguably the strongest in the dataset for its specific test -- but that careful epistemic work was completely undone by the time it reached the user: Judgment inflated confidence and fabricated a goal, and Response actively validated the very assumption Interpretation had correctly flagged as unverified. Since this test's whole purpose is assumption detection, and the final user-facing output fails that test directly, the run cannot be scored higher despite Interpretation's strength -- a pipeline is only as trustworthy as what actually reaches the user, and here the correct upstream reasoning was overwritten rather than carried through. This run's unusually heavy fallback usage (3 of 4 stages, the most of any test) and lowest-yet pipeline reliability (57%) reinforce the fallback-quality investigation priority raised in C03/C05, and the newly-precise `supporting_evidence` finding (over-inclusion on openrouter vs. omission on ollama) sharpens that investigation's scope. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
+
+---
+
+## R03 -- Relationships -- Decision under uncertainty
+
+**Timestamp**: 2026-07-06T20:03:28Z - 20:09:46Z
+**Git commit**: `715929485a129724eb73de1eacadf397f5d70034`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28819635628
+**Model / Provider**: Judgment succeeded directly on openrouter/free; Interpretation, Planner, and Response ALL fell back to ollama/llama3.2:3b after an openrouter failure each -- tied with R02 for the heaviest fallback usage in the dataset (3 of 4 stages)
+**Provider fallback**: yes -- Interpretation, Planner, and Response each fell back openrouter -> ollama (1/2 each)
+
+### Input
+
+> I don't know whether I should apologize first.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['personal', 'professional'], 'emotional_signals': [], 'surface_complaint': '', 'core_question': 'Should you apologize before addressing the issue?', 'core_question_confidence': 0.5, 'observed_facts': [], 'claims': [], 'goals': ['apologize'], 'decision_options': ['Apologize first'], 'assumptions': [], 'inferences': [], 'unknowns': ['How will the other person react?', "What if they don't want to listen?"], 'biases': [], 'entities': [], 'clarity_score': 0.6, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | (empty)
+core_question            | Should you apologize before addressing the issue?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.6
+phase                    | prepare
+facts                    | []
+claims                   | []
+goals                    | - apologize (status=active)
+decisions                | - Apologize first (status=open)
+unknowns                 | - How will the other person react? (status=open)
+                          | - What if they don't want to listen? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'Uncertainty about whether to apologize before addressing the issue', 'primary_goal': 'apologize', 'current_focus': 'deciding whether to apologize before addressing the issue', 'key_blockers': ['Uncertainty about how the other person will react', 'Uncertainty about whether they will want to listen'], 'open_unknowns': ['How will the other person react?', "What if they don't want to listen?"], 'active_decisions': ['Apologize first'], 'contradictions': [], 'risks': ['If the other person reacts negatively (unknown: How will the other person react?), apologizing first may escalate tension or be rejected.', "If they don't want to listen (unknown: What if they don't want to listen?), apologizing first may be ignored or ineffective."], 'opportunities': [], 'confidence': 0.3, 'supporting_evidence': ["core_question: 'Should you apologize before addressing the issue?'", "decision: 'Apologize first'", "goal: 'apologize'", "core_question: 'Should you apologize before addressing the issue?'", "unknown: 'How will the other person react?'", "unknown: 'What if they don't want to listen?'", "unknown: 'How will the other person react?'", "unknown: 'What if they don't want to listen?'", "decision: 'Apologize first'", "unknown: 'How will the other person react?'", "unknown: 'What if they don't want to listen?'", 'facts: []', 'claims: []']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'apologize', 'rationale': '["core_question: \'Should you apologize before addressing the issue?\'", "decision: \'Apologize first\'"]', 'conversational_strategy': 'acknowledge and address concerns', 'resolution_blocker': 'uncertainty about how the other person will react', 'priority_topics': ['uncertainty about how the other person will react', 'uncertainty about whether they will want to listen'], 'questions_to_explore': ['How will the other person react?', "What if they don't want to listen?"], 'assumptions_to_test': ['the other person is open to listening and willing to address the issue'], 'planning_constraints': [], 'desired_outcome': 'the other person is receptive to the apology and willing to listen to the issue', 'temporal_horizon': 'immediate', 'confidence': 0.3}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand that you're unsure about whether to apologize before addressing the issue. I'd like to acknowledge your concerns and address them in a way that works for both of us. Can you tell me more about what's holding you back from apologizing first? Is it fear of being rejected or uncertainty about how the other person will react? Let's explore these questions together and find a solution that suits both of our needs.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | ollama/llama3.2:3b | 38 | 204 | N/A | 242 | 35.2s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Judgment | openrouter/free | 1,855 | 2,039 | 1,969 | 3,894 | 20.5s | 1/1 (100%) |
+| Planner | ollama/llama3.2:3b | 663 | 205 | N/A | 868 | 79.8s | 1/2 (50%, openrouter attempt failed, fell back) |
+| Response | ollama/llama3.2:3b | 881 | 106 | N/A | 987 | 34.5s | 1/2 (50%, openrouter attempt failed, fell back) |
+| **Pipeline Total** | -- | 3,437 | 2,554 | 1,969 | 5,991 | 169.9s | 4/7 (57%) |
+
+Retry count: 3 (openrouter->ollama fallback for Interpretation, Planner, and Response). Estimated cost: $0.0000. Tied with R02 for lowest pipeline reliability in the dataset.
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 4 | Good restraint: `observed_facts`/`claims`/`entities` correctly stay empty rather than fabricating situational details never given, and `requires_clarification=True` is well-justified given genuinely minimal input. But fabricates `goals: ['apologize']` from a message expressing uncertainty about apologizing, not a decided intention -- resolving the exact decision this test is designed to probe at the very first stage. `unknowns` also focuses on downstream reaction consequences rather than the more fundamental missing situational context (what happened, who's involved). Ran on the ollama fallback. |
+| State quality | 6 | Faithfully mirrors Interpretation, including its goal-fabrication defect; correctly sparse elsewhere; reasonably assigns `phase="prepare"` given genuinely low clarity. |
+| Judgment quality | 3 | `primary_problem` shows a flash of self-correction (correctly reframing as "uncertainty"), but `primary_goal` in the same output still asserts "apologize" as settled -- an internal contradiction within one object. `supporting_evidence` is the worst instance yet in the dataset: literal duplicate entries (each unknown/decision repeated 2-3 times) plus nonsensical items (`'facts: []'`, `'claims: []'` -- absence of evidence presented as evidence). Confidence (0.3) is appropriately low. Ran on openrouter. |
+| Planning quality | 2 | `desired_outcome` presupposes the apology is already the right course of action ("the other person is receptive to the apology") rather than orienting around helping the user actually decide -- the clearest, most on-target planning failure for this test's capability. `rationale` contains a malformed, stringified fragment-list instead of an actual sentence -- a more severe recurrence of the schema-fidelity defect first seen in C05. Ran on the ollama fallback. |
+| Response quality | 4 | Correctly opens by naming the actual uncertainty and asks a question rather than giving direct advice on an unresolved decision -- a real, if surface-level, positive. But the clarifying question ("what's holding you back from apologizing first?") targets the user's internal hesitation rather than the far more fundamental missing fact (what actually happened, who's involved) -- the single most useful question, given an entirely empty `facts`/`claims`/`entities` state, goes unasked. Closes with an oddly templated "solution that suits both of our needs," which doesn't fit a two-party (user + the other person) situation Confidant isn't itself a party to. |
+| Epistemic discipline | 3 | Genuine restraint on facts/claims (nothing fabricated where nothing was stated), and confidence stayed low throughout (0.3-0.5). But the goal-fabrication cascades uncorrected from Interpretation through Judgment's `primary_goal` and Planner's `desired_outcome` to Response's framing -- a real, cascading failure of epistemic discipline on exactly the dimension this test exists to probe: treating an open decision as settled from the first stage onward. |
+
+### Failure Analysis
+
+- **Interpretation fabricates a `goal` from an expressed uncertainty (the most on-target failure for this test)**: "apologize" is recorded as a goal when the user explicitly said they don't know whether to apologize -- resolving the decision under test at the first stage, uncorrected through every later stage.
+- **Judgment's internal self-contradiction**: `primary_problem` correctly reframes this as "uncertainty," while `primary_goal` in the same output still asserts "apologize" as settled.
+- **`supporting_evidence`'s worst instance yet**: literal duplicate entries (each unknown/decision appearing 2-3 times) and nonsensical items (`'facts: []'`, `'claims: []'`) -- a clear escalation of the pattern confirmed in every prior test.
+- **Planner's `rationale` contains a malformed, stringified fragment-list** rather than an actual sentence -- a more severe recurrence of the schema-fidelity defect first seen in C05.
+- **Planner's `desired_outcome` presupposes the apology is the right course of action** rather than orienting around helping the user decide -- the clearest planning-level failure of this test's targeted capability.
+- **Response's clarifying question is misdirected**: it asks about the user's internal hesitation rather than the far more fundamental missing fact (what happened, with whom) -- the single most useful question given the empty `facts`/`claims`/`entities` state goes unasked.
+- Three of four stages fell back to ollama -- tied with R02 for heaviest fallback usage and lowest reliability (57%) in the dataset.
+
+### Success Analysis
+
+- `facts`, `claims`, and `entities` correctly stay empty rather than fabricating situational details never given -- real, meaningful restraint given how little the message actually contains.
+- `requires_clarification=True` is well-justified here, continuing to support the reading that this flag responds sensibly to real ambiguity.
+- Confidence stayed appropriately low throughout (0.3-0.5), honestly reflecting how little is actually known.
+- The Response does ask a question rather than giving direct advice on an unresolved decision -- the high-level strategic instinct (ask, don't advise) held, even though the specific question asked was misdirected.
+
+### Overall Verdict
+
+**Needs Investigation.** The pipeline's single most important obligation for this exact test -- treat "should I apologize" as a genuinely open decision, not a foregone conclusion -- failed at the very first stage and was never corrected downstream, despite some good, honest restraint elsewhere (no fabricated facts, appropriately low confidence, asking rather than advising at a surface level). Combined with the dataset's worst-yet `supporting_evidence` corruption (duplicated entries, nonsensical placeholder items) and a new, more severe malformed-`rationale` schema defect, this run surfaces enough concrete, reproducible problems to warrant investigation rather than being read as an acceptable pass. Per the experiment's immutability rule, this is recorded, not fixed or re-run.
