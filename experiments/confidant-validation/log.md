@@ -1461,3 +1461,101 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Good.** Planner's framing -- establishing decision criteria as the actual resolution blocker, then building genuinely practical prioritization questions around values, outcomes, and resources -- is a strong, well-targeted match to this test's Primary Capability. The Response's numbered-list formatting is a concrete presentation improvement over the prior test. Held below "Excellent" by the questionable `explicit` tag on an emotion the user didn't literally name, and the still-recurring emptiness in Judgment's structured fields.
 
 ---
+
+## D05 -- Decisions -- Values clarification
+
+**Timestamp**: 2026-07-07T15:42:24Z - 15:42:54Z
+**Git commit**: `281faf54aecdfd90077e94645ba52dc12034c5db`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28879132746
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> Should I optimize for salary or meaningful work?
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [], 'surface_complaint': 'User is considering whether to optimize for salary or meaningful work.', 'core_question': 'Which should I prioritize: salary or meaningful work?', 'core_question_confidence': 0.7, 'observed_facts': [], 'claims': [], 'goals': [], 'decision_options': ['Optimize for salary', 'Optimize for meaningful work'], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User is considering whether to optimize for salary or meaningful work.
+core_question            | Which should I prioritize: salary or meaningful work?
+core_question_confidence | 0.7
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | []
+claims                   | []
+goals                    | []
+decisions                | - Optimize for salary (status=open)
+                          | - Optimize for meaningful work (status=open)
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User is uncertain about whether to prioritize salary or meaningful work.', 'primary_goal': '', 'current_focus': 'deciding between optimizing for salary or meaningful work', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': ['Optimize for salary', 'Optimize for meaningful work'], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.7, 'supporting_evidence': ['User is considering whether to optimize for salary or meaningful work.', 'Which should I prioritize: salary or meaningful work?']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is the user's uncertainty about whether to prioritize salary or meaningful work, and exploring their motivations can help clarify their decision.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'unresolved uncertainty', 'priority_topics': ["User's values regarding salary and meaningful work", 'Potential trade-offs between salary and meaningful work'], 'questions_to_explore': ['What does meaningful work mean to you?', 'How important is salary in your current situation?', 'What are your long-term career aspirations?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about their priorities between salary and meaningful work', 'temporal_horizon': 'immediate', 'confidence': 0.7}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand you're trying to decide between prioritizing salary or meaningful work. To help clarify your thoughts, I'd like to explore your motivations a bit more.
+
+First, what does meaningful work mean to you? Additionally, how important is salary in your current situation? Lastly, what are your long-term career aspirations? These questions might help you reflect on your values and the trade-offs involved in your decision.
+```
+`[confidence=0.7]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,358 | 118 | 0 | 3,476 | 3.3s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,703 | 105 | 0 | 1,808 | 2.5s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,905 | 210 | 0 | 2,115 | 4.2s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,502 | 94 | 0 | 1,596 | 2.7s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,468 | 527 | 0 | 8,995 | 12.8s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | `facts=[]`/`claims=[]` is correct restraint here, not a miss -- the input is a pure question with no situational statements to extract, unlike earlier sparse-input tests where real content went uncaptured. `decision_options=['Optimize for salary', 'Optimize for meaningful work']` correctly and cleanly extracted directly from the question's own phrasing. |
+| State quality | 7 | Faithful mirror; `decisions` tier correctly populated. |
+| Judgment quality | 6 | Correctly carries `active_decisions` forward. Deducted for `supporting_evidence` including the `core_question` text itself as if it were evidence -- a milder instance of the recurring scope-creep pattern, though there's little else to draw from given how sparse this input is. |
+| Planning quality | 9 | **Genuinely excellent values-clarification questions**: "What does meaningful work mean to you?" is a textbook values-clarification move -- asking the user to define the term rather than assuming a shared definition -- and `priority_topics` correctly frames the whole situation as fundamentally about values and trade-offs, precisely matching this test's Primary Capability. |
+| Response quality | 8 | Faithful, well-organized, explicitly and transparently names the values-reflection framing ("reflect on your values and the trade-offs"); correctly avoids taking a side on which the user "should" prioritize. |
+| Epistemic discipline | 7 | Confidence held consistent (0.7) across all four stages, no drift; no fabricated context invented beyond the bare question asked. |
+
+### Failure Analysis
+
+- **`supporting_evidence` includes the `core_question` text itself** rather than only independently-observed facts/claims -- a milder recurrence of the scope-creep pattern seen throughout this run, though less consequential here given how little else the input provides.
+
+### Success Analysis
+
+- **Best values-clarification targeting of the run**: Planner's "What does meaningful work mean to you?" directly asks the user to define their own terms rather than presuming a definition -- exactly the capability this test exists to validate, and `priority_topics` correctly names values/trade-offs as the actual subject.
+- Correct, appropriately sparse Interpretation given the input is a pure question with no situational facts to extract -- a case where emptiness is the right call, not a gap.
+- `decision_options` cleanly and correctly derived directly from the question's phrasing.
+- Response stayed neutral, never took a side on salary vs. meaningful work, and explicitly invited the user's own values reflection.
+- Confidence held consistent (0.7) throughout, no fabrication anywhere, all four stages completed on the first attempt (12.8s, $0.0016).
+
+### Overall Verdict
+
+**Good.** This is the strongest values-clarification-specific output of the run: Planner correctly identified that resolving "salary vs. meaningful work" requires the user to define their own terms first, and built its questions precisely around that insight. The Response stayed genuinely neutral and non-prescriptive on the actual choice. Held below "Excellent" only by the minor, recurring `supporting_evidence` scope-creep pattern.
+
+---
