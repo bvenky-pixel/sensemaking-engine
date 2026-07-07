@@ -242,3 +242,102 @@ Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.000
 **Needs Investigation.** The single capability this test exists to validate -- detecting the contradiction between positive manager feedback and being passed over for promotion -- was not captured by Judgment's `contradictions` field even though both contradicting facts were present verbatim in the same output's own `supporting_evidence`. The final Response happened to gesture at the tension in prose, so the user-facing behavior reads better than the structured trace underneath it, but that's a fragile, seemingly incidental save rather than the architecture working as designed. This is a concrete, reproducible finding (contrast Run 1's C02 on the identical input, which detected the contradiction correctly) worth flagging for investigation rather than treating as one-off noise.
 
 ---
+
+## C03 -- Career -- Decision making
+
+**Timestamp**: 2026-07-07T15:09:09Z - 15:09:38Z
+**Git commit**: `287e19079306d7390fac763ca55b2e69ad6764f4`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28876861451
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I have two job offers and can't decide which one to accept.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': ['professional'], 'emotional_signals': [], 'surface_complaint': "User can't decide which job offer to accept.", 'core_question': 'Which job offer should I accept?', 'core_question_confidence': 0.7, 'observed_facts': ['User has two job offers.'], 'claims': ["User can't decide which job offer to accept."], 'goals': [], 'decision_options': ['Accept first job offer', 'Accept second job offer'], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.9, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User can't decide which job offer to accept.
+core_question            | Which job offer should I accept?
+core_question_confidence | 0.7
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.9
+phase                    | discover
+facts                    | - User has two job offers. (status=active)
+claims                   | - User can't decide which job offer to accept. (status=active)
+goals                    | []
+decisions                | - Accept first job offer (status=open)
+                          | - Accept second job offer (status=open)
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User can't decide which job offer to accept.", 'primary_goal': '', 'current_focus': 'deciding between two job offers', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': ['Accept first job offer', 'Accept second job offer'], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.7, 'supporting_evidence': ['User has two job offers.', "User can't decide which job offer to accept."]}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'support decision making', 'rationale': "The primary_problem is that the user can't decide which job offer to accept, and they have two active decisions to consider.", 'conversational_strategy': 'compare alternatives', 'resolution_blocker': 'none identified', 'priority_topics': ['details of each job offer', "user's priorities and values regarding the job offers"], 'questions_to_explore': ['What are the key differences between the two job offers?', 'What factors are most important to you in making this decision?', 'What are your long-term career goals and how do these offers align with them?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies the most suitable job offer based on their priorities', 'temporal_horizon': 'immediate', 'confidence': 0.7}
+```
+
+**Response** (verbatim, user-facing):
+```
+Let's focus on comparing the two job offers to help you make a decision. What are the key differences between the two offers? Additionally, what factors are most important to you in making this choice? Understanding your long-term career goals and how each offer aligns with them could also be helpful in identifying the most suitable option for you.
+```
+`[confidence=0.7]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,362 | 172 | 0 | 3,534 | 4.2s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,777 | 131 | 0 | 1,908 | 2.9s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,967 | 218 | 0 | 2,185 | 4.3s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,572 | 76 | 0 | 1,648 | 1.7s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,678 | 597 | 0 | 9,275 | 13.1s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Clean, non-duplicated facts/claims split this time (fact: "has two job offers"; claim: "can't decide" -- genuinely distinct content, unlike C01/C02's overlap). Good first use of `decision_options` on this run, correctly capturing both alternatives. Deducted for `unknowns=[]` -- the offer details (salary, role, etc.) and the user's priorities are obviously unknown and central to this decision-making test, yet nothing was surfaced into the `unknowns` tier; `clarity_score=0.9` reads as inflated given how little is actually known about either offer. |
+| State quality | 7 | Faithful mirror; `decisions` tier correctly populated with both options at `status=open`. Inherits Interpretation's empty-unknowns gap, no defects of its own. |
+| Judgment quality | 5 | `current_focus`/`primary_problem` correctly frame the decision, and `active_decisions` correctly carries both options forward. But `key_blockers=[]`, `open_unknowns=[]`, `risks=[]`, `opportunities=[]` are all empty despite the decision plainly being blocked on missing offer details and unstated priorities -- Planner's own next-stage output implicitly disagrees with this "nothing blocking" read by immediately asking for exactly that missing information. |
+| Planning quality | 6 | `questions_to_explore` are specific, well-targeted, and map onto the real gap (offer differences, priorities, long-term goals); `planning_constraints` show restraint. Deducted for `resolution_blocker: 'none identified'` directly contradicting this same output's own `conversational_strategy` ("compare alternatives") and `questions_to_explore` -- if truly nothing were blocking resolution, there would be no reason to ask three exploratory questions before the user can decide. |
+| Response quality | 8 | Natural second-person voice, faithfully executes all three of Planner's questions, stays in clarification mode without prescribing which offer to take, appropriately brief. |
+| Epistemic discipline | 6 | Confidence held steady at 0.7 across all four stages -- consistent, no inflation. But the structured "gap" fields (`unknowns`, `key_blockers`, `open_unknowns`, `resolution_blocker`) all read as if no uncertainty exists, while the actual downstream behavior (three clarifying questions) demonstrates the pipeline knows real uncertainty exists -- the same disconnect between prose/behavior and structured state seen in C01 and C02, now a 3rd-consecutive occurrence. |
+
+### Failure Analysis
+
+- **Structured gap fields empty despite genuine, obvious uncertainty (3rd consecutive occurrence)**: `unknowns` (Interpretation), `key_blockers`/`open_unknowns` (Judgment) all empty even though the offer details and user priorities are plainly unknown and are exactly what Planner goes on to ask about.
+- **`resolution_blocker: 'none identified'` self-contradiction**: Planner claims no blocker exists in the same output where `conversational_strategy` is "compare alternatives" and three `questions_to_explore` exist specifically to gather the missing comparison information -- these cannot both be true.
+- **`clarity_score=0.9`** feels inflated given that neither job offer has any stated detail beyond its existence.
+
+### Success Analysis
+
+- All four stages completed on the first attempt, fast (13.1s) and cheap ($0.0017).
+- No fabrication: nothing invented about either job offer beyond what the user stated.
+- Clean facts/claims separation this run -- genuinely distinct content in each tier, unlike C01/C02's duplication pattern.
+- `decision_options`/`active_decisions` correctly captured and carried through with the right status (`open`) at every stage.
+- Confidence stayed at a single consistent value (0.7) throughout -- no discontinuity or unexplained drift.
+- Response correctly stayed in clarification/comparison mode rather than prematurely recommending one offer over the other -- appropriate restraint for a decision the user must make themselves.
+
+### Overall Verdict
+
+**Acceptable.** The pipeline correctly recognized this as a two-option decision, captured both options faithfully through every stage, and produced a well-targeted, appropriately restrained clarifying response. Held below "Good" by the now-3rd-consecutive-test pattern of the structured gap-tracking fields (`unknowns`, `key_blockers`, `open_unknowns`) staying empty even when real, obvious uncertainty exists and is being acted on downstream, compounded here by Planner's internally contradictory `resolution_blocker: 'none identified'` sitting alongside its own strategy of asking three clarifying questions.
+
+---
