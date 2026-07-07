@@ -2241,3 +2241,100 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** No fabrication, correct claim/fact discipline, and a reasonably well-structured two-question exploration plan. Held back by an internal clarity/confidence mismatch at Interpretation and an unexplained (if directionally sensible) confidence drop between Interpretation and Judgment -- the kind of internal-consistency gap that would be worth tightening even though it didn't produce any user-facing harm this run.
 
 ---
+
+## A03 -- Ambiguity -- Belief examination
+
+**Timestamp**: 2026-07-07T18:16:07Z - 18:16:35Z
+**Git commit**: `f23c7f7a32383d1b5d32fa595f2ae2c9d597a84f`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28888567217
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> Everyone keeps telling me I'll figure it out eventually.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [], 'surface_complaint': "User feels pressured by others' expectations to figure things out.", 'core_question': "How can I manage the pressure from others' expectations?", 'core_question_confidence': 0.5, 'observed_facts': ["Everyone keeps telling user they'll figure it out eventually."], 'claims': [], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': "User may feel overwhelmed by others' expectations to resolve their situation.", 'confidence': 0.4}], 'unknowns': ['What specific situation is user trying to figure out?', 'How does user feel about the pressure from others?'], 'biases': [], 'entities': [], 'clarity_score': 0.5, 'requires_clarification': True}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User feels pressured by others' expectations to figure things out.
+core_question            | How can I manage the pressure from others' expectations?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | ["User may feel overwhelmed by others' expectations to resolve their situation. (confidence=0.40)"]
+biases                   | []
+clarity_level            | 0.5
+phase                    | discover
+facts                    | - Everyone keeps telling user they'll figure it out eventually. (status=active)
+claims                   | []
+goals                    | []
+decisions                | []
+unknowns                 | - What specific situation is user trying to figure out? (status=open)
+                          | - How does user feel about the pressure from others? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User feels pressured by others' expectations to figure things out.", 'primary_goal': '', 'current_focus': "Managing the pressure from others' expectations.", 'key_blockers': [], 'open_unknowns': ['What specific situation is user trying to figure out?', 'How does user feel about the pressure from others?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ["User feels pressured by others' expectations to figure things out.", "Everyone keeps telling user they'll figure it out eventually."]}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is that the user feels pressured by others' expectations, and understanding their feelings about this pressure is crucial to managing it effectively.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'open_unknowns regarding how the user feels about the pressure and the specific situation they are trying to resolve', 'priority_topics': ["User's feelings about the pressure from others", 'Specific situation user is trying to figure out'], 'questions_to_explore': ['What specific situation are you trying to figure out?', 'How does the pressure from others make you feel?'], 'assumptions_to_test': ['User feels overwhelmed by the expectations of others.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about their feelings and the situation they are facing', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+It seems like the pressure from others' expectations is weighing on you. To better understand how to manage that pressure, could you share what specific situation you are trying to figure out? Additionally, how does this pressure make you feel?
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,359 | 164 | 0 | 3,523 | 3.7s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,781 | 115 | 0 | 1,896 | 4.0s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,992 | 236 | 0 | 2,228 | 3.9s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,615 | 58 | 0 | 1,673 | 1.6s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,747 | 573 | 0 | 9,320 | 13.3s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 5 | `observed_facts` correctly and cleanly contains only the literal statement itself. But `surface_complaint` bakes in an unhedged interpretive leap -- "User feels pressured by others' expectations" -- when the input ("everyone keeps telling me I'll figure it out eventually") is genuinely ambiguous and could just as easily read as reassuring, dismissive, or annoying rather than pressuring. The same interpretation then reappears, properly hedged this time, in `inferences` (confidence 0.4) -- an internal inconsistency where one tier treats the reading as settled and another correctly treats it as uncertain. `requires_clarification=True` is a correct, positive match to the genuine ambiguity here. |
+| State quality | 6 | Faithful mirror; inherits the "pressured" framing inconsistency from Interpretation. |
+| Judgment quality | 5 | Continues carrying the "pressured" framing forward as the `primary_problem`/`current_focus` without flagging it as one plausible reading among several -- compounds Interpretation's issue rather than correcting it. |
+| Planning quality | 6 | Genuinely good instinct: `assumptions_to_test` correctly names "User feels overwhelmed by the expectations of others" as something to verify, not assume -- exactly the right move for a "Belief examination" test. But the second `questions_to_explore` item ("How does the pressure from others make you feel?") is leading -- it presupposes the very "pressure" framing it's nominally meant to test, rather than asking a genuinely open question like "how do you feel when people say that?" |
+| Response quality | 4 | **Opens by asserting the interpretation as settled fact** ("the pressure from others' expectations is weighing on you") rather than inviting the user to examine or confirm it themselves -- this directly undoes the correct hedging Planner had just established in `assumptions_to_test` one stage earlier. For a test whose Primary Capability is explicitly "Belief examination," telling the user how they feel rather than asking is close to the opposite of the target behavior. |
+| Epistemic discipline | 5 | Confidence held numerically consistent (0.5) throughout, but the "pressured" framing's certainty fluctuates across stages -- correctly hedged in Interpretation's `inferences` and Planner's `assumptions_to_test`, yet asserted unhedged in `surface_complaint`, `primary_problem`, and the final Response. The system's own correctly-flagged uncertainty gets silently dropped by the time it reaches the user. |
+
+### Failure Analysis
+
+- **The assumption flagged for testing was asserted instead of tested (most severe finding for this test)**: Planner's `assumptions_to_test` correctly identifies "user feels overwhelmed by others' expectations" as a hypothesis to verify, but the Response's opening line ("the pressure... is weighing on you") asserts exactly that hypothesis as settled fact -- the discipline shown one stage earlier doesn't survive into the user-facing text. This is directly counter to this test's Primary Capability ("Belief examination"), which calls for inviting the user to examine their own framing, not being told it.
+- **Interpretation-tier inconsistency**: the same "pressured" reading appears unhedged in `surface_complaint` and hedged (confidence 0.4) in `inferences` within the same Interpretation output -- one tier treats it as fact, the other as a guess.
+- **Leading second question**: "How does the pressure from others make you feel?" presupposes the pressure framing rather than asking an open question that would let the user characterize their own reaction.
+
+### Success Analysis
+
+- `observed_facts` correctly stayed limited to the literal, unambiguous statement, without importing the interpretive leap into that tier.
+- `requires_clarification=True` correctly and appropriately matches the genuine ambiguity of this input -- a positive instance of this flag behaving as intended.
+- `assumptions_to_test` in Planner shows the right instinct (treating the "overwhelmed" read as a hypothesis, not a given), even though it didn't survive into the final Response.
+- Confidence held numerically steady (0.5) across all four stages; all four stages completed on the first attempt, fast (13.3s) and cheap ($0.0017), with no fabrication of external facts.
+
+### Overall Verdict
+
+**Needs Investigation.** This test exists specifically to check whether the system examines the user's beliefs/framing rather than asserting its own -- and the final Response does exactly the latter, opening by telling the user that the pressure "is weighing on you" as settled fact, directly overriding the correct hedging Planner had established one stage earlier in `assumptions_to_test`. The input itself is genuinely ambiguous (could be reassurance, dismissal, or pressure), which makes this a clean, reproducible case of the pipeline's own internal epistemic discipline not making it through to the user-facing text.
+
+---
