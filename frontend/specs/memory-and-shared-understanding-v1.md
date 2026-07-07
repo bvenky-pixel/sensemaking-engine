@@ -1,13 +1,25 @@
 # Confidant Memory & Shared Understanding v1
 
-Status: Depends on `frontend-philosophy-v1.md`,
-`information-architecture-v1.md`, and `interaction-architecture-v1.md`.
-This is the most Confidant-specific document in the frontend
-architecture — it defines how the backend's evolving understanding of a
-situation (built by Interpretation, WorldState, and Judgment; see
-`engine/specs/system-architecture-v2-specification.md`) becomes
-something a person can actually see, trust, and correct, rather than an
-invisible mechanism working on their behalf.
+**Status: RETIRED, superseded by `interaction-model-v4.md`.** This
+document treated shared understanding as a foldable panel alongside a
+conversation. `interaction-model-v4.md`'s "Letting the Architecture Be
+Felt" section is the authoritative replacement — understanding is now
+the product's most structurally important, ever-present moment, not a
+feature a person opens. The correction/deletion discipline (a person's
+correction must change what the backend actually carries forward, not
+just what's displayed) carries forward unchanged into the new document.
+Kept in git history as the visible reasoning trail, not deleted.
+
+---
+
+Original status (no longer current): Depends on
+`frontend-philosophy-v1.md`, `information-architecture-v1.md`, and
+`interaction-architecture-v1.md`. This is the most Confidant-specific
+document in the frontend architecture — it defines how the backend's
+evolving understanding of a situation (built by Interpretation,
+WorldState, and Judgment; see `engine/specs/system-architecture-v2-
+specification.md`) becomes something a person can actually see, trust,
+and correct, rather than an invisible mechanism working on their behalf.
 
 ---
 

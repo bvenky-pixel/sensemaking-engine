@@ -66,9 +66,9 @@ license to drop the information the motion was conveying.
 
 Adapting to a smaller screen is not only a layout problem (things fit)
 but an attention problem (what deserves focus changes as available
-space shrinks). On a small screen, the live exchange in a Thread should
+space shrinks). On a small screen, the live exchange in a Journey should
 take priority over simultaneous visibility of the full understanding
-surface (see `memory-and-shared-understanding-v1.md`) — accessible on
+surface (see `interaction-model-v4.md`) — accessible on
 demand, not competing for the same limited space. Responsive design
 here means asking what a person's attention can actually hold in a
 given context, not just what technically fits.
@@ -87,8 +87,8 @@ afford to clip or hide.
 A person should be able to share something thoughtful and receive a
 considered response whether they're typing on a keyboard, using voice
 input, or navigating entirely without a pointing device. No interaction
-essential to a Thread's core lifecycle (see
-`interaction-architecture-v1.md`) may depend on a single input modality
+essential to a Journey's core lifecycle (see
+`interaction-model-v4.md`) may depend on a single input modality
 that excludes another.
 
 ---

@@ -1,6 +1,25 @@
 # Confidant Product Experience v1
 
-Status: The concrete realization of `visual-design-system-v1.md`,
+**Status: SUPERSEDED IN PART, pending a new visual pass.** This
+document and its live prototype (`frontend/prototype/confidant.html`)
+realized the pre-review interaction model — chat turns inside a
+"Thread," a foldable Shared Understanding panel, cycling reasoning-
+progress text during the wait. Design review correctly identified that
+model as still an AI chat application, and `interaction-model-v4.md`
+now supersedes it (Journeys/Sessions, ambient presence, "handing the
+page over," understanding as an ever-present moment rather than a
+panel). The concrete color/type/spacing values below and the general
+visual-restraint principles they encode are not invalidated by that
+review and remain the working visual language — only the screens
+themselves, built against the old interaction model, need to be
+redrawn against `interaction-model-v4.md` before this document can be
+current again. That redesign has not been done yet; do not treat the
+live prototype as accurate until it is.
+
+---
+
+Original status (concrete values below still apply): The concrete
+realization of `visual-design-system-v1.md`,
 `motion-and-latency-philosophy-v1.md`,
 `design-tokens-and-component-philosophy-v1.md`, and
 `accessibility-and-responsive-design-v1.md` — those documents

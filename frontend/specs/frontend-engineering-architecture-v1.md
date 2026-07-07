@@ -81,12 +81,12 @@ experiencing it. The frontend's performance goal is therefore not
 every perceptible delay is attributable to genuine backend reasoning,
 never to frontend inefficiency.
 
-### 4. State Should Be Scoped to a Thread, Never Pooled Globally
+### 4. State Should Be Scoped to a Journey, Never Pooled Globally
 
-Consistent with `information-architecture-v1.md`'s "one Thread, one
+Consistent with `information-architecture-v1.md`'s "one Journey, one
 situation, one understanding," the frontend's state architecture must
-enforce that a Thread's understanding cannot leak into, or be confused
-with, another Thread's — architecturally, not just visually. This
+enforce that a Journey's understanding cannot leak into, or be confused
+with, another Journey's — architecturally, not just visually. This
 matters specifically because a state layer that pools everything
 globally for convenience (a single global cache of "all understanding")
 makes the scoping violation this whole product depends on avoiding
@@ -155,10 +155,10 @@ completely different latency profile.
   the "Considering" experience (see `motion-and-latency-philosophy-
   v1.md`) — today's principles assume only start-of-turn and
   end-of-turn (or failure) as observable moments.
-- This document assumes a single active Thread's state is what a
-  person is interacting with at any moment. If simultaneous multi-Thread
+- This document assumes a single active Journey's state is what a
+  person is interacting with at any moment. If simultaneous multi-Journey
   interaction ever becomes a real requirement, principle 4's
-  Thread-scoping must be explicitly re-examined for how it should behave
+  Journey-scoping must be explicitly re-examined for how it should behave
   under true concurrency, not assumed to already handle it.
 - A concrete technology selection (framework, state library, API
   transport) should be made only after this document is agreed, and

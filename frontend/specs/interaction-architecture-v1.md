@@ -1,7 +1,20 @@
 # Confidant Interaction Architecture v1
 
-Status: Depends on `frontend-philosophy-v1.md`, `emotional-design-v1.md`,
-and `information-architecture-v1.md`. Where Information Architecture
+**Status: RETIRED, superseded by `interaction-model-v4.md`.** This
+document described a chat-shaped interaction (message/wait/response
+turns inside a "Thread") that design review correctly identified as
+still fundamentally an AI chat application. `interaction-model-v4.md`
+is the authoritative replacement — it owns everything this document
+used to (the lifecycle of an exchange, what each moment feels like) and
+should be read instead of this one. Kept in git history as the visible
+reasoning trail, not deleted, per this project's standing discipline
+of never erasing a superseded decision.
+
+---
+
+Original status (no longer current): Depends on
+`frontend-philosophy-v1.md`, `emotional-design-v1.md`, and
+`information-architecture-v1.md`. Where Information Architecture
 defines the *rooms* (Home, Thread, Settings), this document defines what
 actually happens inside a Thread — the lifecycle of a conversation, the
 states it moves through, and what each state should feel like from the

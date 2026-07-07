@@ -121,11 +121,11 @@ the person's own words.
 
 ### Rhythm Should Mirror Conversation, Not a Form
 
-Spacing between elements inside a Thread should reflect the natural
+Spacing between elements inside a Journey should reflect the natural
 pacing of a real exchange — clear separation between distinct turns,
 tighter grouping within a single continuous thought — rather than the
 uniform grid spacing of a form or a settings page. Different spaces in
-the product (a Thread's live exchange vs. Settings' simple list) are
+the product (a Journey's live exchange vs. Settings' simple list) are
 allowed, and expected, to use spacing differently because they serve
 different kinds of attention.
 

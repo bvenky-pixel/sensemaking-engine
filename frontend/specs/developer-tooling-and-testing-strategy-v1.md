@@ -84,7 +84,7 @@ trust behavior — honesty under failure — completely unverified.
 `frontend-engineering-architecture-v1.md`'s "reflection of backend
 truth, never a second copy" principle is only meaningful if it can be
 verified — tests should be able to assert that the frontend's
-representation of a Thread's understanding can never diverge from what
+representation of a Journey's understanding can never diverge from what
 the backend actually returned, and specifically that a person's
 correction to shared understanding isn't treated as complete until the
 backend has confirmed it. This is the frontend's testable discharge of

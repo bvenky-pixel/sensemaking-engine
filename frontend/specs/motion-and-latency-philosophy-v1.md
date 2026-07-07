@@ -63,7 +63,7 @@ document's direct consequence for motion specifically).
 
 Every animation in the product must exist to help someone understand
 what just happened or what's about to happen (a new piece of
-understanding appearing, a Thread transitioning between states) — never
+understanding appearing, a Journey transitioning between states) — never
 purely to make the interface feel more alive, modern, or polished.
 Motion used as embellishment (bouncy entrances, playful transitions,
 animated illustrations) fails the earnestness principle directly (see
@@ -138,7 +138,7 @@ snappier-feeling interface.
 
 - Real usage will surface whether people's tolerance for the
   "Considering" state holds up in practice, especially on longer or more
-  complex Threads — this should be revisited with real timing and
+  complex Journeys — this should be revisited with real timing and
   real reactions once available, the same way Judgment v2's calibration
   was only revisited once real evaluation data existed.
 - If a future architectural change (e.g., streaming partial output from
