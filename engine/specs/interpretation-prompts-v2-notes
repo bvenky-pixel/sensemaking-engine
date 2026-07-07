@@ -1,0 +1,448 @@
+# Interpretation Prompt v2 Notes
+
+**Status:** DISCUSSION DRAFT
+
+This document describes targeted modifications to the Interpretation Engine prompt following benchmark evaluation and WorldState testing.
+
+It is intentionally a migration guide, not a replacement prompt.
+
+The objective is to preserve the strengths of v0.9 while improving extraction completeness and consistency.
+
+---
+
+# Guiding Principle
+
+Interpretation v0.9 successfully optimized for epistemic discipline.
+
+The benchmark findings do **not** suggest that the model is hallucinating structure.
+
+The benchmark findings suggest that the model is frequently under-extracting structure that is genuinely present.
+
+Prompt v2 should therefore:
+
+* preserve evidence-first reasoning
+* preserve sparse-by-default behavior
+* improve recall of meaningful structure
+* avoid increasing hallucination rates
+
+The goal is not broader inference.
+
+The goal is better extraction.
+
+---
+
+# New Prompt Section: CONTRADICTIONS
+
+Add a dedicated section after ASSUMPTIONS.
+
+## Purpose
+
+Capture tensions, inconsistencies, or conflicting realities present in the user's description.
+
+A contradiction does not require formal logical inconsistency.
+
+The purpose is to record meaningful tension.
+
+## Examples
+
+User:
+
+> My manager says I'm doing great, but I was passed over for promotion.
+
+GOOD:
+
+> Positive performance feedback conflicts with promotion outcome.
+
+---
+
+User:
+
+> I love this relationship, but I think I need to leave.
+
+GOOD:
+
+> Emotional attachment conflicts with desire to leave.
+
+---
+
+User:
+
+> I want freedom, but I need financial stability.
+
+GOOD:
+
+> Desire for freedom conflicts with need for stability.
+
+## Rules
+
+Contradictions should:
+
+* describe the tension
+* not explain the tension
+* not resolve the tension
+* not speculate about motives
+* not assign blame
+
+An empty list remains correct when no meaningful tension exists.
+
+---
+
+# New Prompt Section: RISKS
+
+Add a dedicated section after CONTRADICTIONS.
+
+## Purpose
+
+Capture plausible negative outcomes directly connected to the current situation.
+
+Risks are not predictions.
+
+Risks are not catastrophizing.
+
+Risks identify meaningful downside exposure.
+
+## Examples
+
+User:
+
+> I'm thinking of quitting without another offer.
+
+GOOD:
+
+* Loss of income
+* Extended unemployment
+
+---
+
+User:
+
+> My spouse is talking about divorce.
+
+GOOD:
+
+* Relationship dissolution
+
+---
+
+User:
+
+> I'm considering taking on significant debt.
+
+GOOD:
+
+* Financial strain
+
+## Rules
+
+Risks should:
+
+* emerge directly from facts already present
+* remain grounded in available evidence
+* avoid worst-case scenarios
+* avoid advice
+* avoid planning
+
+An empty list remains correct when no meaningful risk is present.
+
+---
+
+# Goal Extraction Revisions
+
+## Problem Observed
+
+Goals were frequently omitted despite clear evidence of desired outcomes.
+
+## Additional Guidance
+
+Goals do not require explicit phrases such as:
+
+* I want
+* I need
+* My goal is
+
+Desired outcomes may be inferred when strongly supported by context.
+
+## Examples
+
+User:
+
+> I've been trying to move into product management.
+
+GOOD:
+
+> Move into product management.
+
+---
+
+User:
+
+> My partner says we keep having the same argument.
+
+GOOD:
+
+> Improve relationship conflict.
+
+---
+
+User:
+
+> I'm struggling to get my startup off the ground.
+
+GOOD:
+
+> Successfully launch the startup.
+
+---
+
+# Unknown Extraction Revisions
+
+## Problem Observed
+
+Unknowns frequently remained empty even when clarification was required.
+
+## Additional Guidance
+
+Unknowns should identify information gaps that materially limit understanding.
+
+Unknowns are not coaching questions.
+
+Unknowns are not planning questions.
+
+Unknowns should answer:
+
+> What information is missing that would help explain the current situation?
+
+## Additional Rule
+
+If the core question cannot be confidently understood from the available information, unknowns will often be non-empty.
+
+## Examples
+
+User:
+
+> I feel stuck.
+
+GOOD:
+
+* What area of life feels stuck?
+* How long has this felt true?
+
+---
+
+User:
+
+> My boss keeps avoiding the conversation.
+
+GOOD:
+
+* Has the boss explained the reason for avoiding the discussion?
+
+---
+
+# Assumption Extraction Revisions
+
+## Problem Observed
+
+Assumption extraction was overly conservative.
+
+## Current Wording
+
+Current prompt wording:
+
+> In most turns the honest answer is assumptions=[].
+
+This appears to bias the model toward under-extraction.
+
+## Recommended Replacement
+
+Many conversations genuinely contain no assumptions.
+
+However, when a conclusion depends on an unstated belief, capture that belief explicitly.
+
+## Additional Examples
+
+User:
+
+> My friend hasn't replied in three days.
+> I think they're angry.
+
+GOOD:
+
+> Lack of response indicates anger.
+
+---
+
+User:
+
+> I wasn't promoted.
+> My manager must not value me.
+
+GOOD:
+
+> Promotion outcome reflects personal value.
+
+---
+
+User:
+
+> My co-founder disagreed with me.
+> He clearly doesn't trust me.
+
+GOOD:
+
+> Disagreement implies lack of trust.
+
+---
+
+# Decision Option Revisions
+
+## Problem Observed
+
+Decision structures were occasionally missed.
+
+## Additional Guidance
+
+If the user is comparing alternatives, decision_options should rarely be empty.
+
+Decision options remain strictly extractive.
+
+Do not expand or improve the decision space.
+
+Do not add options the user did not mention.
+
+## Examples
+
+User:
+
+> Should I stay or leave?
+
+GOOD:
+
+* Stay
+* Leave
+
+---
+
+User:
+
+> Should I wait or apply elsewhere?
+
+GOOD:
+
+* Wait
+* Apply elsewhere
+
+---
+
+# Clarification Consistency
+
+Add a consistency rule near the end of the prompt.
+
+## Rule
+
+If:
+
+```text
+requires_clarification = true
+```
+
+then:
+
+```text
+unknowns
+```
+
+should usually identify the missing information driving that need.
+
+Interpretation should avoid situations where:
+
+```text
+requires_clarification = true
+unknowns = []
+```
+
+unless there is a compelling reason.
+
+---
+
+# Goal Consistency
+
+Add a consistency rule near the end of the prompt.
+
+## Rule
+
+If a desired outcome is clearly present:
+
+```text
+goals
+```
+
+should rarely be empty.
+
+---
+
+# Decision Consistency
+
+Add a consistency rule near the end of the prompt.
+
+## Rule
+
+If alternatives are being compared:
+
+```text
+decision_options
+```
+
+should rarely be empty.
+
+---
+
+# Emotional Consistency
+
+Add a consistency rule near the end of the prompt.
+
+## Rule
+
+If meaningful emotional content is present:
+
+```text
+emotional_signals
+```
+
+should rarely be empty.
+
+---
+
+# Final Consistency Review
+
+Before producing output, perform a final internal review.
+
+Questions:
+
+1. Is clarification required while unknowns are empty?
+2. Is a goal clearly present while goals are empty?
+3. Is a decision being discussed while decision_options are empty?
+4. Is emotional content present while emotional_signals are empty?
+5. Is there an obvious tension that belongs in contradictions?
+6. Is there meaningful downside exposure that belongs in risks?
+
+This review should improve completeness without weakening epistemic discipline.
+
+---
+
+# Explicit Non-Goals
+
+Prompt v2 does not change:
+
+* evidence-first reasoning
+* sparse-by-default philosophy
+* confidence calibration rules
+* emotional signal calibration
+* bias extraction rules
+* inference confidence rules
+* prohibition on advice
+* prohibition on invented motives
+
+Interpretation remains an extraction layer, not a planning or coaching layer.
+
+The objective of v2 is improved recall, not broader speculation.
