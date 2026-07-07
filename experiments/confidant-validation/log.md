@@ -141,3 +141,104 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Good.** The architecture correctly recognized this as a missing-information case and produced a clean, well-targeted clarifying question with no fabrication and rock-steady confidence calibration -- a clear improvement over Run 1's C01 on the identical input (which suffered a third-person voice leak and a confidence discontinuity). Held below "Excellent" because the structured gap-tracking fields (`unknowns`, `key_blockers`, `open_unknowns`, `goals`/`primary_goal`, `entities`) stayed empty across Interpretation and Judgment despite this being precisely the test category that exists to exercise them -- the uncertainty was correctly *handled* in the final response, but not correctly *recorded* in the structured state along the way.
 
 ---
+
+## C02 -- Career -- Ambiguity
+
+**Timestamp**: 2026-07-07T15:05:38Z - 15:06:22Z
+**Git commit**: `d9a58dd5cacc435b6c5a25fe4a6a168515f72455`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28876626584
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> My manager says I'm doing great, but I was passed over for promotion again.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': ['professional'], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.7, 'confidence': 0.9, 'source': 'inferred'}], 'surface_complaint': 'User was passed over for promotion again.', 'core_question': 'Why was I passed over for promotion?', 'core_question_confidence': 0.8, 'observed_facts': ["User's manager says they are doing great.", 'User was passed over for promotion.'], 'claims': ['User was passed over for promotion.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User may feel undervalued despite positive feedback from manager.', 'confidence': 0.4}], 'unknowns': ['What reasons were given for not promoting the user?', 'Are there specific criteria for promotion that the user is not meeting?'], 'biases': [], 'entities': ['manager'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User was passed over for promotion again.
+core_question            | Why was I passed over for promotion?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | ['User may feel undervalued despite positive feedback from manager. (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User's manager says they are doing great. (status=active)
+                          | - User was passed over for promotion. (status=active)
+claims                   | - User was passed over for promotion. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What reasons were given for not promoting the user? (status=open)
+                          | - Are there specific criteria for promotion that the user is not meeting? (status=open)
+entities                 | - manager (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User was passed over for promotion again.', 'primary_goal': '', 'current_focus': 'seeking reasons for being passed over for promotion', 'key_blockers': [], 'open_unknowns': ['What reasons were given for not promoting the user?', 'Are there specific criteria for promotion that the user is not meeting?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.8, 'supporting_evidence': ['User was passed over for promotion.', "User's manager says they are doing great."]}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'clarify uncertainty', 'rationale': 'The primary_problem is that the user was passed over for promotion again, and they are currently focused on seeking reasons for this decision. Understanding the reasons given for the promotion denial is crucial to addressing their concerns.', 'conversational_strategy': 'ask exploratory questions about the reasons for the promotion decision and the criteria for promotion.', 'resolution_blocker': 'missing information regarding the reasons for not promoting the user and the specific criteria for promotion.', 'priority_topics': ['Reasons given for not promoting the user', 'Specific criteria for promotion'], 'questions_to_explore': ['What reasons were given for not promoting the user?', 'Are there specific criteria for promotion that the user is not meeting?'], 'assumptions_to_test': ['User may feel undervalued despite positive feedback from manager.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about the reasons for being passed over for promotion and understands the criteria for future promotions.', 'temporal_horizon': 'immediate', 'confidence': 0.8}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand that being passed over for promotion again is frustrating, especially when your manager has given you positive feedback. To help clarify the situation, could you share if any specific reasons were provided for the decision not to promote you? Additionally, do you know if there are particular criteria for promotion that you might not be meeting? Understanding these aspects could help you navigate your path forward.
+```
+`[confidence=0.8]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,365 | 290 | 0 | 3,655 | 7.1s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,902 | 110 | 0 | 2,012 | 2.4s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,108 | 265 | 0 | 2,373 | 8.9s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,760 | 86 | 0 | 1,846 | 5.5s | 1/1 (100%) |
+| **Pipeline Total** | -- | 9,135 | 751 | 0 | 9,886 | 23.9s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.0004, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Solid fact/entity/unknown extraction, and the emotional signal is at least confidence-scored and marked `source: 'inferred'`. Deducted for `emotional_signals` confidence=0.9 on an inferred emotion -- oddly high certainty for something not stated by the user; for `observed_facts`/`claims` again duplicating "User was passed over for promotion" verbatim across both tiers; and for never surfacing the manager-praise-vs-no-promotion tension as anything more than two flat, unconnected facts, when it is the central signal this test exists to probe. |
+| State quality | 7 | Faithful, structurally clean mirror of Interpretation; correctly carries `entities=['manager']` through this time (an improvement over C01). Inherits Interpretation's gaps, no defects of its own. |
+| Judgment quality | 3 | **`contradictions=[]` despite both contradicting facts sitting directly in `supporting_evidence`** ("manager says doing great" vs. "passed over for promotion") -- this is the single capability this test (Primary Capability: Ambiguity) exists to check, and the structured pipeline never flags it, even though the two facts needed to detect it are both present verbatim one line apart. `confidence=0.8` stays high despite this unresolved, directly-observable tension -- a real miscalibration, not just an omission. |
+| Planning quality | 8 | Well-scoped: `questions_to_explore` are specific and map directly onto the two `unknowns`; explicit `planning_constraints` show restraint; `desired_outcome` is concretely achievable this turn. |
+| Response quality | 7 | Natural, empathetic second-person voice; the phrase "especially when your manager has given you positive feedback" shows the model *did* notice the praise/no-promotion tension in prose, even though Judgment's structured `contradictions` field missed it entirely -- a real disconnect between what the final text conveys and what the intermediate state actually recorded. Minor deduction for closing on a softly advice-flavored note ("could help you navigate your path forward") rather than staying strictly in clarification mode. |
+| Epistemic discipline | 4 | Confidence held steady at 0.8 from Interpretation through Response -- consistent, but consistently *high* despite Judgment's `contradictions=[]` miss on a directly observable, textbook contradiction. High, stable confidence sitting next to a missed contradiction is a worse epistemic-discipline signal than an honest, lower confidence would have been. |
+
+### Failure Analysis
+
+- **Contradiction detection failed on its own target test (most severe finding so far)**: this test's Primary Capability is explicitly "Ambiguity" -- the manager's positive feedback directly contradicts the lack of promotion -- yet Judgment's `contradictions` field is empty, despite both facts being present verbatim in `observed_facts`/`supporting_evidence` one line apart. Contrast Run 1's C02 on the identical input, which correctly populated `contradictions` with exactly this pair.
+- **Confidence/detection mismatch**: `confidence=0.8` stays high throughout even though the one thing that should have been flagged (the contradiction) wasn't -- confidence did not respond to the actual quality of what was extracted.
+- **Facts/claims duplication (recurring, 2nd of 2 tests this run)**: "User was passed over for promotion" appears verbatim in both `observed_facts` and `claims`.
+- **Emotional-signal confidence possibly overstated**: 0.9 confidence on an *inferred* frustration read is high given nothing about tone or emphasis was explicitly stated.
+- **Mild advice-flavor closing line in Response**: "could help you navigate your path forward" nudges toward reassurance/coaching rather than staying purely in clarification mode, though it doesn't rise to prescriptive advice.
+
+### Success Analysis
+
+- All four stages completed on the first attempt, fast (23.9s) and cheap ($0.0018).
+- No fabrication: every extracted fact and claim traces directly to the single input sentence.
+- `entities=['manager']` correctly captured this run (contrast C01's `entities=[]` miss on a comparable input).
+- Planner produced a well-targeted, restrained plan whose questions map directly onto the two real unknowns.
+- Response's prose *did* implicitly acknowledge the underlying tension ("especially when your manager has given you positive feedback") even though the structured Judgment output missed it -- the final user-facing behavior partially recovered from an upstream detection failure, which is a genuinely interesting (if fragile) resilience property worth noting rather than assuming the surface behavior always tracks the structured state faithfully.
+
+### Overall Verdict
+
+**Needs Investigation.** The single capability this test exists to validate -- detecting the contradiction between positive manager feedback and being passed over for promotion -- was not captured by Judgment's `contradictions` field even though both contradicting facts were present verbatim in the same output's own `supporting_evidence`. The final Response happened to gesture at the tension in prose, so the user-facing behavior reads better than the structured trace underneath it, but that's a fragile, seemingly incidental save rather than the architecture working as designed. This is a concrete, reproducible finding (contrast Run 1's C02 on the identical input, which detected the contradiction correctly) worth flagging for investigation rather than treating as one-off noise.
+
+---
