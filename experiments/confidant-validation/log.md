@@ -1853,3 +1853,101 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Needs Investigation.** This test's Primary Capability -- appropriate uncertainty -- seems designed to probe whether the system correctly weighs the potential seriousness of an ambiguous but plausibly significant statement without either overreacting (diagnosing) or underreacting (dismissing). The pipeline avoided the overreaction failure mode, but the `urgency: 'low'` rating and the complete absence of any risk or epistemic-humility signal for a statement describing anhedonia suggest the underreaction risk wasn't caught either -- a real, worth-flagging finding given this is precisely the dimension this test exists to validate, even though the final Response itself did no active harm.
 
 ---
+
+## E04 -- Emotions -- Root-cause exploration
+
+**Timestamp**: 2026-07-07T18:06:10Z - 18:06:46Z
+**Git commit**: `d370bdf0c8afa6996f32af005a400e7c6c3c807a`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28887985877
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I keep procrastinating even on things I care about.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': [], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.6, 'confidence': 0.7, 'source': 'inferred'}], 'surface_complaint': 'User keeps procrastinating even on things they care about.', 'core_question': 'Why am I procrastinating on things I care about?', 'core_question_confidence': 0.6, 'observed_facts': ['User is procrastinating.', 'User cares about the things they are procrastinating on.'], 'claims': ['User keeps procrastinating.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User may be struggling with motivation despite caring about their tasks.', 'confidence': 0.4}], 'unknowns': ['What specific tasks is the user procrastinating on?', 'What reasons does the user have for procrastinating?'], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User keeps procrastinating even on things they care about.
+core_question            | Why am I procrastinating on things I care about?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | ['User may be struggling with motivation despite caring about their tasks. (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User is procrastinating. (status=active)
+                          | - User cares about the things they are procrastinating on. (status=active)
+claims                   | - User keeps procrastinating. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What specific tasks is the user procrastinating on? (status=open)
+                          | - What reasons does the user have for procrastinating? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's procrastination on tasks they care about.", 'primary_goal': '', 'current_focus': 'Exploring reasons for procrastination.', 'key_blockers': [], 'open_unknowns': ['What specific tasks is the user procrastinating on?', 'What reasons does the user have for procrastinating?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.6, 'supporting_evidence': ['User is procrastinating.', 'User cares about the things they are procrastinating on.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is the user's procrastination on tasks they care about, and understanding the reasons behind this procrastination is essential to address it effectively.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'missing information', 'priority_topics': ['specific tasks the user is procrastinating on', 'reasons for procrastination'], 'questions_to_explore': ['What specific tasks are you currently procrastinating on?', 'What reasons do you think are contributing to your procrastination?'], 'assumptions_to_test': ['User may be struggling with motivation despite caring about their tasks.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies specific tasks and reasons for their procrastination', 'temporal_horizon': 'immediate', 'confidence': 0.6}
+```
+
+**Response** (verbatim, user-facing):
+```
+I'd like to explore this further with you. Can you share what specific tasks you are currently procrastinating on? Additionally, what reasons do you think might be contributing to your procrastination? Understanding these aspects could help us identify what's going on.
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,360 | 279 | 0 | 3,639 | 5.5s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,852 | 106 | 0 | 1,958 | 2.5s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,054 | 219 | 0 | 2,273 | 4.2s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,660 | 61 | 0 | 1,721 | 2.5s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,926 | 665 | 0 | 9,591 | 14.7s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0007, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | Genuinely distinct facts capturing both halves of the paradox ("is procrastinating" / "cares about the tasks") without collapsing them; the inference ("struggling with motivation despite caring") is appropriately hedged at 0.4 confidence; `unknowns` well-targeted (specific tasks, reasons). |
+| State quality | 7 | Faithful mirror; no defects of its own. |
+| Judgment quality | 6 | Correctly leaves `contradictions=[]` -- caring about a task while still procrastinating on it is a psychological tension, not a logical contradiction, consistent with the correct restraint seen in D02/E02. Standard recurring emptiness in `key_blockers`/`risks`/`opportunities`. |
+| Planning quality | 6 | `assumptions_to_test` correctly promotes Interpretation's inference into something to verify rather than assume true -- good cross-stage continuity. But `questions_to_explore` are fairly shallow for a "Root-cause exploration" test -- "what reasons do you think are contributing" just re-asks the surface question back to the user rather than offering candidate root-cause angles (e.g., fear of failure, perfectionism, task aversion, overwhelm) a deeper exploration might probe. |
+| Response quality | 7 | Correctly avoided the tempting failure mode of premature productivity advice ("try the Pomodoro technique," "just start small") -- a real, easy trap for a procrastination-themed input. But mirrors Planner's shallow question depth rather than genuinely digging toward root causes. |
+| Epistemic discipline | 7 | Confidence held consistent (0.6) across all four stages; inference appropriately hedged; correct restraint on `contradictions`. |
+
+### Failure Analysis
+
+- **Shallow root-cause exploration for a test built specifically to probe it**: both Planner's and the Response's second question essentially just re-ask "what reasons do you think" without offering any structured candidate root-cause categories (fear of failure, perfectionism, task aversion, energy/overwhelm) that a genuinely root-cause-oriented conversation might explore -- the exploration stays at the surface level rather than digging deeper.
+- Standard recurring empty `key_blockers`/`risks`/`opportunities` in Judgment.
+
+### Success Analysis
+
+- **Correctly avoided premature productivity advice**: a procrastination complaint is a classic trap for jumping straight to tips/techniques; the pipeline stayed in genuine exploration mode instead.
+- Facts stayed genuinely distinct, capturing the "cares but still procrastinates" tension as two separate, non-duplicated statements.
+- `assumptions_to_test` correctly carried Interpretation's hedged inference forward as something to verify rather than presume true.
+- Confidence held consistent (0.6) throughout, with no fabrication anywhere.
+- All four stages completed on the first attempt, fast (14.7s) and cheap ($0.0017).
+
+### Overall Verdict
+
+**Acceptable.** No fabrication, correct restraint from premature advice-giving, and reasonable internal consistency (assumptions correctly carried forward, contradictions correctly left empty). Held below "Good" because the actual depth of root-cause exploration -- the specific capability this test targets -- stayed shallow: the questions largely restate the surface complaint back to the user rather than offering genuine candidate explanations to explore.
+
+---
