@@ -2532,3 +2532,99 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** The actual conversational behavior -- Planner's well-structured three-question information-gathering plan and the Response that faithfully delivers it -- is genuinely solid, arguably the best-organized exploration of this test category. But the structural signals that should track this exact capability (`unknowns`, `requires_clarification`) both miscalibrated on precisely the input where they mattered most: two words of pure ambiguity. The gap between good final behavior and weak structural tracking is the throughline finding for this test.
 
 ---
+
+## X01 -- Edge Case -- Internal conflict
+
+**Timestamp**: 2026-07-07T18:24:47Z - 18:25:14Z
+**Git commit**: `f19e188f689edd6bcb6f1310a14c2b99fcbc58ed`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28889086842
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I know exactly what I should do, but I still won't do it.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.6, 'confidence': 0.7, 'source': 'inferred'}], 'surface_complaint': 'User knows what they should do but is not taking action.', 'core_question': 'Why am I not taking action despite knowing what to do?', 'core_question_confidence': 0.8, 'observed_facts': ['User knows what they should do.'], 'claims': ['User will not take action.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User may be experiencing internal conflict regarding their decision-making process.', 'confidence': 0.4}], 'unknowns': ['What specific action does the user know they should take?', 'What is preventing the user from taking action?'], 'biases': [], 'entities': [], 'clarity_score': 0.7, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User knows what they should do but is not taking action.
+core_question            | Why am I not taking action despite knowing what to do?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | ['User may be experiencing internal conflict regarding their decision-making process. (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.7
+phase                    | discover
+facts                    | - User knows what they should do. (status=active)
+claims                   | - User will not take action. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What specific action does the user know they should take? (status=open)
+                          | - What is preventing the user from taking action? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User is not taking action despite knowing what to do.', 'primary_goal': '', 'current_focus': 'Exploring reasons for inaction despite knowledge of what to do.', 'key_blockers': [], 'open_unknowns': ['What specific action does the user know they should take?', 'What is preventing the user from taking action?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User knows what they should do.', 'User will not take action.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': 'The primary_problem is that the user is not taking action despite knowing what to do, and understanding their motivations can help uncover the reasons behind this inaction.', 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'open_unknowns regarding what specific action the user knows they should take and what is preventing them from taking action', 'priority_topics': ['Specific action the user knows they should take', 'Reasons preventing the user from taking action'], 'questions_to_explore': ['What specific action do you believe you should take?', 'What feelings or thoughts come up when you think about taking that action?'], 'assumptions_to_test': ['User may be experiencing internal conflict regarding their decision-making process.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies reasons for their inaction and clarifies the specific action they know they should take', 'temporal_horizon': 'immediate', 'confidence': 0.6}
+```
+
+**Response** (verbatim, user-facing):
+```
+I'd like to explore a couple of things with you regarding your situation. First, what specific action do you believe you should take? Also, what feelings or thoughts come up when you think about taking that action? Understanding these aspects might help us uncover what's preventing you from moving forward.
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,364 | 191 | 0 | 3,555 | 4.0s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,816 | 110 | 0 | 1,926 | 2.3s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,022 | 252 | 0 | 2,274 | 4.0s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,661 | 68 | 0 | 1,729 | 1.9s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,863 | 621 | 0 | 9,484 | 12.2s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 8 | **Directly names the internal-conflict pattern this test targets**: the inference "User may be experiencing internal conflict regarding their decision-making process" is precisely on-capability and appropriately hedged (confidence 0.4). Facts/claims stay genuinely distinct (fact: knows what to do; claim: will not act), capturing both halves of the conflict without collapsing them. `unknowns` well-targeted. Minor deduction: `requires_clarification=False` sits a bit oddly against two real open unknowns, though milder here given `clarity_score=0.7`. |
+| State quality | 8 | Faithful, clean mirror. |
+| Judgment quality | 7 | Correctly leaves `contradictions=[]` -- knowing what to do while not doing it is a psychological tension (akrasia), not a logical contradiction, consistent with the correct restraint pattern seen in D02/E02/E04. Confidence dropped from Interpretation's 0.8 to 0.5 without explanation, though the resulting value isn't inappropriate. |
+| Planning quality | 8 | `assumptions_to_test` correctly carries the internal-conflict hypothesis forward as something to verify, not assert. The second question ("What feelings or thoughts come up when you think about taking that action?") is genuinely well-crafted, directly inviting the user to examine their own internal resistance. Minor confidence bump (0.5 -> 0.6) without new information. |
+| Response quality | 8 | Faithful, natural, appropriately curious; invites the user to examine their own internal conflict rather than presuming to know its cause -- the right behavior for this test, and a clean contrast to A03's failure mode of asserting a similar-flavored hypothesis instead of testing it. |
+| Epistemic discipline | 7 | The internal-conflict hypothesis was consistently treated as something to explore and verify at every stage, never asserted as settled fact -- a genuinely positive epistemic pattern. Minor, small confidence discontinuities (0.8 -> 0.5 -> 0.6) are the only blemish. |
+
+### Failure Analysis
+
+- **Minor confidence discontinuities**: 0.8 (Interpretation) -> 0.5 (Judgment) -> 0.6 (Planner/Response), with no new information introduced at either transition to justify the changes, though none of the resulting values are individually inappropriate.
+- **`requires_clarification=False`** sits a bit inconsistently next to two genuinely open unknowns, though less severely than in earlier tests given the relatively high `clarity_score` (0.7).
+
+### Success Analysis
+
+- **Best target-capability alignment of this test category so far**: the internal-conflict pattern was correctly identified early, appropriately hedged, carried forward for testing rather than assumed, and the final Response invited the user to examine it themselves -- exactly the intended behavior, and notably better than A03's related failure mode (asserting a similar hypothesis as settled fact).
+- Facts/claims stayed genuinely distinct, correctly capturing both halves of the akrasia pattern (knowing vs. not-doing) without collapsing them.
+- Judgment correctly used the right structural category (`contradictions=[]`, not forced) for a psychological tension rather than a logical one.
+- No fabrication anywhere; all four stages completed on the first attempt, fast (12.2s) and cheap ($0.0017).
+
+### Overall Verdict
+
+**Good.** This is one of the strongest showings in the run for its specific target capability: the internal-conflict hypothesis was named, hedged, carried forward for testing, and never asserted as fact -- exactly the discipline this test exists to check, and a clean improvement over A03's related miss. Minor confidence discontinuities and a mildly inconsistent `requires_clarification` flag keep it from "Excellent."
+
+---
