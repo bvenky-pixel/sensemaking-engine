@@ -44,7 +44,7 @@ Status values: `pending` | `complete`
 | D01 | Decisions     | complete | I can afford either a house or an MBA, but not both. |
 | D02 | Decisions     | complete | I want to start a company, but I'm afraid of failing. |
 | D03 | Decisions     | complete | I'm considering moving to another country next year. |
-| D04 | Decisions     | pending | I have too many ideas and can't choose one to pursue. |
+| D04 | Decisions     | complete | I have too many ideas and can't choose one to pursue. |
 | D05 | Decisions     | pending | Should I optimize for salary or meaningful work? |
 | E01 | Emotions      | pending | I've been feeling burnt out for months. |
 | E02 | Emotions      | pending | I feel guilty even when I haven't done anything wrong. |

@@ -1357,3 +1357,107 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** Planner produced genuinely strong topical breadth for a complex, multi-dimensional decision, and confidence stayed honestly low and consistent throughout with no fabrication. But Judgment's near-total emptiness on exactly the kind of test built to exercise risk/opportunity reasoning, a vague `impact_domains` tag, and a mild self-contradiction (asking four questions in one turn right after setting a "don't overwhelm" constraint) keep this below "Good."
 
 ---
+
+## D04 -- Decisions -- Prioritization
+
+**Timestamp**: 2026-07-07T15:39:29Z - 15:39:56Z
+**Git commit**: `e3f53ecf4d8936da2c11516a1be5021120e767f2`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28878940046
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I have too many ideas and can't choose one to pursue.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': [], 'emotional_signals': [{'emotion': 'overwhelm', 'intensity': 0.7, 'confidence': 0.9, 'source': 'explicit'}], 'surface_complaint': "User has too many ideas and can't choose one to pursue.", 'core_question': 'How can I choose which idea to pursue?', 'core_question_confidence': 0.8, 'observed_facts': ['User has many ideas.'], 'claims': ["User can't choose one idea to pursue."], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User has too many ideas and can't choose one to pursue.
+core_question            | How can I choose which idea to pursue?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User has many ideas. (status=active)
+claims                   | - User can't choose one idea to pursue. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User can't choose one idea to pursue.", 'primary_goal': '', 'current_focus': 'How can I choose which idea to pursue?', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.8, 'supporting_evidence': ['User has many ideas.', "User can't choose one idea to pursue."]}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'support decision making', 'rationale': "The primary_problem is that the user can't choose one idea to pursue, and they are currently focused on how to make that choice.", 'conversational_strategy': 'explore criteria for decision making', 'resolution_blocker': 'lack of decision criteria', 'priority_topics': ['criteria for choosing an idea', 'potential impact of each idea'], 'questions_to_explore': ['What are the main factors that matter to you in choosing an idea?', 'How do you envision the outcome of pursuing each idea?', 'What resources do you have available for each idea?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies criteria for choosing an idea', 'temporal_horizon': 'immediate', 'confidence': 0.8}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're facing a challenge in deciding which idea to pursue among many you have. To help support your decision-making, let's explore some criteria that might guide your choice.
+
+Here are a few questions to consider:
+1. What are the main factors that matter to you in choosing an idea?
+2. How do you envision the outcome of pursuing each idea?
+3. What resources do you have available for each idea?
+
+Reflecting on these questions might help clarify your priorities and make the decision process easier. What do you think?
+```
+`[confidence=0.8]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,361 | 209 | 0 | 3,570 | 4.3s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,708 | 83 | 0 | 1,791 | 2.0s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,881 | 214 | 0 | 2,095 | 3.9s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,482 | 127 | 0 | 1,609 | 2.6s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,432 | 633 | 0 | 9,065 | 12.8s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Genuinely clean facts/claims split this time (fact: "has many ideas"; claim: "can't choose one" -- distinct content). Deducted for tagging the `overwhelm` emotional signal `source: 'explicit'` when the user never used that word or an equivalent -- "too many ideas... can't choose" implies overwhelm but doesn't state it, so `inferred` would be the more honest tag. `unknowns=[]` misses natural prioritization-relevant gaps (what the ideas are, what criteria matter to the user). |
+| State quality | 7 | Faithful mirror; no defects of its own. |
+| Judgment quality | 5 | Standard recurring emptiness (`key_blockers`, `open_unknowns`, `risks`, `opportunities` all empty), though confidence stays consistent (0.8) with no fabrication. |
+| Planning quality | 8 | Genuinely well-targeted: framing the resolution around establishing decision *criteria* ("lack of decision criteria") maps precisely onto what a "Prioritization" test should probe, and the three questions (values/factors, envisioned outcomes, available resources) mirror a real prioritization framework rather than generic exploratory questions. Deducted only for empty `assumptions_to_test` (e.g., "user assumes only one idea can be pursued right now" would have been a fitting one to test). |
+| Response quality | 8 | Clear, well-organized as a numbered list (easier to process than D03's four questions folded into flowing prose), faithfully executes Planner, and closes with an inviting "What do you think?" rather than shutting down the conversation. |
+| Epistemic discipline | 6 | Confidence held perfectly consistent (0.8) across all four stages -- no drift. But the `source: 'explicit'` tag on an emotion the user never actually named is a real, if minor, overclaim about the directness of the evidence -- inferred would have been the honest tier. |
+
+### Failure Analysis
+
+- **Emotional signal over-tagged as `explicit`**: "overwhelm" is a reasonable read of "too many ideas... can't choose," but the user never used that word -- this should be `inferred`, not `explicit`. A minor but real epistemic-tier misclassification.
+- **`unknowns=[]`** misses the obvious prioritization-relevant gaps (what the ideas actually are, what criteria matter most to the user) -- the recurring pattern from earlier tests.
+- **`assumptions_to_test=[]`** in Planner misses a natural candidate (e.g., "user assumes they can only pursue one idea right now") given how well-targeted the rest of Planner's output otherwise is.
+
+### Success Analysis
+
+- **Best-targeted Planner framing for its own test category so far**: explicitly identifying "lack of decision criteria" as the resolution blocker and building three genuinely practical prioritization-framework questions (values/factors, envisioned outcomes, resource constraints) -- this is precisely the kind of reasoning a "Prioritization" test should validate.
+- Clean, genuinely distinct facts/claims split (no duplication this time).
+- Response formatted as a numbered list, avoiding D03's issue of stacking several questions into undifferentiated prose -- a concrete, positive presentation improvement.
+- Confidence held perfectly consistent (0.8) throughout, with no fabrication anywhere.
+- All four stages completed on the first attempt, fast (12.8s) and cheap ($0.0016).
+
+### Overall Verdict
+
+**Good.** Planner's framing -- establishing decision criteria as the actual resolution blocker, then building genuinely practical prioritization questions around values, outcomes, and resources -- is a strong, well-targeted match to this test's Primary Capability. The Response's numbered-list formatting is a concrete presentation improvement over the prior test. Held below "Excellent" by the questionable `explicit` tag on an emotion the user didn't literally name, and the still-recurring emptiness in Judgment's structured fields.
+
+---
