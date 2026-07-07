@@ -48,7 +48,7 @@ Status values: `pending` | `complete`
 | D05 | Decisions     | complete | Should I optimize for salary or meaningful work? |
 | E01 | Emotions      | complete | I've been feeling burnt out for months. |
 | E02 | Emotions      | complete | I feel guilty even when I haven't done anything wrong. |
-| E03 | Emotions      | pending | I don't enjoy anything anymore. |
+| E03 | Emotions      | complete | I don't enjoy anything anymore. |
 | E04 | Emotions      | pending | I keep procrastinating even on things I care about. |
 | E05 | Emotions      | pending | I'm frustrated because nothing seems to be changing. |
 | A01 | Ambiguity     | pending | Something feels off lately, but I can't explain why. |

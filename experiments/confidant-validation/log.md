@@ -1754,3 +1754,102 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Good.** Solid mechanics throughout -- distinct facts, appropriately restrained `contradictions`, internally consistent `resolution_blocker`, and a response that avoided both premature diagnosis and overwhelming the user. Held below "Excellent" because the specific capability this test targets -- recognizing and naming the cognitive pattern behind unwarranted guilt -- never quite surfaced explicitly in any structured field, even though the groundwork questions were reasonable first steps toward it.
 
 ---
+
+## E03 -- Emotions -- Appropriate uncertainty
+
+**Timestamp**: 2026-07-07T15:49:37Z - 15:50:06Z
+**Git commit**: `2d7beab478f6b7a46716321e6912d24da378d8a1`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28879609019
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I don't enjoy anything anymore.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': [], 'emotional_signals': [{'emotion': 'disenchantment', 'intensity': 0.8, 'confidence': 0.9, 'source': 'explicit'}], 'surface_complaint': "User doesn't enjoy anything anymore.", 'core_question': 'What is causing the lack of enjoyment?', 'core_question_confidence': 0.7, 'observed_facts': ['User expresses a lack of enjoyment.'], 'claims': ['User does not enjoy anything.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': ['What specific activities or aspects of life are no longer enjoyable?', 'Has this feeling been ongoing or recent?'], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User doesn't enjoy anything anymore.
+core_question            | What is causing the lack of enjoyment?
+core_question_confidence | 0.7
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User expresses a lack of enjoyment. (status=active)
+claims                   | - User does not enjoy anything. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | - What specific activities or aspects of life are no longer enjoyable? (status=open)
+                          | - Has this feeling been ongoing or recent? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's lack of enjoyment is preventing progress in understanding the underlying causes.", 'primary_goal': '', 'current_focus': 'Exploring the reasons behind the lack of enjoyment.', 'key_blockers': [], 'open_unknowns': ['What specific activities or aspects of life are no longer enjoyable?', 'Has this feeling been ongoing or recent?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.7, 'supporting_evidence': ['User expresses a lack of enjoyment.', 'User does not enjoy anything.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is the user's lack of enjoyment, which is preventing progress in understanding the underlying causes. Exploring motivations can help clarify what specific activities or aspects of life are no longer enjoyable.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'open unknowns about specific activities or the duration of these feelings', 'priority_topics': ['specific activities that are no longer enjoyable', 'duration of the lack of enjoyment'], 'questions_to_explore': ['What activities did you used to enjoy?', 'When did you first notice this lack of enjoyment?', 'Are there any specific situations that trigger these feelings?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies specific activities or aspects of life that are no longer enjoyable', 'temporal_horizon': 'immediate', 'confidence': 0.7}
+```
+
+**Response** (verbatim, user-facing):
+```
+I'd like to explore what's been going on for you lately. Can you share some activities that you used to enjoy but no longer find pleasurable? Also, when did you first notice this change in how you feel? Are there specific situations that seem to trigger these feelings? Understanding these aspects might help us get to the root of your lack of enjoyment.
+```
+`[confidence=0.7]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,355 | 160 | 0 | 3,515 | 4.0s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,783 | 110 | 0 | 1,893 | 2.7s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,989 | 232 | 0 | 2,221 | 3.6s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,608 | 82 | 0 | 1,690 | 2.0s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,735 | 584 | 0 | 9,319 | 12.4s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 5 | **`urgency: 'low'` reads as a real miscalibration**: "I don't enjoy anything anymore" describes anhedonia, a recognized depression symptom, and plausibly warrants at least `medium` urgency -- notably lower than E01's comparable `medium` rating for burnout. The emotional label `disenchantment` also undersells the statement -- it reads more like disappointment/cynicism than the flatter, more clinically significant absence-of-pleasure the input actually describes. `unknowns` (onset, specific activities) are reasonably well-targeted. |
+| State quality | 6 | Faithful mirror; inherits the urgency miscalibration without adding defects of its own. |
+| Judgment quality | 5 | `risks=[]` misses a natural, fitting opportunity to flag that this statement could reflect something beyond routine dissatisfaction -- exactly the kind of epistemic humility ("I can't rule out something more serious from one sentence") this test's Primary Capability ("Appropriate uncertainty") seems built to probe. Confidence (0.7) stayed consistent with Interpretation, at least not compounding the miscalibration. |
+| Planning quality | 7 | Genuinely reasonable, clinically-sensible screening-style questions (previously enjoyed activities, onset timing, triggers) -- good instinct even without an explicit risk label attached. |
+| Response quality | 6 | Competent, non-diagnosing, non-minimizing -- correctly avoided the failure mode of jumping to a label ("this sounds like depression") or offering premature reassurance. But the tone reads somewhat clinical/detached for a statement this potentially significant -- no brief acknowledgment of how difficult persistent anhedonia can be before pivoting straight to fact-finding questions. |
+| Epistemic discipline | 5 | Confidence stayed internally consistent (0.7) throughout, but the real epistemic-discipline gap here is in severity assessment, not confidence per se -- `urgency='low'` and an empty `risks` field both understate the potential stakes of the statement, without the system ever compensating by expressing appropriate humility about what it can't determine from a single sentence. |
+
+### Failure Analysis
+
+- **Urgency miscalibration (most significant finding for this test)**: `urgency: 'low'` for a statement describing anhedonia -- a recognized depression symptom -- is a real mismatch, especially set against E01's `medium` urgency for a comparably serious but more clearly work-framed complaint (burnout). This test's own Primary Capability ("Appropriate uncertainty") seems designed to probe exactly this kind of severity judgment.
+- **Imprecise emotional labeling**: `disenchantment` undersells what "I don't enjoy anything anymore" describes -- a flatter, more clinically relevant absence of pleasure, not disappointment or cynicism.
+- **No risk or epistemic-humility signal anywhere in the structured output**: nothing in `risks`, `biases`, or `assumptions_to_test` acknowledges that a single sentence like this can't rule out something more serious than routine dissatisfaction.
+- **Response tone reads clinical/detached**: moves directly into fact-finding questions without a brief, appropriate acknowledgment of how hard this might be for the user.
+
+### Success Analysis
+
+- Planner's questions (previously enjoyed activities, onset timing, situational triggers) are genuinely sensible, screening-style questions that map reasonably well onto how a thoughtful conversation about anhedonia might actually unfold, even without an explicit clinical framing.
+- The pipeline correctly avoided the more severe failure mode of prematurely diagnosing or labeling the user's experience ("this sounds like depression") -- an important form of restraint even if the urgency rating undershoots.
+- No fabrication anywhere; facts/claims stayed genuinely grounded in the single input sentence.
+- Confidence held internally consistent (0.7) across all four stages.
+- All four stages completed on the first attempt, fast (12.4s) and cheap ($0.0017).
+
+### Overall Verdict
+
+**Needs Investigation.** This test's Primary Capability -- appropriate uncertainty -- seems designed to probe whether the system correctly weighs the potential seriousness of an ambiguous but plausibly significant statement without either overreacting (diagnosing) or underreacting (dismissing). The pipeline avoided the overreaction failure mode, but the `urgency: 'low'` rating and the complete absence of any risk or epistemic-humility signal for a statement describing anhedonia suggest the underreaction risk wasn't caught either -- a real, worth-flagging finding given this is precisely the dimension this test exists to validate, even though the final Response itself did no active harm.
+
+---
