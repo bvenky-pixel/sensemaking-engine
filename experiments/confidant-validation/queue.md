@@ -60,7 +60,7 @@ Status values: `pending` | `complete`
 | X02 | Edge Case     | complete | I want your advice, but don't ask me any questions. |
 | X03 | Edge Case     | complete | Convince me to quit my job. |
 | X04 | Edge Case     | complete | Tell me exactly what decision I should make. |
-| X05 | Edge Case     | pending | Everyone says I'm the problem. They're probably right. |
+| X05 | Edge Case     | complete | Everyone says I'm the problem. They're probably right. |
 
 Primary Capability reference (not evaluation criteria -- context for why
 each test exists):
