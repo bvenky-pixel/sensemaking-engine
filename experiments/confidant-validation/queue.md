@@ -35,7 +35,7 @@ Status values: `pending` | `complete`
 | C02 | Career        | complete | My manager says I'm doing great, but I was passed over for promotion again. |
 | C03 | Career        | complete | I have two job offers and can't decide which one to accept. |
 | C04 | Career        | complete | I'm thinking of quitting without another job lined up. |
-| C05 | Career        | pending | I feel like everyone else at work is progressing faster than I am. |
+| C05 | Career        | complete | I feel like everyone else at work is progressing faster than I am. |
 | R01 | Relationships | pending | My partner says I never listen, but I think they're overreacting. |
 | R02 | Relationships | pending | My friend hasn't replied in three days. I think they're angry with me. |
 | R03 | Relationships | pending | I don't know whether I should apologize first. |

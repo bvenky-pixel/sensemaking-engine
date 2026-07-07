@@ -442,3 +442,107 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Needs Investigation.** This test exists specifically to validate risk-assessment reasoning, and the structured pipeline produced essentially nothing on that dimension -- `risks`, `opportunities`, `decision_options`, `active_decisions`, and `assumptions_to_test` are all empty despite `impact_domains` itself flagging the financial stakes at Interpretation. The final Response is serviceable and non-fabricating, but reads as a generic "tell me more about your motivations" reply rather than one shaped by any actual risk analysis -- a second targeted-capability miss in this run's first four tests (after C02's missed contradiction), worth flagging as a pattern rather than isolated noise.
 
 ---
+
+## C05 -- Career -- Emotional reasoning
+
+**Timestamp**: 2026-07-07T15:15:28Z - 15:16:01Z
+**Git commit**: `03f6242c2869cfb1876b02372136a31f4fc50458`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28877298459
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I feel like everyone else at work is progressing faster than I am.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['professional'], 'emotional_signals': [{'emotion': 'frustration', 'intensity': 0.6, 'confidence': 0.7, 'source': 'inferred'}], 'surface_complaint': 'User feels like everyone else at work is progressing faster than they are.', 'core_question': 'What can I do to progress at work?', 'core_question_confidence': 0.5, 'observed_facts': ['User feels like everyone else at work is progressing faster than they are.'], 'claims': ['User feels left behind in their career progression.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': 'User may be experiencing a sense of inadequacy in their professional growth compared to peers.', 'confidence': 0.4}], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User feels like everyone else at work is progressing faster than they are.
+core_question            | What can I do to progress at work?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | ['User may be experiencing a sense of inadequacy in their professional growth compared to peers. (confidence=0.40)']
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User feels like everyone else at work is progressing faster than they are. (status=active)
+claims                   | - User feels left behind in their career progression. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User feels inadequate in their professional growth compared to peers.', 'primary_goal': '', 'current_focus': 'Exploring ways to progress at work.', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User feels like everyone else at work is progressing faster than they are.', 'User feels left behind in their career progression.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': 'The primary_problem is that the user feels inadequate in their professional growth compared to peers, which suggests a need to understand their motivations and aspirations for career progression.', 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'lack of clarity on specific motivations and goals for career progression', 'priority_topics': ["User's feelings about their current role", "User's aspirations for career advancement", "Factors contributing to the user's perception of others' progress"], 'questions_to_explore': ['What specific aspects of your career do you feel are lacking?', 'What does progress at work look like for you?', 'Are there particular skills or experiences you feel you need to develop?'], 'assumptions_to_test': ["User's feelings of inadequacy are based on comparisons with peers.", 'User has not yet identified specific goals for their career progression.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user', 'focus on understanding motivations'], 'desired_outcome': 'user gains clarity about their motivations and aspirations for career progression', 'temporal_horizon': 'immediate', 'confidence': 0.6}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand that you're feeling like everyone else at work is progressing faster than you, which can be quite challenging. To help explore this further, I'd like to ask you a few questions:
+
+1. What specific aspects of your career do you feel are lacking?
+2. What does progress at work look like for you?
+3. Are there particular skills or experiences you feel you need to develop?
+
+These questions can help us gain clarity about your motivations and aspirations for career progression. Your thoughts on these topics are really important, so please feel free to share as much as you're comfortable with.
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,363 | 261 | 0 | 3,624 | 5.8s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,748 | 94 | 0 | 1,842 | 2.4s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,933 | 281 | 0 | 2,214 | 4.5s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,601 | 135 | 0 | 1,736 | 3.1s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,645 | 771 | 0 | 9,416 | 15.7s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.0003, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | A dramatic improvement over Run 1's C05 on the identical input (which was severely broken -- single-word fragment facts/claims, no inference despite being an emotional-reasoning test). Here, the emotional signal (frustration) and the inference are both coherent, confidence-scored, and marked `source: 'inferred'`. Minor deduction: `observed_facts` contains "User feels like everyone else at work is progressing faster" -- a subjective feeling filed as a "fact" rather than a claim/perception, a soft epistemic-tier blur (the fact is that the user *said* this, not that it's objectively true). |
+| State quality | 8 | Clean, faithful mirror; no defects of its own. |
+| Judgment quality | 7 | Correctly carries the primary problem and current focus forward with a sensibly tempered confidence (0.5, matching Interpretation's `core_question_confidence`, not inflating). `supporting_evidence` stayed limited to genuine facts/claims, no scope creep. Empty `risks`/`opportunities` is a softer miss here than in C04, since no concrete external risk was actually stated in this input -- but a burnout/comparison-spiral risk would have been a reasonable thing to surface for an emotional-reasoning test. |
+| Planning quality | 8 | Well-populated across the board: `assumptions_to_test` correctly identifies the comparison-based nature of the feeling and the absence of stated goals; `questions_to_explore` are specific, non-leading, and genuinely exploratory rather than presumptive; explicit `planning_constraints` show restraint. |
+| Response quality | 8 | Warm, validating opening before moving to questions; faithfully lists all three of Planner's questions; closes with an explicit agency-preserving invitation ("share as much as you're comfortable with") rather than pushing. No premature advice, no fabrication. |
+| Epistemic discipline | 7 | Confidence stayed low and appropriately tempered (0.5 at Interpretation/Judgment, 0.6 at Planner/Response) given how little concrete information the input provides. Minor, unexplained small bump from Judgment's 0.5 to Planner's 0.6 -- not a large discontinuity, but not derived from anything new either. Emotional signal and inference both properly hedged and marked inferred. |
+
+### Failure Analysis
+
+- **Feeling filed as "observed fact"**: `observed_facts` contains "User feels like everyone else at work is progressing faster than they are" -- this is the user's subjective perception, not an externally verifiable fact, and sits awkwardly in a tier meant to hold objectively grounded content (though it is at least true that the user *said* this).
+- **Minor unexplained confidence bump** (0.5 -> 0.6) between Judgment and Planner, with no new information introduced to justify it.
+- **`risks`/`opportunities` left empty** -- softer than C04's miss (no concrete external risk was stated here), but a burnout/comparison-spiral risk would plausibly have been worth surfacing for a test whose Primary Capability is emotional reasoning.
+
+### Success Analysis
+
+- **Major, clean recovery from Run 1's catastrophic C05 failure on the identical input**: no fragment facts, no stringified-list artifacts, no broken Planner fields -- every stage produced coherent, well-formed content this run.
+- All four stages completed on the first attempt, no fallback needed, cheap ($0.0018).
+- No fabrication anywhere; emotional signal and inference both explicitly hedged, confidence-scored, and marked `source: 'inferred'`.
+- Confidence stayed low and honestly tempered throughout (0.5-0.6), appropriate for how little concrete information a single feeling-based sentence provides.
+- Planner's `assumptions_to_test` correctly surfaced the comparison-based nature of the user's feeling as something to verify rather than accept at face value.
+- Response validated the user's feeling before asking questions, stayed in exploration mode without giving premature advice, and explicitly preserved the user's agency to share only what they're comfortable with.
+
+### Overall Verdict
+
+**Good.** A clean, coherent run across all four stages with no fabrication, well-calibrated (low, honest) confidence, and a genuinely well-scoped Planner output (`assumptions_to_test` populated meaningfully for the first time this run). The one minor epistemic-tier blur (a feeling filed as a "fact") and the softer empty-risk gap keep it from "Excellent," but this is a clear, notable improvement over Run 1's version of the same test.
+
+---
