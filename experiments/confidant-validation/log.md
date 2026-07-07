@@ -1255,3 +1255,105 @@ Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.000
 **Good.** This is the strongest Judgment-stage performance of the run on its own targeted capability -- explicitly naming the fear as the blocker to a clearly stated goal, using the schema's categories precisely (blocker, not contradiction) -- combined with perfectly stable confidence and correctly sourced emotional signal. Held just below "Excellent" by Planner's missed `assumptions_to_test` opportunity, its oddly-phrased `resolution_blocker`, and the still-recurring facts/claims duplication.
 
 ---
+
+## D03 -- Decisions -- Long-term planning
+
+**Timestamp**: 2026-07-07T15:37:07Z - 15:37:37Z
+**Git commit**: `0eec593cf246dc9890d0382c07df7bc1f6afbdc4`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28878787041
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I'm considering moving to another country next year.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['other'], 'emotional_signals': [], 'surface_complaint': 'User is considering moving to another country next year.', 'core_question': 'What are the implications of moving to another country?', 'core_question_confidence': 0.5, 'observed_facts': ['User is considering moving to another country next year.'], 'claims': ['User is considering moving to another country.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User is considering moving to another country next year.
+core_question            | What are the implications of moving to another country?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User is considering moving to another country next year. (status=active)
+claims                   | - User is considering moving to another country. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User lacks clarity on the implications of moving to another country.', 'primary_goal': '', 'current_focus': 'exploring the implications of moving to another country', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User is considering moving to another country next year.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'build understanding', 'rationale': 'User lacks clarity on the implications of moving to another country, which is their primary problem.', 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'lack of clarity on implications of moving to another country', 'priority_topics': ['financial implications', 'cultural adjustments', 'legal requirements', 'impact on social life'], 'questions_to_explore': ['What specific aspects of moving are you most concerned about?', 'Have you considered the financial implications of relocating?', 'What do you know about the cultural differences in the new country?', 'Are there any legal requirements you need to be aware of?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about the implications of moving to another country', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're considering moving to another country next year, and it's completely understandable to have questions about the implications of such a big decision. To help build your understanding, I'd like to ask you a few exploratory questions.
+
+What specific aspects of moving are you most concerned about? Have you considered the financial implications of relocating? What do you know about the cultural differences in the new country? Lastly, are there any legal requirements you need to be aware of?
+
+Your thoughts on these areas could really help clarify the situation for you.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,358 | 168 | 0 | 3,526 | 3.4s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,712 | 84 | 0 | 1,796 | 2.4s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,885 | 231 | 0 | 2,116 | 4.7s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,503 | 122 | 0 | 1,625 | 2.7s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,458 | 605 | 0 | 9,063 | 13.2s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 5 | `impact_domains: ['other']` is a vague, uninformative categorization for a decision that plausibly touches financial, professional, personal, and social domains at once -- a real specificity miss. `unknowns=[]` fails to surface any of the obvious open questions inherent to international relocation (destination, visa/job status, reason for moving, family considerations). Facts/claims lightly duplicate again (the claim drops only the "next year" detail from the fact). |
+| State quality | 6 | Faithful mirror; inherits Interpretation's vague domain tag and empty unknowns. |
+| Judgment quality | 4 | Beyond `primary_problem`/`current_focus`, every structured field (`key_blockers`, `open_unknowns`, `risks`, `opportunities`) is empty -- a notable gap given this test's Primary Capability is "Long-term planning" and international relocation carries obvious, substantial risks and opportunities (career upside, financial/social disruption) that were never captured anywhere. |
+| Planning quality | 8 | Genuinely comprehensive and well-scoped: `priority_topics` spans financial, cultural, legal, and social dimensions, and `questions_to_explore` maps cleanly onto all four -- among the best-structured Planner outputs of the run for breadth. Deducted for empty `assumptions_to_test` and a mild self-contradiction: asking four separate questions in one turn sits in tension with this same output's own `planning_constraints` ("avoid overwhelming the user"). |
+| Response quality | 7 | Warm opening, faithfully covers all four of Planner's questions, no fabrication. But stacking four distinct questions into a single turn is a soft violation of the "avoid overwhelming the user" constraint the Planner itself set two stages earlier. |
+| Epistemic discipline | 6 | Confidence held perfectly consistent (0.5) across all four stages -- no drift. But the near-total absence of `unknowns`/`risks`/`opportunities` against a decision this obviously complex and multi-dimensional (as evidenced by Planner's own four-topic breadth two stages later) is a real gap between what the pipeline structurally registered and what it clearly understood well enough to act on. |
+
+### Failure Analysis
+
+- **`impact_domains: ['other']`**: a vague catch-all label for a decision that plausibly spans financial, professional, personal, and social impact all at once -- a specificity miss.
+- **Judgment's structured fields almost entirely empty on a long-term-planning test**: `key_blockers`, `open_unknowns`, `risks`, `opportunities` are all empty despite the obvious stakes of international relocation, even though Planner's very next output demonstrates the model clearly understands the decision spans at least four major dimensions.
+- **Mild self-contradiction in Planner/Response**: `planning_constraints` explicitly says "avoid overwhelming the user," yet the same output (and the Response that follows it) asks four separate questions in one turn.
+- **Facts/claims duplication (recurring)**: the claim restates the fact, minus one detail.
+
+### Success Analysis
+
+- **Best topical breadth of the run in Planner**: `priority_topics` and `questions_to_explore` together cover financial, cultural, legal, and social dimensions of the decision -- a genuinely comprehensive, well-organized exploration plan for a complex, multi-faceted life decision.
+- Confidence stayed perfectly consistent (0.5) across all four stages, honestly reflecting how little concrete detail the single input sentence provides.
+- No fabrication anywhere: no invented destination, timeline detail, or backstory beyond what was stated.
+- Response faithfully and warmly covered all four of Planner's questions without giving premature advice on whether to move.
+- All four stages completed on the first attempt, fast (13.2s) and cheap ($0.0016).
+
+### Overall Verdict
+
+**Acceptable.** Planner produced genuinely strong topical breadth for a complex, multi-dimensional decision, and confidence stayed honestly low and consistent throughout with no fabrication. But Judgment's near-total emptiness on exactly the kind of test built to exercise risk/opportunity reasoning, a vague `impact_domains` tag, and a mild self-contradiction (asking four questions in one turn right after setting a "don't overwhelm" constraint) keep this below "Good."
+
+---
