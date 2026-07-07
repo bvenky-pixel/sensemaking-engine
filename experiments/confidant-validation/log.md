@@ -1048,3 +1048,109 @@ Retry count: 0. Estimated cost: $0.0017 (Interpretation $0.0006, Judgment $0.000
 **Good.** A solid, coherent run with well-targeted unknowns, appropriate restraint (no fabricated contradiction), and a Response that functionally nudges the user toward considering alternative explanations for the colleague's behavior. Held below "Excellent" because Planner's `assumptions_to_test` missed a natural chance to explicitly name the likely "deliberate/disrespectful" assumption the way R02 did for an analogous test, and the recurring facts/claims near-duplication and missing emotional signal both persist.
 
 ---
+
+## D01 -- Decisions -- Trade-off reasoning
+
+**Timestamp**: 2026-07-07T15:31:28Z - 15:32:02Z
+**Git commit**: `19a53ddc528edf1686eb6e5a73a17cb7b103fbaa`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28878403179
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I can afford either a house or an MBA, but not both.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['financial'], 'emotional_signals': [], 'surface_complaint': 'User can afford either a house or an MBA, but not both.', 'core_question': 'Which option should the user choose?', 'core_question_confidence': 0.5, 'observed_facts': ['User can afford a house.', 'User can afford an MBA.', 'User cannot afford both a house and an MBA.'], 'claims': ['User can afford either a house or an MBA.'], 'goals': [], 'decision_options': ['House', 'MBA'], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 1.0, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User can afford either a house or an MBA, but not both.
+core_question            | Which option should the user choose?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 1.0
+phase                    | discover
+facts                    | - User can afford a house. (status=active)
+                          | - User can afford an MBA. (status=active)
+                          | - User cannot afford both a house and an MBA. (status=active)
+claims                   | - User can afford either a house or an MBA. (status=active)
+goals                    | []
+decisions                | - House (status=open)
+                          | - MBA (status=open)
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': 'User cannot decide between choosing a house or an MBA, as they can only afford one.', 'primary_goal': '', 'current_focus': 'deciding between two options: a house or an MBA.', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': ['House', 'MBA'], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User can afford either a house or an MBA, but not both.', 'User cannot afford both a house and an MBA.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'support decision making', 'rationale': 'The primary_problem is that the user cannot decide between choosing a house or an MBA, as they can only afford one, and they are currently focused on making this decision.', 'conversational_strategy': 'explore motivations', 'resolution_blocker': 'unresolved uncertainty', 'priority_topics': ["User's long-term goals related to housing and education", 'Potential benefits and drawbacks of each option'], 'questions_to_explore': ["What are the user's long-term goals?", 'How does the user envision their life with a house versus an MBA?', 'What are the potential career impacts of obtaining an MBA?'], 'assumptions_to_test': ['User has equal interest in both options.', 'User understands the implications of each choice.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user gains clarity about which option aligns better with their goals', 'temporal_horizon': 'immediate', 'confidence': 0.7}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're at a significant crossroads, trying to decide between a house and an MBA. To help you make this decision, I'd like to explore a few things with you.
+
+First, what are your long-term goals? How do you see your life unfolding with either a house or an MBA?
+
+Also, have you thought about the potential career impacts of obtaining an MBA? Understanding how each option aligns with your future aspirations might help clarify which path is best for you.
+
+Take your time to reflect on these questions, and we can discuss your thoughts together.
+```
+`[confidence=0.7]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,363 | 190 | 0 | 3,553 | 4.1s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,853 | 110 | 0 | 1,963 | 2.7s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,060 | 249 | 0 | 2,309 | 4.1s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,696 | 132 | 0 | 1,828 | 3.1s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,972 | 681 | 0 | 9,653 | 13.9s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 8 | Genuinely well-calibrated: `clarity_score=1.0` is justified (the stated constraint itself -- afford one, not both -- is completely unambiguous), while `core_question_confidence=0.5` stays appropriately lower (knowing *what* the question is differs from being confident in its *answer*) -- the cleanest clarity/confidence separation of the run so far. `decision_options=['House', 'MBA']` cleanly extracted. Minor deduction: no `unknowns` surfaced despite obvious follow-ups (what the user values more), though Planner compensates well. |
+| State quality | 8 | Faithful, clean mirror; `decisions` tier correctly populated with both options at `status=open`. |
+| Judgment quality | 6 | Confidence (0.5) stayed exactly consistent with Interpretation -- no inflation; `active_decisions` correctly carried forward. Deducted for `risks=[]`/`opportunities=[]` missing a natural opportunity to surface the actual trade-off dimensions (financial risk either way, opportunity cost) this test exists to probe. |
+| Planning quality | 7 | `assumptions_to_test` is genuinely useful -- "user has equal interest in both options" correctly flags an unstated premise the input never actually confirms. But `questions_to_explore` is mildly asymmetric: it asks specifically about the MBA's career impact but never asks an equivalent question about the house (e.g., financial stability, equity, lifestyle value) -- a softer echo of the one-sidedness pattern seen in R01. |
+| Response quality | 8 | Warm, natural, faithfully executes Planner's questions (inheriting the same MBA-leaning asymmetry); ends with a patient, non-pressuring invitation to continue rather than demanding an immediate answer; no premature recommendation on which option to choose. |
+| Epistemic discipline | 6 | Interpretation and Judgment stay well-calibrated and consistent at 0.5. But Planner/Response then jump to 0.7 with no new information introduced to justify the 0.2 increase -- the clearest confidence discontinuity of this run so far, structurally similar to (if smaller than) the defect flagged in Run 1's C01. |
+
+### Failure Analysis
+
+- **Confidence discontinuity (0.5 -> 0.7) between Judgment and Planner/Response**: no new information enters the pipeline between these stages, yet confidence rises by 0.2 -- the clearest instance of this defect class in this run.
+- **Mild asymmetry in trade-off exploration**: Planner's questions probe the MBA's career impact specifically but never ask an equivalent question about the house side of the trade-off (e.g., stability, equity, lifestyle fit) -- a softer version of R01's one-sided-perspective issue, this time applied to comparing two options rather than two people's viewpoints.
+- **`risks`/`opportunities` left empty** despite this being exactly the kind of trade-off-reasoning test where surfacing the financial risk or opportunity cost of each path would be natural and expected.
+
+### Success Analysis
+
+- **Best clarity/confidence calibration of the run so far**: `clarity_score=1.0` (genuinely justified -- the affordability constraint is stated unambiguously) paired with a lower, appropriately hedged `core_question_confidence=0.5` shows the model correctly distinguishing "I understand the situation clearly" from "I'm confident in the answer" -- a distinction blurred or absent in several earlier tests.
+- `assumptions_to_test` correctly identifies and flags an unstated premise (equal interest in both options) rather than assuming it.
+- `decision_options`/`active_decisions` cleanly and correctly carried through every stage.
+- Response stayed warm and patient, explicitly inviting further reflection rather than pressuring for an immediate decision, and never gave a directive recommendation on which option to pick.
+- All four stages completed on the first attempt, fast (13.9s) and cheap ($0.0018), with no fabrication anywhere.
+
+### Overall Verdict
+
+**Good.** The cleanest clarity/confidence signal separation seen in this run, useful assumption-testing, and a warm, appropriately non-directive response. Held below "Excellent" by an unexplained 0.2 confidence jump between Judgment and Planner, an empty `risks`/`opportunities` field on a test built specifically around trade-offs, and a mild asymmetry in how thoroughly each option got explored in the final questions.
+
+---
