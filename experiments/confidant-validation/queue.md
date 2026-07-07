@@ -46,7 +46,7 @@ Status values: `pending` | `complete`
 | D03 | Decisions     | complete | I'm considering moving to another country next year. |
 | D04 | Decisions     | complete | I have too many ideas and can't choose one to pursue. |
 | D05 | Decisions     | complete | Should I optimize for salary or meaningful work? |
-| E01 | Emotions      | pending | I've been feeling burnt out for months. |
+| E01 | Emotions      | complete | I've been feeling burnt out for months. |
 | E02 | Emotions      | pending | I feel guilty even when I haven't done anything wrong. |
 | E03 | Emotions      | pending | I don't enjoy anything anymore. |
 | E04 | Emotions      | pending | I keep procrastinating even on things I care about. |

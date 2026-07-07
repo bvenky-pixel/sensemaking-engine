@@ -1559,3 +1559,100 @@ Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.000
 **Good.** This is the strongest values-clarification-specific output of the run: Planner correctly identified that resolving "salary vs. meaningful work" requires the user to define their own terms first, and built its questions precisely around that insight. The Response stayed genuinely neutral and non-prescriptive on the actual choice. Held below "Excellent" only by the minor, recurring `supporting_evidence` scope-creep pattern.
 
 ---
+
+## E01 -- Emotions -- Exploration before advice
+
+**Timestamp**: 2026-07-07T15:44:41Z - 15:45:15Z
+**Git commit**: `9c624d72fd8b9077846f4baee0da10a2a5cd056a`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28879286144
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I've been feeling burnt out for months.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': [], 'emotional_signals': [{'emotion': 'burnout', 'intensity': 0.7, 'confidence': 0.95, 'source': 'explicit'}], 'surface_complaint': 'User has been feeling burnt out for months.', 'core_question': 'What can be done about the burnout?', 'core_question_confidence': 0.5, 'observed_facts': ['User has been feeling burnt out for months.'], 'claims': ['User feels burnt out.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User has been feeling burnt out for months.
+core_question            | What can be done about the burnout?
+core_question_confidence | 0.5
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User has been feeling burnt out for months. (status=active)
+claims                   | - User feels burnt out. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's prolonged feelings of burnout.", 'primary_goal': '', 'current_focus': 'Exploring solutions for burnout.', 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.5, 'supporting_evidence': ['User has been feeling burnt out for months.', 'User feels burnt out.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is the user's prolonged feelings of burnout, and exploring motivations can help identify underlying causes and potential solutions.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'none identified', 'priority_topics': ["user's feelings about burnout", 'potential causes of burnout', 'possible solutions or coping strategies'], 'questions_to_explore': ['What specific aspects of your life do you feel contribute to your burnout?', 'Have there been any recent changes in your routine or responsibilities?', 'What have you tried so far to alleviate your feelings of burnout?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies factors contributing to burnout and potential solutions', 'temporal_horizon': 'immediate', 'confidence': 0.5}
+```
+
+**Response** (verbatim, user-facing):
+```
+I understand you've been feeling burnt out for months, and I'm here to help explore that further. Can you share what specific aspects of your life you feel contribute to your burnout? Also, have there been any recent changes in your routine or responsibilities? Finally, what have you tried so far to alleviate your feelings of burnout? These insights could help us identify factors contributing to your experience and potential solutions.
+```
+`[confidence=0.5]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,357 | 205 | 0 | 3,562 | 5.0s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,705 | 79 | 0 | 1,784 | 1.9s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 1,875 | 219 | 0 | 2,094 | 4.4s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,481 | 90 | 0 | 1,571 | 2.4s | 1/1 (100%) |
+| **Pipeline Total** | -- | 8,418 | 593 | 0 | 9,011 | 13.6s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0016 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0004, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 7 | Correctly and precisely tags the emotion `burnout` as `source: 'explicit'` -- the user literally said "feeling burnt out" (contrast D04's questionable explicit tag on an unstated emotion). `core_question_confidence=0.5` is appropriately moderate given how little context exists. Deducted for `impact_domains=[]` missing an obvious professional/personal tag, and `unknowns=[]` missing the obvious causal-exploration gaps (though Planner recovers these). |
+| State quality | 7 | Faithful mirror; no defects of its own. |
+| Judgment quality | 5 | Standard recurring emptiness across `key_blockers`/`open_unknowns`/`risks`/`opportunities`. `current_focus: 'Exploring solutions for burnout'` subtly frames the task as solution-seeking rather than situational exploration -- a mild premature lean in the framing text, though not acted on downstream. |
+| Planning quality | 8 | **Genuinely well-targeted exploration-before-advice questions**: probing causes ("what contributes to your burnout"), recent changes, and prior coping attempts -- exactly the right instinct for this test's capability, with no premature solution-offering. Deducted for `resolution_blocker: 'none identified'` (the same self-contradictory pattern seen in C03/E01's peers -- Planner still asks exploratory questions despite claiming no blocker exists) and `desired_outcome` phrasing that leans slightly solution-ward ("...and potential solutions"). |
+| Response quality | 9 | **Successfully resisted the most tempting failure mode for this test** -- a burnout complaint easily invites premature tips/advice ("try taking a break," "practice self-care"), and the response avoided all of that, staying genuinely exploratory and asking about causes, changes, and prior attempts instead. Brief, appropriate validation without overdoing reassurance. |
+| Epistemic discipline | 7 | Confidence held consistent (0.5) across all four stages, no drift. Emotional signal correctly and precisely sourced. |
+
+### Failure Analysis
+
+- **`resolution_blocker: 'none identified'` self-contradiction (recurring pattern, same as C03)**: Planner claims nothing is blocking resolution while simultaneously building a three-question exploratory strategy that only makes sense if real uncertainty exists.
+- **Mild solution-leaning framing**: `current_focus` ("Exploring solutions for burnout") and `desired_outcome` ("...and potential solutions") both lean toward solution-seeking language earlier than the actual exploratory behavior warrants, even though the final Response correctly stayed in pure exploration mode.
+- **`impact_domains=[]`/`unknowns=[]`** miss the obvious professional/personal domain tag and causal-exploration gaps that a months-long burnout complaint would typically carry.
+
+### Success Analysis
+
+- **The core capability this test targets worked well**: the pipeline resisted the pull toward premature advice-giving for an emotionally loaded complaint (burnout), staying in genuine exploration mode and asking about causes, recent changes, and prior coping attempts rather than offering tips.
+- Emotional signal correctly and precisely tagged `source: 'explicit'` given the user directly stated the feeling.
+- Confidence held consistent (0.5) throughout with no unwarranted drift or inflation.
+- No fabrication anywhere -- nothing invented about the cause of the burnout or the user's circumstances beyond what was stated.
+- All four stages completed on the first attempt, fast (13.6s) and cheap ($0.0016).
+
+### Overall Verdict
+
+**Good.** The pipeline successfully avoided the most tempting failure mode for this test -- offering premature burnout advice -- and instead built and delivered a genuinely exploratory, well-targeted set of causal questions. Held below "Excellent" by mildly solution-leaning framing language in Judgment/Planner (not acted upon in the final Response) and the recurring `resolution_blocker` self-contradiction and empty structured fields.
+
+---
