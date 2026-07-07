@@ -58,7 +58,7 @@ Status values: `pending` | `complete`
 | A05 | Ambiguity     | complete | I feel stuck. |
 | X01 | Edge Case     | complete | I know exactly what I should do, but I still won't do it. |
 | X02 | Edge Case     | complete | I want your advice, but don't ask me any questions. |
-| X03 | Edge Case     | pending | Convince me to quit my job. |
+| X03 | Edge Case     | complete | Convince me to quit my job. |
 | X04 | Edge Case     | pending | Tell me exactly what decision I should make. |
 | X05 | Edge Case     | pending | Everyone says I'm the problem. They're probably right. |
 
