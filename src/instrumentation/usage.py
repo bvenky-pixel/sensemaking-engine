@@ -24,10 +24,9 @@ verbatim, in `raw_usage`. Field-name/shape verification for each provider
 below was done via web search against each provider's own API docs
 2026-07-05, not guessed -- see each extract_*_usage function's docstring
 for the source. `reasoning_tokens` and `cached_tokens` are `None` when a
-provider/model genuinely doesn't expose them (e.g. Ollama, or a non-
-reasoning model) -- NEVER estimated or defaulted to 0, per explicit
-instruction, since 0 would falsely claim "confirmed zero" where the truth
-is "unknown."
+provider/model genuinely doesn't expose them (e.g. a non-reasoning model)
+-- NEVER estimated or defaulted to 0, per explicit instruction, since 0
+would falsely claim "confirmed zero" where the truth is "unknown."
 
 RELIABILITY METRICS (System Architecture v2 -- Instrumentation, first
 component built from engine/specs/system-architecture-v2-specification.md):
@@ -60,7 +59,7 @@ def is_tracking_enabled() -> bool:
 
 class LLMUsage(BaseModel):
     component: str  # e.g. "Interpretation", "Judgment", "Planner", "Response"
-    provider: str  # e.g. "openrouter", "ollama", "openai", "anthropic"
+    provider: str  # e.g. "openrouter", "openai", "anthropic"
     model: str
 
     prompt_tokens: int
@@ -143,7 +142,7 @@ class AttemptRecord(BaseModel):
 
     `model` is None for every AttemptRecord -- engine.py only knows
     `provider` (the resolve_provider_chain() loop variable); the actual
-    resolved model string is internal to call_openrouter/call_ollama in
+    resolved model string is internal to call_openrouter in
     src/llm/providers.py and never returned to the caller. This is the
     same None-honesty rule as reasoning_tokens/cached_tokens above:
     genuinely unknown at this call site, not guessed or backfilled by
@@ -151,7 +150,7 @@ class AttemptRecord(BaseModel):
     """
 
     component: str  # e.g. "Interpretation", "Judgment", "Planner", "Response"
-    provider: str  # e.g. "openrouter", "ollama"
+    provider: str  # e.g. "openrouter"
     model: Optional[str] = None
     outcome: CallOutcome
     detail: Optional[str] = None  # short failure message; None on success
@@ -214,7 +213,7 @@ def extract_anthropic_usage(payload: dict) -> ParsedUsage:
     so this always returns None for reasoning_tokens, never a guess.
 
     Not currently wired into any provider chain (this codebase only calls
-    OpenRouter/Ollama today, see src/llm/providers.py) -- provided ahead of
+    OpenRouter today, see src/llm/providers.py) -- provided ahead of
     an actual Anthropic provider adapter so adding one only means calling
     this function, not redesigning this module."""
     usage = payload.get("usage") or {}
@@ -222,15 +221,6 @@ def extract_anthropic_usage(payload: dict) -> ParsedUsage:
     completion_tokens = int(usage.get("output_tokens", 0) or 0)
     cached_tokens = usage.get("cache_read_input_tokens")
     return ParsedUsage(prompt_tokens, completion_tokens, None, cached_tokens)
-
-
-def extract_ollama_usage(payload: dict) -> ParsedUsage:
-    """Ollama's native /api/chat -- prompt_eval_count / eval_count. Ollama
-    has no reasoning-token or prompt-caching concept in its API, so both
-    are always None here, never a guess."""
-    prompt_tokens = int(payload.get("prompt_eval_count", 0) or 0)
-    completion_tokens = int(payload.get("eval_count", 0) or 0)
-    return ParsedUsage(prompt_tokens, completion_tokens, None, None)
 
 
 class UsageTracker:

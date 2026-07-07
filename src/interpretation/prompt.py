@@ -8,11 +8,12 @@ See engine/decisions.md 2026-07-02 "v0.9 Interpretation Specification
 frozen" for why this was done schema-first rather than as another round
 of prompt patching.
 
-`build_messages` returns a (system, messages) tuple -- Ollama's /api/chat
-endpoint treats the system prompt as its own field, not a message with
-role="system" mixed into the turn history. Keeping them separate also
-means this drops in cleanly if/when this engine is pointed at the Claude
-API instead (see engine/state_updater.py for that pattern).
+`build_messages` returns a (system, messages) tuple, kept separate from
+the message list even though call_openrouter joins them into a single
+system-role message -- keeping them distinct means this drops in cleanly
+if/when this engine is pointed at another provider with its own system-
+prompt field (e.g. the Claude API -- see engine/state_updater.py for that
+pattern).
 """
 
 SYSTEM_PROMPT = """You are the Interpretation Engine for Confidant.

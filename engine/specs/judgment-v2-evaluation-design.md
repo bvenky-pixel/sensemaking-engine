@@ -18,11 +18,11 @@ underlying LLM, at the same temperature, for the actual Judgment-producing
 call. If Confidant's Judgment uses `openai/gpt-4o-mini` via OpenRouter and
 Baseline A uses a different model, any measured difference is confounded
 — you can't tell whether WorldState helped or the other model is just
-better. Confidant's existing provider layer (`src/judgment/providers.py`,
+better. Confidant's existing provider layer (`src/llm/providers.py`,
 `OPENROUTER_MODEL` env var) already makes this mechanically easy: every
 condition's final reasoning call should go through the identical
-`call_openrouter`/`call_ollama` path with the identical model pinned for
-the whole study.
+`call_openrouter` path with the identical model pinned for the whole
+study.
 
 The corollary: **the output schema and system-prompt governance must also
 be held constant across conditions.** Baseline A and B should be asked to

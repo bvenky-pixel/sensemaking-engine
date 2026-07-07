@@ -2880,3 +2880,84 @@ slot, or any fifth process, requires deliberately reopening this freeze
 question none of the existing four should answer?), update the spec,
 then implement -- the same discipline already applied to every frozen
 Sensemaking Engine component.
+
+**2026-07-07 — Ollama removed, OpenRouter-only; validation-experiment cadence sized to the real free-tier rate limit**
+
+The Confidant Architecture Validation experiment (R01-R05, see
+`experiments/confidant-validation/`) surfaced a real reliability problem
+rather than confirming a safety net: 4 of 5 Relationships-category tests
+hit the automatic openrouter->ollama fallback (`src/llm/providers.py`'s
+`resolve_provider_chain`), and every stage that fell back to
+ollama/llama3.2:3b produced severely degraded output -- empty
+`questions_to_explore`/`planning_constraints` on Planner, fabricated
+`primary_goal` values not grounded in WorldState on Judgment, and (R04)
+Interpretation itself reduced to single-word fragments with no real
+propositional content. The fallback was firing because the recurring
+2-hour cadence (`0 */2 * * *`), at 4 real LLM calls per test
+(Interpretation, Judgment, Planner, Response), was consuming 48 of the
+free tier's 50-requests/day ceiling on the validation runner alone --
+essentially no margin, so any retry or concurrent use of the same key
+tipped it into rate-limiting. Separately, the earlier idea of pinning
+`OPENROUTER_MODEL` to one specific `:free` model for evaluation runs
+(see the 2026-07-05 entries above) has its own documented failure mode --
+that one model getting rate-limited harder than the rotating
+`openrouter/free` pool as a whole.
+
+Explicit decision: remove the Ollama fallback entirely rather than tune
+around it. A silent fallback to a model an order of magnitude weaker,
+triggered by our own rate-limit pressure, is not a reliability feature --
+it was producing exactly the kind of ungrounded, degraded output this
+whole validation experiment exists to catch, and doing so invisibly
+unless someone reads the per-stage provider field. Removed: `call_ollama`
+and its OLLAMA_* env vars, `extract_ollama_usage`, the `ollama` branch in
+`estimate_cost_usd`, the Ollama install/pull/start steps in
+`single-turn-smoketest.yml`, and every other live reference across
+`.env.example`, `CLAUDE.md`, and the engine.py/prompt.py docstrings that
+described the fallback as current behavior (historical references --
+e.g. why the interpretation grounding filters were calibrated against
+llama3.2:3b, or why a validator exists -- are left in place; that
+provenance is still true and useful, it's the *live fallback path* that's
+gone). `resolve_provider_chain()` now returns a single-element chain
+(`["openrouter"]`); the loop-and-catch shape in every engine.py is
+otherwise unchanged, so a second provider can be registered again later
+without touching any call site. `OPENROUTER_MODEL` stays at its existing
+default, `openrouter/free` -- no pinning, this IS the "auto" setting
+(OpenRouter's own free-model auto-router; confirmed against OpenRouter's
+current docs 2026-07-07, not the distinct paid `openrouter/auto`
+meta-router, which was explicitly not chosen since it drops the $0.00
+cost guarantee `CLAUDE.md`'s standing rule depends on).
+
+This does NOT reopen the System Architecture v2 freeze above -- nothing
+in Orchestrator, Instrumentation, Learning, or Executor changed; this is
+provider-selection plumbing one layer below all four, used by
+Sensemaking Engine v1's stages and by Instrumentation's own usage
+tracking.
+
+**Rate limit, confirmed current 2026-07-07** (OpenRouter's own docs, via
+web search, cross-checked against two independent sources for
+consistency): `:free`-suffixed models, including the `openrouter/free`
+auto-router, allow 20 requests/minute and 50 requests/day with no
+credits loaded (1,000/day once $10+ has been loaded). No evidence this
+account has credits loaded, so the validation experiment is sized
+against the conservative 50/day ceiling.
+
+**New cadence**: the validation Routine (`trig_01WdXyR1sV7iDUScNvqLN5hB`)
+changes from `0 */2 * * *` (12 runs/day x 4 calls = 48/day, 96% of the
+no-credit ceiling) to `0 */4 * * *` (6 runs/day x 4 calls = 24/day, 48%
+of the ceiling) -- real margin for a call needing to be re-run, for the
+per-test evaluation pass itself (no extra LLM calls, but same API key
+scope), and for any other manual/ad hoc use of the same key on a given
+day, instead of running right up against the wall the way the prior
+cadence did. Per-minute limit (20/min) is not a binding constraint at
+this cadence -- one test's 4 calls run sequentially within a single
+pipeline invocation lasting well under a minute between calls, never
+concurrent with another test. Remaining queue (D01-X05, 20 tests) at 6
+tests/day completes in a little over 3 days, consistent with this
+experiment's standing "consistency over speed" instruction.
+
+One consequence of removing the fallback worth stating plainly: a 429 or
+any other provider failure now fails that test's pipeline run outright
+instead of silently degrading through Ollama. That's an accepted
+tradeoff, not an oversight -- the new cadence exists specifically to make
+hitting the limit in the first place the rare case, not something routed
+around after the fact.

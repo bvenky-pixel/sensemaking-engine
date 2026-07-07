@@ -57,9 +57,9 @@ def run_response_generator(
     """
     Calls an LLM to produce a Response from the given WorldState, Judgment,
     and Planner. Tries each configured provider in order (see
-    src/llm/providers.py), same OpenRouter-primary/Ollama-fallback pattern
-    as every other layer. Raises ResponseGeneratorError if every provider
-    fails.
+    src/llm/providers.py -- OpenRouter is the only registered provider
+    today, same as every other layer). Raises ResponseGeneratorError if
+    every provider fails.
 
     Callers should call this AFTER run_planner, on the same Judgment and
     Planner objects for this turn -- Response Generator's whole job is to

@@ -7,9 +7,10 @@ here doesn't trace back to something in the spec (or an explicit scope
 decision logged in engine/decisions.md), it doesn't belong here.
 
 `build_messages` returns a (system, messages) tuple, matching every other
-layer's shape for the same reason: Ollama's native /api/chat endpoint
-treats the system prompt as its own field, and this keeps that path
-working identically across all four layers.
+layer's shape for the same reason: kept separate from the message list
+so this drops in cleanly if any layer is ever pointed at a provider with
+its own system-prompt field, the same forward-compatibility reasoning
+across all four layers.
 """
 
 SYSTEM_PROMPT = """You are the Response Generator layer for Confidant.

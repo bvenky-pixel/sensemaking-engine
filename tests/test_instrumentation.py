@@ -1,12 +1,18 @@
 """
 Tests for the instrumentation layer (src/instrumentation/usage.py,
 pricing.py) -- all deterministic, no LLM calls needed. Covers: provider-
-agnostic usage extraction (OpenRouter/OpenAI-compatible, Anthropic,
-Ollama), the None-vs-zero honesty rule for reasoning/cached tokens, raw
-payload preservation, cost estimation, tracker aggregation (including the
-new by_provider breakdown and average stats), and the disabled-by-default
+agnostic usage extraction (OpenRouter/OpenAI-compatible, Anthropic), the
+None-vs-zero honesty rule for reasoning/cached tokens, raw payload
+preservation, cost estimation, tracker aggregation (including the
+by_provider breakdown and average stats), and the disabled-by-default
 behavior that's the whole point of "measurement only, no behavior change
 outside evaluation runs."
+
+`extract_anthropic_usage` is exercised even though Anthropic isn't a
+registered provider today (see src/llm/providers.py) -- it's ahead-of-need
+infrastructure for a future provider adapter, and the by_provider tests
+below use "anthropic" as their second example provider for the same
+reason (a real, documented extraction path, not a made-up placeholder).
 """
 
 from __future__ import annotations
@@ -24,7 +30,6 @@ from src.instrumentation.usage import (
     UsageTracker,
     build_usage,
     extract_anthropic_usage,
-    extract_ollama_usage,
     extract_openai_compatible_usage,
     is_tracking_enabled,
     print_turn_summary,
@@ -73,10 +78,10 @@ def test_tracker_records_when_enabled():
 
 
 def test_build_usage_defaults_reasoning_and_cached_to_none_not_zero():
-    """A caller that doesn't pass reasoning_tokens/cached_tokens (e.g.
-    Ollama, which has no such concept) must get None, not a silently
-    assumed 0 -- 0 would falsely claim "confirmed zero usage"."""
-    usage = build_usage("Interpretation", "ollama", "llama3.2:3b", 100, 50, 500.0)
+    """A caller that doesn't pass reasoning_tokens/cached_tokens must get
+    None, not a silently assumed 0 -- 0 would falsely claim "confirmed
+    zero usage"."""
+    usage = build_usage("Interpretation", "openrouter", "some/model", 100, 50, 500.0)
     assert usage.reasoning_tokens is None
     assert usage.cached_tokens is None
     assert usage.raw_usage is None
@@ -184,28 +189,7 @@ def test_extract_anthropic_usage_handles_missing_usage():
     assert extract_anthropic_usage({}) == ParsedUsage(0, 0, None, None)
 
 
-# --- Ollama extraction ---
-
-
-def test_extract_ollama_usage_handles_missing_fields():
-    assert extract_ollama_usage({"prompt_eval_count": 500, "eval_count": 120}) == ParsedUsage(
-        500, 120, None, None
-    )
-    assert extract_ollama_usage({}) == ParsedUsage(0, 0, None, None)
-
-
-def test_extract_ollama_usage_never_reports_reasoning_or_cached_tokens():
-    """Ollama's API has no concept of either -- always None, never a guess."""
-    parsed = extract_ollama_usage({"prompt_eval_count": 10, "eval_count": 5})
-    assert parsed.reasoning_tokens is None
-    assert parsed.cached_tokens is None
-
-
 # --- Cost estimation (unchanged behavior, renamed params) ---
-
-
-def test_ollama_cost_is_always_zero_not_unknown():
-    assert estimate_cost_usd("ollama", "llama3.2:3b", 1000, 1000) == 0.0
 
 
 def test_unknown_openrouter_model_cost_is_none_not_a_guess():
@@ -275,7 +259,7 @@ def test_summary_reports_unknown_cost_honestly_when_model_unpriced():
 def test_summary_reasoning_and_cached_tokens_none_when_no_record_reports_them():
     os.environ["CONFIDANT_TRACK_USAGE"] = "1"
     tracker = UsageTracker()
-    tracker.record(build_usage("Interpretation", "ollama", "llama3.2:3b", 100, 50, 100.0))
+    tracker.record(build_usage("Interpretation", "anthropic", "claude-opus-4-8", 100, 50, 100.0))
 
     summary = tracker.summary()
     assert summary["reasoning_tokens"] is None
@@ -288,7 +272,7 @@ def test_summary_reasoning_and_cached_tokens_sum_known_values_ignoring_unreporte
     tracker.record(
         build_usage("Interpretation", "openai", "o1", 100, 80, 100.0, reasoning_tokens=30, cached_tokens=10)
     )
-    tracker.record(build_usage("Judgment", "ollama", "llama3.2:3b", 50, 20, 100.0))  # no reasoning/cached
+    tracker.record(build_usage("Judgment", "anthropic", "claude-opus-4-8", 50, 20, 100.0))  # no reasoning/cached
 
     summary = tracker.summary()
     assert summary["reasoning_tokens"] == 30
@@ -310,14 +294,15 @@ def test_summary_includes_average_stats():
 def test_summary_includes_by_provider_breakdown():
     os.environ["CONFIDANT_TRACK_USAGE"] = "1"
     tracker = UsageTracker()
-    tracker.record(build_usage("Interpretation", "openrouter", "m", 100, 50, 1000.0))
-    tracker.record(build_usage("Judgment", "ollama", "llama3.2:3b", 50, 20, 500.0))
+    tracker.record(build_usage("Interpretation", "openrouter", "openrouter/free", 100, 50, 1000.0))
+    tracker.record(build_usage("Judgment", "anthropic", "claude-opus-4-8", 50, 20, 500.0))
 
     summary = tracker.summary()
-    assert set(summary["by_provider"].keys()) == {"openrouter", "ollama"}
+    assert set(summary["by_provider"].keys()) == {"openrouter", "anthropic"}
     assert summary["by_provider"]["openrouter"]["calls"] == 1
-    assert summary["by_provider"]["ollama"]["calls"] == 1
-    assert summary["by_provider"]["ollama"]["estimated_cost_usd"] == 0.0
+    assert summary["by_provider"]["anthropic"]["calls"] == 1
+    assert summary["by_provider"]["openrouter"]["estimated_cost_usd"] == 0.0
+    assert summary["by_provider"]["anthropic"]["estimated_cost_usd"] is None
 
 
 # --- Frontier cost comparison (calculated field, not real cost) ---
@@ -397,7 +382,7 @@ def test_attempt_record_model_defaults_to_none():
     """engine.py never knows the resolved model string -- only
     src/llm/providers.py does -- so AttemptRecord.model must default to
     None (genuinely unknown), never a guessed value."""
-    record = AttemptRecord(component="Planner", provider="ollama", outcome="provider_call_error", detail="boom")
+    record = AttemptRecord(component="Planner", provider="anthropic", outcome="provider_call_error", detail="boom")
     assert record.model is None
 
 
@@ -424,7 +409,7 @@ def test_reliability_summary_counts_and_rate():
     os.environ["CONFIDANT_TRACK_USAGE"] = "1"
     tracker = UsageTracker()
     tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="x"))
-    tracker.record_outcome(AttemptRecord(component="Judgment", provider="ollama", outcome="success"))
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="anthropic", outcome="success"))
     tracker.record_outcome(AttemptRecord(component="Planner", provider="openrouter", outcome="schema_validation_failed", detail="y"))
 
     reliability = tracker.summary()["reliability"]
@@ -448,14 +433,14 @@ def test_reliability_by_component_and_by_provider_breakdowns():
     os.environ["CONFIDANT_TRACK_USAGE"] = "1"
     tracker = UsageTracker()
     tracker.record_outcome(AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="x"))
-    tracker.record_outcome(AttemptRecord(component="Judgment", provider="ollama", outcome="success"))
+    tracker.record_outcome(AttemptRecord(component="Judgment", provider="anthropic", outcome="success"))
 
     reliability = tracker.summary()["reliability"]
     assert reliability["by_component"]["Judgment"] == {
         "attempts": 2, "successes": 1, "failures": 1, "success_rate": pytest.approx(0.5),
     }
     assert reliability["by_provider"]["openrouter"]["successes"] == 0
-    assert reliability["by_provider"]["ollama"]["successes"] == 1
+    assert reliability["by_provider"]["anthropic"]["successes"] == 1
 
 
 def test_reliability_uses_explicit_outcomes_param_over_self_outcomes():
@@ -487,7 +472,7 @@ def test_print_turn_summary_still_reports_a_component_with_zero_records(capsys):
     driven off outcomes alone."""
     outcomes = [
         AttemptRecord(component="Judgment", provider="openrouter", outcome="provider_call_error", detail="boom"),
-        AttemptRecord(component="Judgment", provider="ollama", outcome="provider_call_error", detail="boom"),
+        AttemptRecord(component="Judgment", provider="anthropic", outcome="provider_call_error", detail="boom"),
     ]
     print_turn_summary([], outcomes)
     out = capsys.readouterr().out

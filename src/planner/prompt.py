@@ -7,9 +7,10 @@ a rule here doesn't trace back to something in the spec (or an explicit
 scope decision logged in engine/decisions.md), it doesn't belong here.
 
 `build_messages` returns a (system, messages) tuple, matching the other
-two layers' shape for the same reason: Ollama's native /api/chat endpoint
-treats the system prompt as its own field, and this keeps that path
-working identically to Interpretation's and Judgment's.
+two layers' shape for the same reason: kept separate from the message
+list so this drops in cleanly if this engine is ever pointed at a
+provider with its own system-prompt field, the same forward-
+compatibility reasoning as Interpretation's and Judgment's.
 """
 
 SYSTEM_PROMPT = """You are the Planner layer for Confidant.

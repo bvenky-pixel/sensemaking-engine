@@ -132,9 +132,9 @@ def test_judgment_records_provider_call_error_outcome_for_every_provider(monkeyp
     with pytest.raises(JudgmentError):
         run_judgment(WorldState(), tracker=tracker)
 
-    assert len(tracker.outcomes) == 2  # openrouter, then ollama fallback
+    assert len(tracker.outcomes) == 1  # openrouter is the only registered provider
     assert all(o.outcome == "provider_call_error" for o in tracker.outcomes)
-    assert {o.provider for o in tracker.outcomes} == {"openrouter", "ollama"}
+    assert {o.provider for o in tracker.outcomes} == {"openrouter"}
 
 
 def test_judgment_records_invalid_json_outcome(monkeypatch):
@@ -147,7 +147,7 @@ def test_judgment_records_invalid_json_outcome(monkeypatch):
     with pytest.raises(JudgmentError):
         run_judgment(WorldState(), tracker=tracker)
 
-    assert len(tracker.outcomes) == 2
+    assert len(tracker.outcomes) == 1
     assert all(o.outcome == "invalid_json" for o in tracker.outcomes)
 
 
@@ -161,7 +161,7 @@ def test_judgment_records_schema_validation_failed_outcome(monkeypatch):
     with pytest.raises(JudgmentError):
         run_judgment(WorldState(), tracker=tracker)
 
-    assert len(tracker.outcomes) == 2
+    assert len(tracker.outcomes) == 1
     assert all(o.outcome == "schema_validation_failed" for o in tracker.outcomes)
 
 
@@ -192,7 +192,7 @@ def test_planner_records_provider_call_error_outcome(monkeypatch):
     with pytest.raises(PlannerError):
         run_planner(WorldState(), Judgment(**_MINIMAL_JUDGMENT), tracker=tracker)
 
-    assert len(tracker.outcomes) == 2
+    assert len(tracker.outcomes) == 1
     assert all(o.component == "Planner" and o.outcome == "provider_call_error" for o in tracker.outcomes)
 
 
@@ -235,7 +235,7 @@ def test_response_records_schema_validation_failed_outcome_for_empty_text(monkey
             WorldState(), Judgment(**_MINIMAL_JUDGMENT), Planner(**_MINIMAL_PLANNER), tracker=tracker
         )
 
-    assert len(tracker.outcomes) == 2
+    assert len(tracker.outcomes) == 1
     assert all(o.component == "Response" and o.outcome == "schema_validation_failed" for o in tracker.outcomes)
 
 
@@ -286,7 +286,7 @@ def test_interpretation_records_provider_call_error_outcome_for_every_provider(m
     with pytest.raises(InterpretationError):
         run_interpretation("I want to move teams.", tracker=tracker)
 
-    assert len(tracker.outcomes) == 2
+    assert len(tracker.outcomes) == 1
     assert all(o.outcome == "provider_call_error" for o in tracker.outcomes)
 
 

@@ -7,14 +7,14 @@ AttributeError instead of a caught ProviderCallError, killing the whole
 process instead of falling back to the next provider).
 
 Contract under test (see src/llm/providers.py's module docstring):
-call_openrouter/call_ollama either return a non-empty string or raise
+call_openrouter either returns a non-empty string or raises
 ProviderCallError -- never any other exception, never an empty string.
 Covers every way a "successful" (2xx) HTTP response can still be
 useless: missing fields, content=None, invalid JSON, and empty/
 whitespace-only content, plus a genuine request timeout, then verifies
-the provider-fallback chain (resolve_provider_chain + call_provider)
-actually moves on to the next provider after each of those failures
-rather than propagating something call_provider's caller can't catch.
+resolve_provider_chain + call_provider surface that failure as a clean
+ProviderCallError rather than propagating something call_provider's
+caller can't catch.
 
 All deterministic -- requests.post is mocked, no real HTTP.
 """
@@ -28,7 +28,6 @@ import requests
 
 from src.llm.providers import (
     ProviderCallError,
-    call_ollama,
     call_openrouter,
     call_provider,
     resolve_provider_chain,
@@ -122,56 +121,9 @@ def test_openrouter_valid_response_returns_stripped_content(monkeypatch):
     assert result == '{"ok": true}'
 
 
-# --- call_ollama: same malformed-response cases ---
-
-
-def test_ollama_missing_message_key_raises_provider_call_error(monkeypatch):
-    monkeypatch.setattr(
-        "src.llm.providers.requests.post", lambda *a, **k: _FakeResponse(json_data={})
-    )
-    with pytest.raises(ProviderCallError, match="Unexpected Ollama response shape"):
-        call_ollama(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE)
-
-
-def test_ollama_content_none_raises_provider_call_error(monkeypatch):
-    monkeypatch.setattr(
-        "src.llm.providers.requests.post",
-        lambda *a, **k: _FakeResponse(json_data={"message": {"content": None}}),
-    )
-    with pytest.raises(ProviderCallError, match="empty or not a string"):
-        call_ollama(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE)
-
-
-def test_ollama_invalid_json_raises_provider_call_error(monkeypatch):
-    monkeypatch.setattr(
-        "src.llm.providers.requests.post",
-        lambda *a, **k: _FakeResponse(json_raises=True, text="<html>502</html>"),
-    )
-    with pytest.raises(ProviderCallError, match="not valid JSON"):
-        call_ollama(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE)
-
-
-def test_ollama_empty_string_content_raises_provider_call_error(monkeypatch):
-    monkeypatch.setattr(
-        "src.llm.providers.requests.post",
-        lambda *a, **k: _FakeResponse(json_data={"message": {"content": ""}}),
-    )
-    with pytest.raises(ProviderCallError, match="empty or not a string"):
-        call_ollama(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE)
-
-
-def test_ollama_timeout_raises_provider_call_error(monkeypatch):
-    def _raise_timeout(*a, **k):
-        raise requests.exceptions.ConnectTimeout("connect timed out")
-
-    monkeypatch.setattr("src.llm.providers.requests.post", _raise_timeout)
-    with pytest.raises(ProviderCallError, match="Ollama request failed"):
-        call_ollama(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE)
-
-
-# --- Fallback: the provider chain must still move on to the next provider ---
-# after EVERY one of the malformed-response categories above, not just a
-# clean non-2xx error.
+# --- Provider chain: single-provider today, but call_provider's caller ---
+# must still see a clean ProviderCallError (not some other exception) for
+# every one of the malformed-response categories above.
 
 
 @pytest.mark.parametrize(
@@ -184,15 +136,12 @@ def test_ollama_timeout_raises_provider_call_error(monkeypatch):
     ],
     ids=["missing_choices", "content_none", "invalid_json", "empty_string"],
 )
-def test_fallback_to_ollama_after_each_malformed_openrouter_response(
+def test_provider_chain_surfaces_provider_call_error_for_each_malformed_response(
     monkeypatch, broken_openrouter_response
 ):
-    def _fake_post(url, **kwargs):
-        if "openrouter" in url:
-            return broken_openrouter_response
-        return _FakeResponse(json_data={"message": {"content": '{"fallback": true}'}})
-
-    monkeypatch.setattr("src.llm.providers.requests.post", _fake_post)
+    monkeypatch.setattr(
+        "src.llm.providers.requests.post", lambda *a, **k: broken_openrouter_response
+    )
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
 
     failures = []
@@ -205,17 +154,16 @@ def test_fallback_to_ollama_after_each_malformed_openrouter_response(
             failures.append(f"{provider_name}: {exc}")
             continue
 
-    assert result == '{"fallback": true}', f"fallback never succeeded; failures: {failures}"
-    assert len(failures) == 1  # openrouter failed exactly once, then ollama succeeded
+    assert result is None
+    assert len(failures) == 1
+    assert failures[0].startswith("openrouter:")
 
 
-def test_fallback_to_ollama_after_openrouter_timeout(monkeypatch):
-    def _fake_post(url, **kwargs):
-        if "openrouter" in url:
-            raise requests.exceptions.Timeout("timed out")
-        return _FakeResponse(json_data={"message": {"content": '{"fallback": true}'}})
+def test_provider_chain_surfaces_provider_call_error_after_timeout(monkeypatch):
+    def _raise_timeout(*a, **k):
+        raise requests.exceptions.Timeout("timed out")
 
-    monkeypatch.setattr("src.llm.providers.requests.post", _fake_post)
+    monkeypatch.setattr("src.llm.providers.requests.post", _raise_timeout)
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
 
     failures = []
@@ -228,12 +176,16 @@ def test_fallback_to_ollama_after_openrouter_timeout(monkeypatch):
             failures.append(f"{provider_name}: {exc}")
             continue
 
-    assert result == '{"fallback": true}', f"fallback never succeeded; failures: {failures}"
+    assert result is None
     assert len(failures) == 1
 
 
-def test_resolve_provider_chain_puts_configured_primary_first(monkeypatch):
-    monkeypatch.setenv("LLM_PROVIDER", "ollama")
-    assert resolve_provider_chain() == ["ollama", "openrouter"]
+def test_resolve_provider_chain_is_single_provider(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
-    assert resolve_provider_chain() == ["openrouter", "ollama"]
+    assert resolve_provider_chain() == ["openrouter"]
+
+
+def test_resolve_provider_chain_rejects_unknown_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
+        resolve_provider_chain()

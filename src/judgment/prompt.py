@@ -8,9 +8,10 @@ decision logged in engine/decisions.md), it doesn't belong here. Same
 schema-first discipline as src/interpretation/prompt.py.
 
 `build_messages` returns a (system, messages) tuple, matching
-src/interpretation/prompt.py's shape for the same reason: Ollama's native
-/api/chat endpoint treats the system prompt as its own field, and this
-keeps that path working identically to Interpretation's.
+src/interpretation/prompt.py's shape for the same reason: kept separate
+from the message list so this drops in cleanly if this engine is ever
+pointed at a provider with its own system-prompt field, the same
+forward-compatibility reasoning as Interpretation's.
 """
 
 SYSTEM_PROMPT = """You are the Judgment layer for Confidant.

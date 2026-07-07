@@ -1066,3 +1066,43 @@ confirmed, carried forward as context for the remaining 20 tests:
 5. **Verdicts trended downward across the category**: Acceptable (R01) -> Needs Investigation (R02) -> Needs Investigation (R03) -> Failed (R04) -> Failed (R05). This tracks the escalating fallback/reliability problems above more plausibly than it tracks the tests themselves getting harder -- worth flagging explicitly as a trajectory, not just five independent scores.
 6. **The goal-fabrication pattern from R01-R03 did not recur in R04 or R05** (both correctly left `primary_goal` empty, consistent with empty upstream `goals`) -- suggesting that pattern is sampling-variance-dependent rather than a deterministic bug, unlike the fully consistent `supporting_evidence` and fallback-degradation patterns above.
 7. Positive, consistent findings: Interpretation's epistemic-tier separation (facts vs. claims vs. inferences vs. unknowns) stayed structurally intact throughout the category even when its *content* was wrong (fabricated or foreclosed); `contradictions` and `active_decisions` were left empty appropriately whenever no real contradiction or decision existed in the input.
+
+---
+
+### Configuration change (between R05 and D01): Ollama fallback removed, cadence changed
+
+This is a note about the harness the experiment runs on, not a test
+result -- logged here per this file's append-only discipline, so anyone
+reading the full log later sees the discontinuity rather than silently
+comparing R01-R05 against D01-X05 as if they ran under identical
+conditions. Full rationale: `engine/decisions.md` 2026-07-07 "Ollama
+removed, OpenRouter-only; validation-experiment cadence sized to the real
+free-tier rate limit."
+
+**What changed**: the automatic openrouter->ollama fallback
+(`src/llm/providers.py`) that every one of R01-R05's "heavy fallback"
+findings above depended on has been removed entirely -- it was firing
+under this experiment's own rate-limit pressure and producing the
+degraded output those findings describe, not acting as a safety net.
+`OPENROUTER_MODEL` remains unchanged (`openrouter/free`, unpinned). The
+Routine's cron cadence changes from `0 */2 * * *` to `0 */4 * * *`
+(6 runs/day instead of 12) to keep real margin under the free tier's
+50-requests/day ceiling now that a provider failure fails the test
+outright instead of degrading through a fallback.
+
+**Consequence for reading this log going forward**: D01 onward should
+see zero ollama-served stages, by construction -- there is no fallback
+provider left to fall back to. A provider failure from here on will
+surface as a failed GitHub Actions run for that test (to be retried at
+the next firing, not silently absorbed), not as a "Provider (final):
+ollama/llama3.2:3b" line in a Runtime Metrics table. R01-R05's
+provider-correlation findings (`supporting_evidence` empty on ollama vs.
+over-inclusive on openrouter; the escalating fallback-severity pattern)
+remain valid findings about the configuration that produced them, but
+are now closed, historical observations about a path that no longer
+exists in the pipeline -- not an ongoing risk to keep watching for in
+D01-X05.
+
+Per the queue's own immutability rule, this change was NOT made in
+response to any single test's individual result, and no completed test
+is being re-run under the new configuration -- R01-R05 stand as recorded.

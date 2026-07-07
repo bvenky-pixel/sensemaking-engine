@@ -3,8 +3,9 @@ n=N live benchmark harness for the Interpretation Engine (see
 engine/decisions.md v1.0 exit criteria).
 
 Runs each fixed benchmark conversation (tests/fixtures/benchmark_conversations.py)
-N times against whatever LLM_PROVIDER/OPENROUTER_MODEL/OLLAMA_MODEL is
-configured in the environment, dumping every resulting Interpretation to
+N times against whatever OPENROUTER_MODEL is configured in the
+environment (OpenRouter is the only registered provider -- see
+src/llm/providers.py), dumping every resulting Interpretation to
 test-runs/ (gitignored) as JSON, plus a failure log if any run errors out.
 
 This script only produces the raw data. Scoring it against the six v1.0
@@ -43,7 +44,7 @@ def main() -> int:
     args = parser.parse_args()
 
     provider = os.environ.get("LLM_PROVIDER", "openrouter")
-    model = os.environ.get("OPENROUTER_MODEL") if provider == "openrouter" else os.environ.get("OLLAMA_MODEL")
+    model = os.environ.get("OPENROUTER_MODEL")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     batch_dir = os.path.join(args.out_dir, f"{stamp}-{provider}-{model or 'default'}")
     os.makedirs(batch_dir, exist_ok=True)

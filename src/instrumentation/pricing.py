@@ -11,10 +11,7 @@ rather than a guessed number -- an honest "we don't know" is safer than
 a wrong number in a study whose whole point is comparing cost/efficiency
 across architectures.
 
-Ollama is always $0.00 -- local inference has no per-token API charge,
-this is a fact, not an estimate.
-
-OpenRouter models with a `:free` suffix are also treated as a verified
+OpenRouter models with a `:free` suffix are treated as a verified
 $0.00, not an estimate -- that suffix is OpenRouter's own naming
 convention for its no-cost tier (confirmed against
 https://openrouter.ai/models 2026-07-05), not a guess on our part.
@@ -54,9 +51,6 @@ def estimate_cost_usd(
     would have to be guessed; better to slightly overstate cost on a
     cache hit than invent a discount rate (see
     src/instrumentation/usage.py's build_usage docstring)."""
-    if provider == "ollama":
-        return 0.0
-
     if model.endswith(":free") or model in _VERIFIED_ZERO_COST_MODELS:
         return 0.0
 

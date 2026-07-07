@@ -61,9 +61,9 @@ class JudgmentError(Exception):
 def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> Judgment:
     """
     Calls an LLM to produce a Judgment from the given WorldState. Tries
-    each configured provider in order (see src/llm/providers.py),
-    same OpenRouter-primary/Ollama-fallback pattern as Interpretation.
-    Raises JudgmentError if every provider fails.
+    each configured provider in order (see src/llm/providers.py --
+    OpenRouter is the only registered provider today, same as
+    Interpretation). Raises JudgmentError if every provider fails.
 
     Callers should update WorldState with the current turn's Interpretation
     BEFORE calling this -- Judgment only ever sees WorldState, so if it's

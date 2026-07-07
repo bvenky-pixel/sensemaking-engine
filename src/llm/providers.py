@@ -1,9 +1,9 @@
 """
-Provider configuration and raw HTTP calls -- OpenRouter (primary) and
-Ollama (automatic local fallback) -- shared by every layer that makes an
-LLM call: Interpretation (src/interpretation/engine.py), Judgment
-(src/judgment/engine.py), and the evaluation harness
-(src/evaluation/baselines.py).
+Provider configuration and raw HTTP calls -- OpenRouter is the sole LLM
+provider -- shared by every layer that makes an LLM call: Interpretation
+(src/interpretation/engine.py), Judgment (src/judgment/engine.py),
+Planner (src/planner/engine.py), Response (src/response/engine.py), and
+the evaluation harness (src/evaluation/baselines.py).
 
 Previously this module's logic was DUPLICATED verbatim between
 src/interpretation/providers.py and src/judgment/providers.py, on the
@@ -20,15 +20,20 @@ smoke test (see engine/decisions.md). `src/interpretation/providers.py`
 and `src/judgment/providers.py` no longer exist; both engine.py files and
 src/evaluation/baselines.py import directly from here.
 
-IMPORTANT CAVEAT, carried over from the pre-consolidation docstrings (see
+REMOVED: a local Ollama fallback used to sit behind OpenRouter here (see
 engine/decisions.md "Ollama stays for MVP, Claude swap deferred
-deliberately" and the v1.0 freeze entries): the six v1.0 exit criteria
-and every grounding threshold in src/interpretation/engine.py were
-validated via live n=10 testing against Ollama's output (llama3.2:3b)
-specifically. Making OpenRouter the primary provider means the model
-most turns actually run against has NOT been through that same
-validation. Re-run the n=10 methodology against whatever OPENROUTER_MODEL
-is configured before trusting it the way the Ollama path is trusted.
+deliberately" for its original rationale). It was pulled out entirely
+(see engine/decisions.md "Ollama removed, OpenRouter-only") after the
+validation experiment showed the automatic openrouter->ollama fallback
+firing under sustained free-tier rate-limit pressure and producing
+severely degraded output at whichever stage fell back to it -- a silent
+reliability problem, not a safety net. IMPORTANT CAVEAT carried over
+from that era: the six v1.0 exit criteria and every grounding threshold
+in src/interpretation/engine.py were validated via live n=10 testing
+against Ollama's output (llama3.2:3b) specifically. The model actually
+configured via OPENROUTER_MODEL has never been through that same
+validation -- re-run the n=10 methodology against it before trusting it
+the way the old Ollama path was trusted.
 
 SECOND CAVEAT, specific to the default `openrouter/free` (see
 engine/decisions.md "Switch default to OpenRouter's free-model auto-
@@ -40,14 +45,18 @@ different underlying models. This directly conflicts with the "model
 invariance" control the Judgment v2 evaluation design
 (engine/specs/judgment-v2-evaluation-design.md Sec. 1) depends on --
 pin OPENROUTER_MODEL to one specific `:free`-suffixed model instead of
-`openrouter/free` before running that evaluation again.
+`openrouter/free` before running that evaluation again. (Pinning to a
+single free model has its own documented failure mode -- see
+engine/decisions.md -- that specific model getting rate-limited harder
+than the rotating pool as a whole; `openrouter/free` is the default for
+every other kind of run for exactly that reason.)
 
-Robustness contract: every call_openrouter/call_ollama call either
-returns a non-empty string or raises ProviderCallError -- never any
-other exception type, and never an empty/whitespace-only string. This is
+Robustness contract: every call_openrouter call either returns a
+non-empty string or raises ProviderCallError -- never any other
+exception type, and never an empty/whitespace-only string. This is
 enforced explicitly (not just by not crashing) so that a caller looping
-over resolve_provider_chain() can always fall back to the next provider
-on ANY malformed/incomplete response (missing fields, non-JSON body,
+over resolve_provider_chain() gets a clean, typed failure on ANY
+malformed/incomplete response (missing fields, non-JSON body,
 content=None, content="", a request that times out) -- see
 tests/test_llm_providers.py for the exact malformed-response cases this
 guards against.
@@ -74,7 +83,6 @@ from src.instrumentation.usage import (
     UsageTracker,
     build_usage,
     extract_openai_compatible_usage,
-    extract_ollama_usage,
 )
 
 
@@ -83,7 +91,7 @@ class ProviderCallError(Exception):
     unreachable, timed out, non-2xx, or a 2xx response whose body is
     missing, malformed, or empty. The caller should try the next
     provider in the chain; this is the ONLY exception type
-    call_openrouter/call_ollama ever raise."""
+    call_openrouter ever raises."""
 
 
 def _first_env(*names: str) -> Optional[str]:
@@ -224,93 +232,22 @@ def call_openrouter(
     return content
 
 
-def call_ollama(
-    system_prompt: str,
-    messages: list,
-    schema: dict,
-    temperature: float,
-    component: str = "unknown",
-    tracker: Optional[UsageTracker] = None,
-) -> str:
-    """
-    POSTs to a local Ollama's native /api/chat endpoint, passing the real
-    JSON schema so generation is grammar-constrained (requires Ollama >=
-    0.3.0) -- this is the exact call the v1.0 interpretation layer was
-    calibrated against. Returns the raw assistant text content, or raises
-    ProviderCallError -- see module docstring's robustness contract.
-
-    Timeout is configurable via OLLAMA_TIMEOUT (seconds, default 180) --
-    CPU-only environments (e.g. GitHub Actions runners with no GPU) can
-    take noticeably longer than a local dev machine for the same
-    schema-constrained generation; 180s was tuned for local hardware and
-    timed out on CI (see engine/decisions.md).
-    """
-    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-    model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
-    timeout = float(os.environ.get("OLLAMA_TIMEOUT", "180"))
-
-    start = time.monotonic()
-    try:
-        response = requests.post(
-            f"{base_url}/api/chat",
-            json={
-                "model": model,
-                "system": system_prompt,
-                "messages": messages,
-                "stream": False,
-                "format": schema,
-                "options": {"temperature": temperature},
-            },
-            timeout=timeout,
-        )
-    except requests.RequestException as exc:
-        raise ProviderCallError(f"Ollama request failed: {exc}") from exc
-    latency_ms = (time.monotonic() - start) * 1000
-
-    if not response.ok:
-        try:
-            detail = response.json().get("error", response.text)
-        except ValueError:
-            detail = response.text
-        raise ProviderCallError(f"Ollama returned {response.status_code}: {detail}")
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise ProviderCallError(f"Ollama response was not valid JSON: {exc}") from exc
-
-    content = _extract_message_content(payload, ["message", "content"], "Ollama")
-
-    parsed_usage = extract_ollama_usage(payload)
-    # Ollama's native /api/chat has no nested "usage" object -- the
-    # token/duration accounting fields (prompt_eval_count, eval_count,
-    # *_duration, etc.) live at the top level alongside "message". Drop
-    # "message" (the actual generated text, already returned as `content`
-    # above) so raw_usage captures everything usage-related without
-    # duplicating the full response body.
-    raw_usage = {k: v for k, v in payload.items() if k != "message"}
-    _record_usage(tracker, component, "ollama", model, parsed_usage, raw_usage, latency_ms)
-
-    return content
-
-
 _PROVIDER_CALLERS = {
     "openrouter": call_openrouter,
-    "ollama": call_ollama,
 }
 
 
 def resolve_provider_chain() -> List[str]:
-    """Primary provider (LLM_PROVIDER env var, default "openrouter") first,
-    then every other known provider as a fallback."""
+    """Returns the configured provider as a single-element chain (LLM_PROVIDER
+    env var, default "openrouter" -- the only registered provider today).
+    Kept as a list, and callers still loop over it, so a second provider can
+    be registered here again later without changing any call site."""
     primary = os.environ.get("LLM_PROVIDER", "openrouter").lower()
     if primary not in _PROVIDER_CALLERS:
         raise ValueError(
             f"Unknown LLM_PROVIDER '{primary}'; expected one of {sorted(_PROVIDER_CALLERS)}"
         )
-    chain = [primary]
-    chain.extend(name for name in _PROVIDER_CALLERS if name != primary)
-    return chain
+    return [primary]
 
 
 def call_provider(

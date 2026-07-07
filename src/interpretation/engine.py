@@ -2,12 +2,13 @@
 Interpretation Engine -- calls an LLM to turn raw user text into a
 structured Interpretation.
 
-OpenRouter is the primary provider, with a local Ollama as an automatic
-fallback (see src/llm/providers.py for the provider chain and an
-important caveat: the grounding filters and thresholds below were
-calibrated against Ollama/llama3.2:3b specifically -- see
-engine/decisions.md for the full history and why the OpenRouter path
-hasn't been through that same n=10 validation yet).
+OpenRouter is the sole provider (see src/llm/providers.py -- an earlier
+automatic Ollama fallback was removed, see engine/decisions.md "Ollama
+removed, OpenRouter-only"). Important caveat carried over from that era:
+the grounding filters and thresholds below were calibrated against
+Ollama/llama3.2:3b specifically -- see engine/decisions.md for the full
+history and why the OpenRouter path hasn't been through that same n=10
+validation yet.
 """
 
 from __future__ import annotations

@@ -55,9 +55,9 @@ def run_planner(
     """
     Calls an LLM to produce a Planner from the given WorldState and
     Judgment. Tries each configured provider in order (see
-    src/llm/providers.py), same OpenRouter-primary/Ollama-fallback
-    pattern as Interpretation and Judgment. Raises PlannerError if every
-    provider fails.
+    src/llm/providers.py -- OpenRouter is the only registered provider
+    today, same as Interpretation and Judgment). Raises PlannerError if
+    every provider fails.
 
     Callers should call this AFTER run_judgment, on the same Judgment
     object -- Planner's rationale is required to reference Judgment, so
