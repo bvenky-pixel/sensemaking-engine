@@ -844,3 +844,108 @@ Retry count: 0. Estimated cost: $0.0015 (Interpretation $0.0006, Judgment $0.000
 **Acceptable.** The pipeline correctly recognized deep uncertainty via a genuinely well-calibrated `clarity_score` and responded with restraint -- no fabrication, no premature advice, appropriately tempered confidence. But this is the starkest version yet of the recurring pattern across this run: the structured `unknowns`/`decision_options` fields stayed empty even on the input that needed them most, since literally nothing about the underlying situation is known. The system handled the sparseness gracefully in its final behavior without ever registering that sparseness in its own structured state.
 
 ---
+
+## R04 -- Relationships -- Conflicting goals
+
+**Timestamp**: 2026-07-07T15:25:40Z - 15:26:12Z
+**Git commit**: `e6476211b65361de8d4a251e2fa0c7269d251239`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28877998569
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> My parents want me to move back home, but I don't want to.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'low', 'impact_domains': ['personal'], 'emotional_signals': [], 'surface_complaint': "User's parents want them to move back home, but they don't want to.", 'core_question': "How can I address my parents' request to move back home?", 'core_question_confidence': 0.6, 'observed_facts': ['User has parents.', "User's parents want them to move back home.", 'User does not want to move back home.'], 'claims': ["User's parents want them to move back home.", 'User does not want to move back home.'], 'goals': [], 'decision_options': [], 'assumptions': [], 'inferences': [], 'unknowns': [], 'biases': [], 'entities': ['parents'], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User's parents want them to move back home, but they don't want to.
+core_question            | How can I address my parents' request to move back home?
+core_question_confidence | 0.6
+assumptions              | []
+inferences               | []
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User has parents. (status=active)
+                          | - User's parents want them to move back home. (status=active)
+                          | - User does not want to move back home. (status=active)
+claims                   | - User's parents want them to move back home. (status=active)
+                          | - User does not want to move back home. (status=active)
+goals                    | []
+decisions                | []
+unknowns                 | []
+entities                 | - parents (status=active, type=unknown)
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's parents want them to move back home, but they don't want to.", 'primary_goal': '', 'current_focus': "addressing their parents' request to move back home", 'key_blockers': [], 'open_unknowns': [], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.6, 'supporting_evidence': ["User's parents want them to move back home.", 'User does not want to move back home.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'build understanding', 'rationale': "The primary_problem is that the user is facing a conflict between their parents' desire for them to move back home and their own wishes not to do so. Building understanding around this situation can help clarify the user's feelings and potential responses.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'unresolved uncertainty', 'priority_topics': ["User's feelings about moving back home", "User's parents' motivations for wanting them to move back"], 'questions_to_explore': ['What are the main reasons your parents want you to move back home?', 'How do you feel about the idea of moving back home?', 'What concerns do you have about addressing this with your parents?'], 'assumptions_to_test': ["User's parents have a specific reason for wanting them to move back home.", 'User has not yet communicated their feelings about this request to their parents.'], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': "user gains clarity about their feelings and potential responses to their parents' request", 'temporal_horizon': 'immediate', 'confidence': 0.6}
+```
+
+**Response** (verbatim, user-facing):
+```
+It sounds like you're in a tough spot with your parents wanting you to move back home while you don't want to. To better understand the situation, I have a few questions for you:
+
+1. What are the main reasons your parents want you to move back home?
+2. How do you feel about the idea of moving back home?
+3. What concerns do you have about addressing this request with your parents?
+
+Exploring these topics might help clarify your feelings and potential responses. Let's take it one step at a time and see where your thoughts lead us.
+```
+`[confidence=0.6]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,364 | 215 | 0 | 3,579 | 4.6s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,886 | 98 | 0 | 1,984 | 2.2s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,075 | 282 | 0 | 2,357 | 5.1s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,744 | 128 | 0 | 1,872 | 2.8s | 1/1 (100%) |
+| **Pipeline Total** | -- | 9,069 | 723 | 0 | 9,792 | 14.7s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0006, Judgment $0.0003, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 6 | Correctly captures both parties' stated positions as facts. Deducted for a recurring facts/claims duplication (both tiers hold the identical two statements verbatim) and, more importantly, `goals=[]` -- the whole point of this test (Primary Capability: Conflicting goals) is two goals in tension (parents want user home; user wants independence), yet neither was ever promoted to the `goals` field. |
+| State quality | 7 | Faithful mirror; inherits Interpretation's gaps, no defects of its own. |
+| Judgment quality | 3 | **`contradictions=[]` on a test whose entire premise is a conflict between two directly stated positions** -- the same specific failure mode as C02 (an evident tension sitting in the same output's own `supporting_evidence`, never promoted to `contradictions`). This is the 2nd occurrence of this exact pattern in this run. `primary_goal=''` also never resolves either side's goal. |
+| Planning quality | 8 | Genuinely balanced this time: `questions_to_explore` asks about *both* the parents' motivations and the user's own feelings (contrast R01's one-sided version); `assumptions_to_test` includes a useful, actionable observation ("user has not yet communicated their feelings to their parents"). |
+| Response quality | 8 | Validates the tension ("tough spot") without taking either side, faithfully executes all three balanced questions, ends supportively without giving unsolicited advice or premature resolution. |
+| Epistemic discipline | 5 | Confidence held steady (0.6) throughout -- consistent, but the missed contradiction sitting alongside stable confidence is the same red flag identified in C02: the model isn't discounting its confidence for a genuinely unresolved, directly observable tension it failed to name. |
+
+### Failure Analysis
+
+- **Contradiction detection missed again (2nd occurrence of the exact C02 pattern)**: `contradictions=[]` despite the two conflicting positions ("parents want user home" / "user doesn't want to") sitting verbatim in the same output's `supporting_evidence`. This test's Primary Capability is explicitly "Conflicting goals" and the structured field designed to catch exactly this was empty for the second time in this eight-test run.
+- **`goals=[]`/`primary_goal=''`**: neither side's underlying goal (parents: user living at home; user: independence) was ever promoted to the goals tier, even though both positions are stated plainly in the input.
+- **Facts/claims duplication (recurring)**: both tiers hold the identical two statements verbatim.
+
+### Success Analysis
+
+- **Best-balanced Planner output of the run so far**: unlike R01's one-sided questions (all aimed at the partner's perspective), this run's `questions_to_explore` genuinely covers both sides -- the parents' motivations and the user's own feelings -- a meaningfully better instance of the perspective-holding this run has been testing for across R01-R04.
+- `assumptions_to_test` surfaces a genuinely useful, actionable observation (the user likely hasn't communicated their feelings yet) without presuming it.
+- Response stayed appropriately neutral, validating the difficulty without taking either the parents' or the user's side.
+- All four stages completed on the first attempt, fast (14.7s) and cheap ($0.0018), with no fabrication anywhere.
+
+### Overall Verdict
+
+**Needs Investigation.** This is the second test in this eight-test run (after C02) where Judgment's `contradictions` field failed to catch a directly observable tension sitting in its own `supporting_evidence`, on a test whose entire premise is that exact kind of conflict. The final Response and Planner outputs are good -- genuinely balanced this time, unlike R01 -- so the user-facing behavior again reads better than the structural trace underneath it, but a repeated, identical failure mode across two different tests in the same category (Ambiguity/Conflicting goals) is worth flagging as a real, reproducible pattern rather than isolated noise.
+
+---
