@@ -50,7 +50,7 @@ Status values: `pending` | `complete`
 | E02 | Emotions      | complete | I feel guilty even when I haven't done anything wrong. |
 | E03 | Emotions      | complete | I don't enjoy anything anymore. |
 | E04 | Emotions      | complete | I keep procrastinating even on things I care about. |
-| E05 | Emotions      | pending | I'm frustrated because nothing seems to be changing. |
+| E05 | Emotions      | complete | I'm frustrated because nothing seems to be changing. |
 | A01 | Ambiguity     | pending | Something feels off lately, but I can't explain why. |
 | A02 | Ambiguity     | pending | I don't know what's wrong -- I just know I'm unhappy. |
 | A03 | Ambiguity     | pending | Everyone keeps telling me I'll figure it out eventually. |
