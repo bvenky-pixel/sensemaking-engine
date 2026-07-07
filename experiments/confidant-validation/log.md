@@ -1154,3 +1154,104 @@ Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0006, Judgment $0.000
 **Good.** The cleanest clarity/confidence signal separation seen in this run, useful assumption-testing, and a warm, appropriately non-directive response. Held below "Excellent" by an unexplained 0.2 confidence jump between Judgment and Planner, an empty `risks`/`opportunities` field on a test built specifically around trade-offs, and a mild asymmetry in how thoroughly each option got explored in the final questions.
 
 ---
+
+## D02 -- Decisions -- Goal vs fear
+
+**Timestamp**: 2026-07-07T15:34:02Z - 15:34:33Z
+**Git commit**: `86045737ec274107efe1c1d7bcfc10cb4ad4bef9`
+**Branch**: `feature/interpretation-object`
+**GitHub Actions run**: https://github.com/bvenky-pixel/sensemaking-engine/actions/runs/28878579866
+**Model / Provider**: openai/gpt-4o-mini (pinned via workflow_dispatch input, not the standing default) throughout
+**Provider fallback**: none -- OpenRouter is the sole provider; no fallback exists, and all four stages succeeded on the first attempt (4/4, 100%)
+
+### Input
+
+> I want to start a company, but I'm afraid of failing.
+
+### Pipeline Outputs
+
+**Interpretation** (verbatim):
+```
+{'urgency': 'medium', 'impact_domains': ['professional', 'financial'], 'emotional_signals': [{'emotion': 'fear', 'intensity': 0.7, 'confidence': 0.9, 'source': 'explicit'}], 'surface_complaint': 'User is afraid of failing in starting a company.', 'core_question': 'How can I overcome my fear of failing?', 'core_question_confidence': 0.8, 'observed_facts': ['User wants to start a company.', 'User is afraid of failing.'], 'claims': ['User wants to start a company.', 'User is afraid of failing.'], 'goals': ['Start a company.'], 'decision_options': [], 'assumptions': [], 'inferences': [{'reading': "User's fear may be a significant barrier to pursuing their goal of starting a company.", 'confidence': 0.4}], 'unknowns': ['What specific aspects of failure is the user afraid of?', 'What steps has the user considered to start the company?'], 'biases': [], 'entities': [], 'clarity_score': 0.8, 'requires_clarification': False}
+```
+
+**World State** (rendered table):
+```
+surface_complaint        | User is afraid of failing in starting a company.
+core_question            | How can I overcome my fear of failing?
+core_question_confidence | 0.8
+assumptions              | []
+inferences               | ["User's fear may be a significant barrier to pursuing their goal of starting a company. (confidence=0.40)"]
+biases                   | []
+clarity_level            | 0.8
+phase                    | discover
+facts                    | - User wants to start a company. (status=active)
+                          | - User is afraid of failing. (status=active)
+claims                   | - User wants to start a company. (status=active)
+                          | - User is afraid of failing. (status=active)
+goals                    | - Start a company. (status=active)
+decisions                | []
+unknowns                 | - What specific aspects of failure is the user afraid of? (status=open)
+                          | - What steps has the user considered to start the company? (status=open)
+entities                 | []
+```
+
+**Judgment** (verbatim):
+```
+{'primary_problem': "User's fear of failing is a significant barrier to pursuing their goal of starting a company.", 'primary_goal': 'Start a company.', 'current_focus': 'Overcoming fear of failing.', 'key_blockers': ['User is afraid of failing.'], 'open_unknowns': ['What specific aspects of failure is the user afraid of?', 'What steps has the user considered to start the company?'], 'active_decisions': [], 'contradictions': [], 'risks': [], 'opportunities': [], 'confidence': 0.8, 'supporting_evidence': ['User is afraid of failing.', 'User wants to start a company.']}
+```
+
+**Planner** (verbatim):
+```
+{'primary_objective': 'explore motivations', 'rationale': "The primary_problem is that the user's fear of failing is a significant barrier to pursuing their goal of starting a company. Understanding the specific aspects of this fear can help address it more effectively.", 'conversational_strategy': 'ask exploratory questions', 'resolution_blocker': 'What specific aspects of failure is the user afraid of?', 'priority_topics': ['Specific fears related to failure', 'Steps considered to start the company'], 'questions_to_explore': ['What specific aspects of failure are you most concerned about?', 'What steps have you thought about taking to start your company?'], 'assumptions_to_test': [], 'planning_constraints': ['preserve user agency', 'avoid overwhelming the user'], 'desired_outcome': 'user identifies specific fears related to failure', 'temporal_horizon': 'immediate', 'confidence': 0.8}
+```
+
+**Response** (verbatim, user-facing):
+```
+To better understand and address your fear of failing, I'd like to explore a couple of questions with you. What specific aspects of failure are you most concerned about? Additionally, what steps have you thought about taking to start your company?
+```
+`[confidence=0.8]`
+
+### Runtime Metrics
+
+| Stage | Provider (final) | Prompt Tok | Completion Tok | Reasoning Tok | Total Tok | Latency | Reliability |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Interpretation | openai/gpt-4o-mini | 3,362 | 300 | 0 | 3,662 | 5.8s | 1/1 (100%) |
+| Judgment | openai/gpt-4o-mini | 1,927 | 122 | 0 | 2,049 | 2.8s | 1/1 (100%) |
+| Planner | openai/gpt-4o-mini | 2,149 | 215 | 0 | 2,364 | 4.3s | 1/1 (100%) |
+| Response | openai/gpt-4o-mini | 1,751 | 59 | 0 | 1,810 | 2.0s | 1/1 (100%) |
+| **Pipeline Total** | -- | 9,189 | 696 | 0 | 9,885 | 14.9s | 4/4 (100%) |
+
+Retry count: 0. Estimated cost: $0.0018 (Interpretation $0.0007, Judgment $0.0004, Planner $0.0005, Response $0.0003).
+
+### Evaluation
+
+| Dimension | Score (1-10) | Notes |
+| --- | --- | --- |
+| Interpretation | 8 | Correctly captures the emotion (fear) with `source: 'explicit'` -- the right tier given the user directly stated it, rather than over-hedging it as inferred. `goals=['Start a company.']` is correctly populated -- the first clean instance in this run of a stated goal being properly promoted. `unknowns` well-targeted. Deducted only for the recurring facts/claims duplication (both tiers hold the same two statements verbatim). |
+| State quality | 8 | Faithful, clean mirror; goal correctly carried into the `goals` tier. |
+| Judgment quality | 8 | **The best goal-vs-fear capture of the run**: `primary_goal='Start a company.'` and `key_blockers=['User is afraid of failing.']` are both correctly populated, explicitly framing the goal against the specific thing blocking it -- exactly the capability this test targets. Correctly leaves `contradictions=[]` since a fear-blocking-a-goal is a psychological tension, not a logical contradiction -- the right structural category was used this time, unlike C02/R04's missed contradictions. |
+| Planning quality | 6 | Reasonable, specific, non-presumptuous questions. Deducted for `assumptions_to_test=[]` missing an opportunity to name a likely catastrophizing assumption (e.g., "failure would be permanent/catastrophic") the way R02 named "friend must be angry" -- and for `resolution_blocker` being phrased as a literal question rather than a blocker statement, a minor schema inconsistency. |
+| Response quality | 8 | Concise, faithful, and notably avoided the tempting failure mode of giving premature encouragement/reassurance ("you can do it!") -- stayed in clarification mode addressing both the fear and the practical next steps. |
+| Epistemic discipline | 8 | Confidence held at a single, perfectly consistent value (0.8) across all four stages -- no drift, no unexplained jump, the most stable confidence trajectory of the run so far. Emotional signal correctly and precisely sourced as `explicit` rather than inferred. |
+
+### Failure Analysis
+
+- **`assumptions_to_test=[]`** missed a natural, well-fitting opportunity to name a likely catastrophizing assumption about failure (e.g., "failure would mean something permanent/irreversible"), the kind of move R02 executed well for an analogous fear/assumption-laden test.
+- **`resolution_blocker` phrased as a literal question** ("What specific aspects of failure is the user afraid of?") rather than a blocker statement -- a minor internal schema inconsistency.
+- **Facts/claims duplication (recurring)**: both tiers again hold the identical two statements verbatim.
+
+### Success Analysis
+
+- **Best goal-vs-fear capture in the run**: Judgment correctly and specifically named the fear as the blocker to the explicitly stated goal (`primary_goal`/`key_blockers` both populated precisely) -- this is the exact capability D02 exists to validate, and it worked cleanly.
+- Correctly used `contradictions=[]` rather than forcing a fear-blocking-a-goal situation into the wrong structural category -- appropriate, precise use of the schema.
+- Emotional signal correctly tagged `source: 'explicit'` (the user directly stated the fear) rather than over-hedging it as inferred.
+- Confidence stayed perfectly consistent (0.8) across all four stages -- the most stable trajectory of the run so far.
+- Response avoided the tempting failure mode of premature reassurance/encouragement, staying in genuine clarification mode.
+- All four stages completed on the first attempt, fast (14.9s) and cheap ($0.0018), with no fabrication.
+
+### Overall Verdict
+
+**Good.** This is the strongest Judgment-stage performance of the run on its own targeted capability -- explicitly naming the fear as the blocker to a clearly stated goal, using the schema's categories precisely (blocker, not contradiction) -- combined with perfectly stable confidence and correctly sourced emotional signal. Held just below "Excellent" by Planner's missed `assumptions_to_test` opportunity, its oddly-phrased `resolution_blocker`, and the still-recurring facts/claims duplication.
+
+---

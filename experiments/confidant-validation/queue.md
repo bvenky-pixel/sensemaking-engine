@@ -42,7 +42,7 @@ Status values: `pending` | `complete`
 | R04 | Relationships | complete | My parents want me to move back home, but I don't want to. |
 | R05 | Relationships | complete | My colleague keeps interrupting me in meetings. |
 | D01 | Decisions     | complete | I can afford either a house or an MBA, but not both. |
-| D02 | Decisions     | pending | I want to start a company, but I'm afraid of failing. |
+| D02 | Decisions     | complete | I want to start a company, but I'm afraid of failing. |
 | D03 | Decisions     | pending | I'm considering moving to another country next year. |
 | D04 | Decisions     | pending | I have too many ideas and can't choose one to pursue. |
 | D05 | Decisions     | pending | Should I optimize for salary or meaningful work? |
