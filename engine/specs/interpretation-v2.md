@@ -1,18 +1,83 @@
-# Confidant Interpretation Engine v2 Design Brief
+# Interpretation v2 — Design Proposal
 
-## Status
+**Status:** DISCUSSION DRAFT (NOT FROZEN, NOT IMPLEMENTED)
 
-Draft
+This document proposes the next iteration of Confidant's Interpretation Engine following evaluation of:
 
-## Purpose
+* 30 benchmark scenarios
+* WorldState v1 state-evolution testing
+* Live multi-turn walkthroughs
+* Interpretation v0.9 production behavior
 
-Interpretation v1 prioritized precision and epistemic discipline. Benchmark evaluation across 30 scenarios demonstrated strong resistance to hallucinated structure, but revealed recurring under-extraction of important reasoning artifacts.
+This is a design document, not a schema specification.
 
-Interpretation v2 retains the core epistemic philosophy of v1 while improving recall for meaningful structure that is genuinely present in the user's narrative.
+No prompt, schema, or code changes are implied by this document.
 
-The objective is not to make Interpretation more creative.
+As with previous Interpretation versions:
 
-The objective is to make Interpretation more complete.
+1. Design discussion
+2. Frozen specification
+3. Migration document
+4. Prompt changes
+5. Schema implementation
+6. Benchmark validation
+
+---
+
+# Executive Summary
+
+Interpretation v0.9 successfully optimized for epistemic discipline.
+
+The system demonstrated:
+
+* low hallucination rates
+* strong separation of evidence and inference
+* consistent extraction of facts and claims
+* reliable emotional signal detection
+
+However benchmark evaluation revealed recurring under-extraction of meaningful structure.
+
+The primary failure mode is not hallucination.
+
+The primary failure mode is omission.
+
+Interpretation often understands more than it records.
+
+Interpretation v2 focuses on improving state completeness while preserving the evidence-first philosophy established in v0.9.
+
+---
+
+# Two Distinct Problem Domains
+
+Evaluation surfaced two separate categories of shortcomings.
+
+## Domain A — Understanding Quality
+
+Questions such as:
+
+* What is the user trying to achieve?
+* What information is missing?
+* What assumptions are they relying on?
+* What tensions exist?
+* What risks are present?
+
+These concern understanding the current message.
+
+---
+
+## Domain B — State Evolution
+
+Questions such as:
+
+* Was a previous decision chosen?
+* Was a goal completed?
+* Did we learn something new about an entity?
+
+These concern updating previously known information.
+
+Interpretation v2 primarily targets Domain A.
+
+Domain B concepts are documented as future candidates but intentionally deprioritized until v2 quality improvements are validated.
 
 ---
 
@@ -20,50 +85,29 @@ The objective is to make Interpretation more complete.
 
 Interpretation v2 should:
 
-1. Preserve evidence-first reasoning.
-2. Preserve sparse-by-default behavior.
-3. Improve extraction of meaningful user goals.
-4. Improve extraction of unknowns when clarification is required.
-5. Improve extraction of assumptions when users rely on unstated beliefs.
+1. Preserve sparse-by-default behavior.
+2. Preserve evidence-first reasoning.
+3. Improve goal extraction.
+4. Improve unknown extraction.
+5. Improve assumption extraction.
 6. Introduce contradiction detection.
 7. Introduce risk identification.
 8. Improve consistency between extracted state and downstream behavior.
+9. Preserve low hallucination rates.
 
 ---
 
-# Core Philosophy
-
-Interpretation remains a forensic analysis layer.
-
-It does not:
-
-* advise
-* coach
-* comfort
-* plan
-* persuade
-
-It only extracts and organizes understanding.
-
-The governing principle remains:
-
-> Record what is present, not what is possible.
-
-However, Interpretation should not under-report meaningful structure simply because it is implicit rather than explicitly labeled by the user.
-
----
-
-# New Concepts
+# Proposed Additions
 
 ## Contradictions
 
-### Definition
+### Purpose
 
-Contradictions represent tensions, inconsistencies, or seemingly conflicting realities within the user's description.
+Capture tensions, inconsistencies, and conflicting realities described by the user.
 
 A contradiction does not require formal logical inconsistency.
 
-The purpose is to capture situations where two pieces of information pull in opposite directions.
+The goal is to capture meaningful tension.
 
 ### Examples
 
@@ -89,23 +133,13 @@ Contradiction:
 
 User:
 
-> I want more freedom, but I need financial stability.
+> I want freedom, but I need financial stability.
 
 Contradiction:
 
 > Desire for freedom conflicts with need for stability.
 
-### Rules
-
-Contradictions should:
-
-* describe the tension
-* not explain the tension
-* not resolve the tension
-* not assign blame
-* not speculate about motives
-
-### Schema
+### Proposed Schema
 
 ```python
 contradictions: List[str]
@@ -121,21 +155,21 @@ Default:
 
 ## Risks
 
-### Definition
+### Purpose
 
-Risks represent plausible negative outcomes directly connected to the current situation.
+Capture plausible negative outcomes directly connected to the current situation.
 
 Risks are not predictions.
 
 Risks are not catastrophizing.
 
-Risks identify meaningful downside exposure.
+Risks are meaningful downside exposure.
 
 ### Examples
 
 User:
 
-> I'm thinking of quitting without another offer.
+> I'm considering quitting without another offer.
 
 Risks:
 
@@ -152,26 +186,7 @@ Risks:
 
 * Relationship dissolution
 
----
-
-User:
-
-> I am considering taking on significant debt.
-
-Risks:
-
-* Financial strain
-
-### Rules
-
-Risks should:
-
-* emerge directly from the described situation
-* remain grounded in available evidence
-* avoid worst-case speculation
-* avoid advice
-
-### Schema
+### Proposed Schema
 
 ```python
 risks: List[str]
@@ -185,23 +200,23 @@ Default:
 
 ---
 
-# Existing Fields
+# Existing Field Improvements
 
 ## Goals
 
-### Problem Observed In V1
+### Problem Observed
 
-Goals were frequently omitted despite clear evidence of desired outcomes.
+Goals frequently remained empty despite clear evidence of desired outcomes.
 
-### V2 Interpretation
-
-Goals may be extracted when the desired outcome is obvious from the user's description.
+### V2 Principle
 
 Goals do not require explicit phrases such as:
 
 * I want
-* I need
 * My goal is
+* I need
+
+Desired outcomes may be inferred when strongly supported by context.
 
 ### Examples
 
@@ -221,23 +236,23 @@ User:
 
 Goal:
 
-> Improve the relationship conflict.
+> Improve relationship conflict.
 
 ---
 
-# Unknowns
+## Unknowns
 
-### Problem Observed In V1
+### Problem Observed
 
-Unknowns were often empty even when the response later asked clarification questions.
+Unknowns frequently remained empty even when downstream responses requested clarification.
 
 ### V2 Principle
 
-Unknowns should capture information gaps that materially limit understanding.
-
-Unknowns are not planning questions.
+Unknowns should identify information gaps that materially limit understanding.
 
 Unknowns are not coaching questions.
+
+Unknowns are not planning questions.
 
 Unknowns should answer:
 
@@ -255,13 +270,13 @@ unknowns should rarely be empty.
 
 ---
 
-# Assumptions
+## Assumptions
 
-### Problem Observed In V1
+### Problem Observed
 
 Assumption extraction was overly conservative.
 
-### Definition
+### V2 Principle
 
 Assumptions are unstated beliefs connecting observations to conclusions.
 
@@ -287,7 +302,7 @@ Assumption:
 
 > Promotion outcome reflects personal value.
 
-### V2 Guidance
+### Guidance
 
 Many conversations genuinely contain no assumptions.
 
@@ -299,7 +314,9 @@ However, when a conclusion depends on an unstated belief, that belief should be 
 
 Interpretation should internally self-check for consistency.
 
-## Clarification
+---
+
+## Clarification Consistency
 
 If:
 
@@ -313,13 +330,13 @@ then:
 unknowns
 ```
 
-should usually contain at least one relevant gap.
+should rarely be empty.
 
 ---
 
-## Decision Making
+## Decision Consistency
 
-If the user is comparing alternatives:
+If alternatives are being compared:
 
 ```python
 decision_options
@@ -329,7 +346,7 @@ should rarely be empty.
 
 ---
 
-## Goal Detection
+## Goal Consistency
 
 If a desired outcome is clearly present:
 
@@ -341,7 +358,7 @@ should rarely be empty.
 
 ---
 
-## Emotional Content
+## Emotional Consistency
 
 If meaningful emotional content is present:
 
@@ -353,7 +370,7 @@ should rarely be empty.
 
 ---
 
-# Proposed Interpretation Schema V2
+# Proposed Interpretation Schema v2
 
 ```python
 class Interpretation(BaseModel):
@@ -399,21 +416,186 @@ class Interpretation(BaseModel):
 
 ---
 
+# Deferred State Evolution Signals
+
+WorldState testing surfaced several additional gaps.
+
+These concepts are intentionally deferred from the initial v2 implementation.
+
+They should be revisited after benchmark validation of v2 quality improvements.
+
+---
+
+## Decision Events
+
+Purpose:
+
+Track lifecycle changes to previously identified decision options.
+
+Illustrative shape:
+
+```python
+DecisionEvent:
+    option: str
+    event: Literal[
+        "proposed",
+        "chosen",
+        "rejected",
+        "deferred"
+    ]
+```
+
+Example:
+
+Option:
+
+> Apply externally
+
+Event:
+
+> deferred
+
+---
+
+## Goal Updates
+
+Purpose:
+
+Track lifecycle changes to previously identified goals.
+
+Illustrative shape:
+
+```python
+GoalUpdate:
+    goal: str
+    status: Literal[
+        "active",
+        "paused",
+        "completed",
+        "abandoned"
+    ]
+```
+
+Example:
+
+Goal:
+
+> Build Confidant
+
+Status:
+
+> completed
+
+---
+
+## Entity Attribute Updates
+
+Purpose:
+
+Capture structured updates about known entities.
+
+Illustrative shape:
+
+```python
+EntityAttributeUpdate:
+    entity: str
+    attribute: str
+    value: str
+```
+
+Example:
+
+```python
+entity="Sarah"
+attribute="role"
+value="Head of Product"
+```
+
+---
+
+# Open Architectural Question
+
+Interpretation currently operates as a stateless per-turn function.
+
+Future state-evolution work must resolve:
+
+## Option A
+
+Stateless Interpretation.
+
+Interpretation emits updates.
+
+Downstream systems match updates to stored objects.
+
+---
+
+## Option B
+
+State-aware Interpretation.
+
+Interpretation receives a compact view of currently tracked goals, decisions, and entities.
+
+Interpretation performs matching directly.
+
+No decision is proposed in this document.
+
+The question remains intentionally deferred.
+
+---
+
+# Prioritization
+
+## Priority 1 — Immediate v2 Work
+
+* Contradictions
+* Risks
+* Goals
+* Unknowns
+* Assumptions
+* Consistency checks
+
+Success measured using the existing 30-test benchmark.
+
+---
+
+## Priority 2 — State Evolution
+
+* Decision Events
+* Goal Updates
+* Entity Attribute Updates
+
+Success measured through multi-turn state-evolution testing.
+
+---
+
+## Priority 3 — Future Architecture
+
+* State-aware Interpretation
+* Object references
+* Entity identity resolution
+* Goal identity resolution
+* Decision identity resolution
+
+---
+
 # Success Criteria
 
-Interpretation v2 should demonstrate measurable improvement in:
+Interpretation v2 should improve:
 
 * Goal extraction
 * Unknown extraction
 * Assumption extraction
 * Contradiction detection
 * Risk detection
+* State consistency
 
 while preserving:
 
-* Epistemic discipline
-* Low hallucination rate
-* Structured consistency
 * Sparse-by-default behavior
+* Evidence-first reasoning
+* Low hallucination rates
+* Strong epistemic separation
 
-Interpretation v2 should continue to optimize for truthful structure rather than exhaustive structure.
+The objective is not exhaustive extraction.
+
+The objective is truthful, complete extraction.
