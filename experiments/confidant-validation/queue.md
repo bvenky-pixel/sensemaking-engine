@@ -31,7 +31,7 @@ Status values: `pending` | `complete`
 
 | ID  | Category      | Status  | User Message |
 | --- | ------------- | ------- | ------------- |
-| C01 | Career        | pending | I've been trying to move from my current team to the Product team for a few months now. |
+| C01 | Career        | complete | I've been trying to move from my current team to the Product team for a few months now. |
 | C02 | Career        | pending | My manager says I'm doing great, but I was passed over for promotion again. |
 | C03 | Career        | pending | I have two job offers and can't decide which one to accept. |
 | C04 | Career        | pending | I'm thinking of quitting without another job lined up. |
