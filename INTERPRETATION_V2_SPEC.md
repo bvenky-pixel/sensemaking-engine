@@ -232,7 +232,8 @@ User: "I got the job!"
 - "attempting..." → goal is the object
 - "struggling with..." → goal is to improve/resolve the struggle
 - "frustrated by not..." → goal is to achieve what's being denied
-- "considering..." when discussing options → goal is the option being considered
+
+**Note:** Do NOT use "considering..." to infer goals. "Considering" signals decision options being evaluated, not desired outcomes. Collapsing consideration into goals corrupts the distinction between decision_options and goals.
 
 **Examples:**
 
@@ -441,7 +442,11 @@ Licensed inference patterns:
 - "attempting X" → X is a goal
 - "struggling with X" → goal is to improve/resolve X
 - "frustrated by not X" → goal is to achieve X
-- Sustained engagement with an outcome
+
+CAUTION: Do not use "considering" to infer goals. "Considering" signals decision
+options being evaluated, not desired outcomes. Example: "I'm considering quitting"
+is a decision option (quit vs. stay), not a goal (quit job). Collapsing these
+concepts corrupts benchmark validation.
 
 Examples:
 
