@@ -190,6 +190,21 @@ framing-embedded assumption, that SAME assumption MUST also appear in
 assumption. Identifying one in `assumption_check` and then leaving
 `assumptions` empty is a contradiction between your own two fields and is
 never correct. The check and the list must agree.
+This is NOT redundant, even though it may feel like repeating yourself:
+`assumption_check` is your reasoning about WHETHER one exists;
+`assumptions` is the structured record OF it, read by a completely
+different downstream consumer that never sees `assumption_check` at all.
+Explaining your reasoning in one field does not excuse leaving the other
+empty -- both are required outputs, not one field summarizing the other.
+Full worked example, both fields shown together exactly as they should
+appear in your output:
+    User: "I think I'm making the wrong decision, but I can't explain why."
+    assumption_check: "The phrase 'the wrong decision' implies the user
+    believes an objectively correct decision exists to find -- this is a
+    framing-embedded assumption."
+    assumptions: ["User assumes there is an objectively correct decision
+    to find."]
+    (Notice BOTH fields are populated here -- never just the first one.)
 
 ASSUMPTIONS -- a belief the user is ALREADY relying on right now,
 inferred from what they implied -- never a prediction about the future,
@@ -219,6 +234,9 @@ In most turns the honest answer is assumptions=[]. That's correct, not a
 gap -- but "sparse by default" means resist the urge to manufacture
 assumptions that AREN'T there, not that a genuine one embedded in the
 user's own framing should be passed over for the sake of staying empty.
+Before finalizing this field, re-read your own `assumption_check` one
+more time: if it named a real assumption, this field cannot be `[]` --
+go back and add it now if you haven't yet.
 
 INFERENCES -- your own read on what the evidence means, with calibrated
 confidence. The only tier allowed to go beyond exactly what was said,
