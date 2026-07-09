@@ -1,42 +1,38 @@
 """
-StateUpdater: calls the Claude API (Anthropic Messages API) to produce an
-updated ConversationState from the current state + the running transcript.
+StateUpdater: calls an LLM (OpenRouter by default, with Ollama as an
+automatic local fallback) to produce an updated ConversationState from the
+current state + the running transcript.
 
 Design notes:
-- The model is instructed to return ONLY the updated state as strict JSON,
-  matching a Pydantic schema. We use Claude's built-in Structured Outputs
-  feature (client.messages.parse(..., output_format=PydanticModel)), which
-  compiles the schema into a constrained-decoding grammar server-side --
-  Claude literally cannot emit a shape that doesn't match the schema.
-- The SDK already validates the response against the Pydantic model for us
-  (response.parsed_output). We still check response.stop_reason, because a
-  safety refusal or a max_tokens cutoff can both return a 200 with
-  parsed_output that's missing or doesn't reflect a real update.
+- The model is asked for a JSON object (`response_format={"type":
+  "json_object"}`) matching a Pydantic schema described in the system
+  prompt. Unlike Claude's constrained-decoding Structured Outputs, JSON mode
+  only guarantees syntactically valid JSON, not schema conformance -- so we
+  validate the result against ConversationStateSchema ourselves and treat a
+  validation failure the same as any other provider failure (i.e. it can
+  trigger falling through to the next provider).
+- Providers are tried in order (see engine.llm_config.resolve_provider_chain):
+  the configured primary first, then any other configured provider as a
+  backup. This means an OpenRouter outage, rate limit, or missing/expired key
+  doesn't need to take the whole updater down if a local Ollama is available,
+  and vice versa.
 - The updater never mutates the passed-in state in place; it returns a new
-  ConversationState instance (or raises StateUpdateError).
+  ConversationState instance (or raises StateUpdateError if every provider
+  in the chain fails).
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+from engine.llm_client import LLMClient
+from engine.llm_config import ProviderConfig, resolve_provider_chain
 from engine.state import ConversationState
 
-try:
-    from anthropic import Anthropic
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "The 'anthropic' package is required for StateUpdater. Install it "
-        "with `pip install anthropic`."
-    ) from exc
-
-
-DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_MAX_TOKENS = 1024
 
 
@@ -85,7 +81,7 @@ class ConversationStateSchema(BaseModel):
 
 
 class StateUpdateError(Exception):
-    """Raised when the model's output can't be parsed into a valid state."""
+    """Raised when no provider in the chain could produce a valid state."""
 
     def __init__(self, message: str, raw_output: Optional[str] = None):
         super().__init__(message)
@@ -97,7 +93,7 @@ class StateUpdateError(Exception):
 # ---------------------------------------------------------------------------
 class StateUpdater:
     """
-    Given the current ConversationState and a transcript, asks Claude to
+    Given the current ConversationState and a transcript, asks an LLM to
     produce an updated state and returns it as a validated ConversationState.
     """
 
@@ -108,7 +104,8 @@ class StateUpdater:
         "1. The CURRENT STATE as JSON.\n"
         "2. The CONVERSATION TRANSCRIPT so far.\n\n"
         "Your job is to return an UPDATED STATE, and ONLY the updated state, "
-        "as JSON matching the required schema exactly.\n\n"
+        "as a single JSON object matching this schema exactly:\n"
+        f"{json.dumps(ConversationStateSchema.model_json_schema())}\n\n"
         "Rules:\n"
         "- Do not invent facts, stakeholders, or decisions that are not "
         "supported by the transcript.\n"
@@ -126,19 +123,21 @@ class StateUpdater:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: str = DEFAULT_MODEL,
+        providers: Optional[List[ProviderConfig]] = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
-        client: Optional["Anthropic"] = None,
+        clients: Optional[List[LLMClient]] = None,
     ):
         """
-        api_key: falls back to ANTHROPIC_API_KEY env var if not provided.
-        client: pass an existing Anthropic client instance (e.g. for testing
-                with a mock), otherwise one is constructed.
+        providers: ordered list of ProviderConfig to try (first is primary,
+                   rest are fallbacks). Defaults to
+                   engine.llm_config.resolve_provider_chain(), which reads
+                   LLM_PROVIDER / OPENROUTER_* / OLLAMA_* env vars.
+        clients: pass pre-built LLMClient instances (e.g. for testing with a
+                 fake), otherwise one is constructed per provider.
         """
-        self.model = model
+        self.providers = providers or resolve_provider_chain()
         self.max_tokens = max_tokens
-        self.client = client or Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+        self.clients = clients or [LLMClient(p) for p in self.providers]
 
     def update(
         self,
@@ -146,73 +145,87 @@ class StateUpdater:
         transcript: str,
     ) -> ConversationState:
         """
-        Calls the Claude API and returns a new, validated ConversationState.
-        Raises StateUpdateError on any failure to obtain a valid state
-        (network/API error, refusal, truncated output, schema validation
-        failure).
+        Tries each configured provider in order and returns a new, validated
+        ConversationState from the first one that succeeds. Raises
+        StateUpdateError, with every provider's failure reason, if all of
+        them fail (network/API error, refusal/content filter, truncated
+        output, or schema validation failure).
         """
         current_state_json = json.dumps(asdict(current_state), indent=2)
 
-        user_input = (
+        user_prompt = (
             f"CURRENT STATE:\n{current_state_json}\n\n"
             f"CONVERSATION TRANSCRIPT:\n{transcript}"
         )
 
+        failures: List[str] = []
+        last_raw_output: Optional[str] = None
+
+        for provider, client in zip(self.providers, self.clients):
+            try:
+                parsed, raw_text = self._call_provider(client, user_prompt)
+            except _ProviderFailure as exc:
+                failures.append(f"{provider.name}: {exc}")
+                last_raw_output = exc.raw_output or last_raw_output
+                continue
+
+            return parsed.to_state()
+
+        raise StateUpdateError(
+            "All configured LLM providers failed: " + "; ".join(failures),
+            raw_output=last_raw_output,
+        )
+
+    def _call_provider(self, client: LLMClient, user_prompt: str):
         try:
-            response = self.client.messages.parse(
-                model=self.model,
+            response = client.complete_json(
+                system_prompt=self.SYSTEM_PROMPT,
+                user_prompt=user_prompt,
                 max_tokens=self.max_tokens,
-                system=self.SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_input}],
-                output_format=ConversationStateSchema,
             )
         except Exception as exc:  # network/auth/API-level failures
-            raise StateUpdateError(f"Claude API call failed: {exc}") from exc
+            raise _ProviderFailure(f"API call failed: {exc}") from exc
 
-        raw_text = self._extract_raw_text(response)
+        raw_text = LLMClient.extract_text(response)
+        finish_reason = LLMClient.finish_reason(response)
 
-        if getattr(response, "stop_reason", None) == "refusal":
-            raise StateUpdateError(
-                "Claude refused to produce a state update for this turn.",
+        if finish_reason == "content_filter":
+            raise _ProviderFailure(
+                "Model refused to produce a state update for this turn.",
                 raw_output=raw_text,
             )
-        if getattr(response, "stop_reason", None) == "max_tokens":
-            raise StateUpdateError(
+        if finish_reason == "length":
+            raise _ProviderFailure(
                 "Response was truncated (max_tokens reached) before a "
                 "complete state was returned. Try increasing max_tokens.",
                 raw_output=raw_text,
             )
+        if raw_text is None:
+            raise _ProviderFailure(
+                "No output found in the API response.", raw_output=str(response)
+            )
 
-        parsed = getattr(response, "parsed_output", None)
-        if parsed is None:
-            # SDK didn't give us a validated object -- fall back to manual
-            # parse/validate so we can surface a precise error either way.
-            if raw_text is None:
-                raise StateUpdateError(
-                    "No output found in the API response.", raw_output=str(response)
-                )
-            try:
-                parsed_json = json.loads(raw_text)
-            except json.JSONDecodeError as exc:
-                raise StateUpdateError(
-                    f"Model output was not valid JSON: {exc}", raw_output=raw_text
-                ) from exc
-            try:
-                parsed = ConversationStateSchema.model_validate(parsed_json)
-            except ValidationError as exc:
-                raise StateUpdateError(
-                    f"Model output failed schema validation: {exc}",
-                    raw_output=raw_text,
-                ) from exc
+        try:
+            parsed_json = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise _ProviderFailure(
+                f"Model output was not valid JSON: {exc}", raw_output=raw_text
+            ) from exc
 
-        return parsed.to_state()
+        try:
+            parsed = ConversationStateSchema.model_validate(parsed_json)
+        except ValidationError as exc:
+            raise _ProviderFailure(
+                f"Model output failed schema validation: {exc}",
+                raw_output=raw_text,
+            ) from exc
 
-    @staticmethod
-    def _extract_raw_text(response) -> Optional[str]:
-        """Best-effort extraction of the raw text content, used only for
-        error messages / fallback parsing -- not the primary success path."""
-        for block in getattr(response, "content", []) or []:
-            text = getattr(block, "text", None)
-            if text:
-                return text
-        return None
+        return parsed, raw_text
+
+
+class _ProviderFailure(Exception):
+    """Internal: one provider's attempt failed, try the next one."""
+
+    def __init__(self, message: str, raw_output: Optional[str] = None):
+        super().__init__(message)
+        self.raw_output = raw_output
