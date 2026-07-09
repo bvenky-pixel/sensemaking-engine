@@ -3303,3 +3303,69 @@ accepted, model-specific exception, documented here rather than silently
 dropped. Revisit only if a different/larger model is evaluated against
 this same prompt, or if new evidence suggests a different mechanism than
 the ones already ruled out.
+
+**2026-07-09 -- Full 30-test validation re-run (Run 3) against merged
+`main`, all dispatched in parallel (pinned `openai/gpt-4o-mini`, real
+credits loaded, no throttled cadence needed). REVISES the "A04 is an
+isolated exception" framing above -- the same disconnect is
+systemic, not a single-input quirk.**
+
+All 30 `single-turn-smoketest.yml` runs completed successfully (100%
+pipeline reliability, no provider failures) -- confirms the merge to
+`main` didn't regress basic reliability. Three parallel sub-agents
+fetched and cross-checked all 30 job logs against the queue's expected
+messages.
+
+**Confirmed holding, as expected:**
+- **X04**: `clarity_score=0.2` / `requires_clarification=True` -- the
+  worst-offender pairing from Run 2 (`0.0`/`False`) stays fixed.
+- **E03**: `urgency=medium` (not `low`), `risks` contains the expected
+  modest epistemic-humility risk about the persistent negative-affect
+  statement.
+- **A04**: same accepted pattern, unchanged -- `assumption_check`
+  correctly identifies the framing-embedded assumption, `assumptions`
+  stays empty. Not a new regression.
+
+**New finding that changes the picture: the `assumption_check` ->
+`assumptions` (and `risk_scan` -> `risks`) propagation gap is NOT
+specific to A04's input.** Across all 30 tests, the same
+narrative-identifies-it-but-the-list-stays-empty pattern recurred in
+at least 13 tests: **C02, C05, R01, R02, R03** (assumption_check),
+**D01, E02, E05** (risk_scan and/or assumption_check), **A01, A04, X01,
+X02, X05** (assumption_check). E03's and C04's risk propagation held in
+this run (matching the earlier targeted re-tests), but the overall
+success rate for "identified in the reasoning field AND correctly
+copied into the corresponding list" looks closer to a coin flip than a
+reliably-enforced rule, once measured across a real, varied 30-test
+sample rather than the 2-3 repeated single-input re-tests used to
+validate the consistency-rule fix earlier this session. A04 was never a
+uniquely broken input -- it happened to be the one the user asked to
+fix directly, and turned out to be representative of a much broader
+compliance gap on `openai/gpt-4o-mini` for this specific
+reasoning-field-then-list-field pattern.
+
+**Two additional, previously-undetected observations, not yet
+investigated as fixes:**
+- **R05, A03**: `core_question` came back blank with
+  `core_question_confidence=0.0` (Interpretation's own "Discover" phase
+  explicitly not yet resolved), but `requires_clarification=False` in
+  both cases. This is a DIFFERENT consistency axis than the
+  `clarity_score` one fixed earlier -- clarity_score itself was fine in
+  both (0.8 for R05, 0.5 for A03) even though the core question wasn't
+  found at all. Worth treating as its own, separate gap if pursued:
+  `requires_clarification` may need to consider `core_question_confidence`
+  directly, not just `clarity_score`.
+- **X02** ("I want your advice, but don't ask me any questions."):
+  `contradictions=[]` despite the input being a self-contradictory
+  request. Likely NOT actually in scope for Judgment's `contradictions`
+  field as currently specified -- that field is scoped to conflicts
+  between two pieces of WorldState content (Facts/Claims), not a
+  self-contradictory instruction that may never even become two
+  separate Facts/Claims in the first place. Flagged for awareness, not
+  asserted as a miss, same reasoning as R04's earlier reclassification.
+
+**Not yet decided or fixed:** whether to pursue the broader
+assumption_check/risk_scan propagation gap beyond A04's single
+documented instance, given it now looks like a systemic ~13/30
+compliance issue rather than one input's edge case. No code changes
+made this entry -- purely the re-validation findings.
