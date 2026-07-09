@@ -278,4 +278,25 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
         u for u in interp.unknowns if not _is_planning_question(u)
     ]
 
+    # v1.3 follow-up (see engine/decisions.md): the schema-level auto-repair
+    # (`Interpretation._clean_up_cross_field_issues`) relocates
+    # `assumption_check`'s own sentence into `assumptions` when
+    # `has_assumption=True` and `assumptions` is still empty -- but that
+    # repair runs at construction time, BEFORE the grounding filter above.
+    # `assumption_check` is meta-commentary ABOUT the user's phrasing
+    # ("The phrase X implies the user believes Y"), not phrased in the
+    # user's own words, so it reliably fails `_is_assumption_grounded`'s
+    # word-overlap check and the filter above silently strips it right back
+    # out -- confirmed on A04's actual text (0.14 overlap vs the 0.45
+    # threshold). Re-apply the same repair here, AFTER filtering, as the
+    # final step: `has_assumption`/`assumption_check` are untouched by the
+    # filter above (it only mutates `.assumptions`), so this is a reliable
+    # backstop, not a guess. This is deliberately NOT exempted from the
+    # filter proactively (a fabricated `assumptions` entry from the model
+    # would still be caught first) -- it only fires once filtering has
+    # already run its course and the list is still empty despite a
+    # committed `has_assumption=True`.
+    if interp.has_assumption and not interp.assumptions and interp.assumption_check.strip():
+        interp.assumptions = [interp.assumption_check.strip()]
+
     return interp

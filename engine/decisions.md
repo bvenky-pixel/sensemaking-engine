@@ -3433,3 +3433,76 @@ against the other 12 previously-affected cases (C02, C05, R01, R02, R03,
 D01, E02, E05, A01, X01, X02, X05) until A04 is confirmed fixed under
 this new mechanism. This is a deliberate, cost-conscious staging decision
 by the user, not an oversight.
+
+### 2026-07-09 (later same day): auto-repair was silently undone by the
+pre-existing grounding filter -- second-order bug found before A04 could
+be called fixed
+
+The first live A04 re-test under the boolean-gate mechanism looked like a
+pass at a glance (raw `Interpretation` dict showed `has_assumption: true`,
+correct `assumption_check`, and `assumptions` correctly populated with
+that same text) -- but the `WorldState` table printed immediately after
+in the same run showed `assumptions: []`. Judgment's
+`supporting_evidence` in that run also never mentioned the assumption.
+Since Judgment/Planner/Response only ever consume `WorldState`, never
+raw `Interpretation`, this meant A04 was **still not actually fixed**
+end-to-end despite looking fixed one layer up.
+
+Root cause, confirmed by direct code read of `src/interpretation/engine.py`
+plus an isolated word-overlap calculation on A04's actual text (not
+guessed): `run_interpretation` applies a post-construction grounding
+filter to `interp.assumptions` (`_is_assumption_grounded`, a word-overlap
+check against the raw user text, threshold 0.45) AFTER
+`Interpretation(**data)` has already run the schema-level auto-repair
+validator (`_clean_up_cross_field_issues`) that relocates
+`assumption_check`'s own sentence into `assumptions`. `assumption_check`
+is deliberately meta-commentary ABOUT the user's phrasing ("The phrase
+'the wrong decision' implies the user believes an objectively correct
+decision exists to find -- this is a framing-embedded assumption"), per
+the prompt's own worked example -- it is NOT phrased in the user's own
+words the way a real extracted assumption is. Computed word overlap for
+A04's actual repaired text against A04's actual user message: **0.14**,
+far below the 0.45 threshold. So the engine's grounding filter -- built
+to catch the model fabricating assumptions out of nothing, a real and
+still-needed protection -- was stripping the auto-repaired text right
+back out on every single run, for a reason that has nothing to do with
+fabrication: it's the model's own text, just written in the wrong
+register for that filter.
+
+**Fix** (`src/interpretation/engine.py`, `run_interpretation`): re-apply
+the identical repair condition (`has_assumption and not assumptions and
+assumption_check.strip()`) as a final step immediately after the
+grounding-filter block, using `interp.has_assumption`/
+`interp.assumption_check` -- both untouched by the filter, which only
+ever mutates `.assumptions`. Deliberately NOT done by exempting
+auto-repaired content from the filter proactively (that would blur the
+line between "trust this because it's the model's own gated answer" and
+"trust this because it happened to survive filtering," and would leave
+future readers unable to tell which protection is actually in force) --
+instead the filter runs exactly as before, unchanged, and the repair
+simply gets one more chance to fire if the list is still empty
+afterward. The existing schema-level validator is left in place
+unchanged (still correct for anything constructing `Interpretation`
+directly, e.g. tests); this is a second, final backstop specifically for
+the `run_interpretation` pipeline path where the grounding filter sits
+in between.
+
+Verified locally with a faithful reproduction (mocked `call_provider`/
+`resolve_provider_chain` at the LLM-call boundary, real unmodified
+`run_interpretation` + `update_state`, A04's actual raw JSON shape
+including `assumptions: []` matching what the real model emits): before
+the fix, `state.assumptions == []`; after the fix,
+`state.assumptions == ["The phrase 'the wrong decision' implies..."]`
+-- confirmed reaching `WorldState`, not just `Interpretation`. Full test
+suite re-run: 136/136 passing, no regressions.
+
+Judgment's `has_risk_signal`/`risks` path was checked for the same
+failure mode and does NOT have it: `src/judgment/engine.py` has no
+post-construction grounding filter on `risks` at all, so nothing sits
+between the schema-level auto-repair and `WorldState` for that field.
+
+Next step per the user's explicit staging instruction: dispatch ONE live
+A04-only re-test against the real pipeline to confirm this holds under
+the actual model's output (not just the mocked reproduction above)
+before considering A04 closed or moving to the other 12 previously-
+affected cases.
