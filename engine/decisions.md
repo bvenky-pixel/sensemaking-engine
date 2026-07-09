@@ -3100,3 +3100,73 @@ suite against the updated prompts, and re-running the 10-turn
 `WorldState` walkthrough end-to-end with the real pipeline, are the
 next steps to confirm these hold under live model output rather than
 hand-built `Interpretation` objects -- not yet done as of this entry.
+
+**2026-07-09 -- Tier 1 re-test against real pipeline (pinned `openai/gpt-4o-mini`, `single-turn-smoketest.yml`, 8 targeted tests): 4 confirmed fixed, 2 confirmed still failing, 1 reclassified, 1 inconclusive**
+
+Ran C01, C02, C04, R04, A03, A04, E03, X04 -- the exact tests that surfaced
+each Tier 1 defect in the 30-test validation log -- through the real
+pipeline on `feature/interpretation-object` (post Tier 1+2 commits),
+same model pinned, one real turn each. Honest result, not all wins:
+
+**Confirmed fixed:**
+- **X04** (worst offender in the whole 30-test log): `clarity_score=0.3,
+  requires_clarification=True` -- now consistent. Previously `0.0/False`,
+  the starkest instance of the pattern. Direct confirmation the prompt
+  fix holds on its hardest case.
+- **C02**: `contradictions=["User's manager says they are doing great, but
+  user was passed over for promotion -- these are in tension if 'doing
+  great' is meant to explain the outcome."]` -- populated correctly,
+  closely matching the worked example added to `judgment/prompt.py`.
+- **C04**: `risks=["Quitting without another job lined up risks a period
+  of no income, grounded in the fact that user does not have another job
+  lined up."]` -- populated correctly, same pattern.
+- **E03 (urgency only)**: `urgency` moved from `low` (original run) to
+  `medium` -- the new URGENCY section's guidance for persistent
+  negative-affect statements held.
+
+**Confirmed still failing -- prompt fix insufficient, structural
+escalation now warranted per governing law 3 ("typed over prompted, once
+a prompt-only fix has failed"):**
+- **A04**: `assumptions=[]` still empty, despite the new worked example
+  targeting this exact framing ("I think I'm making the wrong decision"
+  -> implies an objectively correct one exists). The prompt-only attempt
+  did not hold on retest.
+- **E03 (risk)**: the new epistemic-humility risk guidance did not fire --
+  `risks=[]` even with urgency correctly recalibrated in the same turn.
+
+Both are now legitimate candidates for a structural forcing-function (an
+intermediate required scratch/checklist field, as flagged as the fallback
+in the original plan) rather than further prompt wording -- not designed
+here, since that's a real schema change requiring the same
+discussion-before-implementation discipline as everything else on this
+branch.
+
+**Reclassified, not a miss:** R04's `contradictions=[]` persisted, but
+re-examination shows this is likely CORRECT: "parents want user home" and
+"user doesn't want to" can both be true simultaneously -- this is a
+conflict of goals (R04's own Primary Capability per
+`experiments/confidant-validation/queue.md`), not a logical contradiction
+under Judgment's own strict definition ("only when the two pieces of
+content cannot both be true"). The original validation log's framing of
+this as a missed contradiction may itself have been the miscalibration,
+not the model's output.
+
+**Inconclusive:** A03 -- `assumptions_to_test` came back empty this run
+(model variability, not the same shape as the original failure), so the
+new tentative-phrasing instruction in `response/prompt.py` never got
+exercised. The response was appropriately hedged regardless ("It sounds
+like...", "perhaps"), but this isn't a clean test of that specific fix.
+
+**Not a clean re-test:** C01's original flag was about
+`requires_clarification=False` sitting oddly with `core_question_confidence=0.6`
+and an all-questions Response -- a different sub-issue than
+`clarity_score`/`requires_clarification` (which stayed consistent this
+run: `0.8`/`False`, correctly). Not evidence for or against the Tier 1
+fix either way.
+
+Tier 2 (`goal_updates`/`decision_events`/`entity_attribute_updates`) was
+not exercised by any of these 8 single-turn tests, since none of them are
+multi-turn -- still only verified via the hand-built test suite and the
+manual sanity check above; a live multi-turn re-run (the 10-turn
+walkthrough) remains the next real-pipeline verification step for that
+half of this round's work.
