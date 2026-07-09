@@ -3230,3 +3230,40 @@ parsing a free-text reasoning field to decide what to auto-inject is
 fragile and depends on phrase-matching the model's own varying wording,
 a real risk of the same "guessing at meaning" this project has
 repeatedly corrected for elsewhere. Flagged for discussion, not built.
+
+**2026-07-09 -- A04 third prompt attempt (commit `2559aaa`): CONFIRMED
+STILL BROKEN, 3 of 3 live attempts. Diminishing-returns finding, escalated
+to the user rather than a fourth blind iteration.**
+
+Per user instruction to try "another prompt angle," diagnosed a specific
+hypothesis for why the consistency rule wasn't holding: the model may be
+treating `assumption_check` as having already "said" the assumption, making
+a second list-form copy in `assumptions` feel redundant. Addressed
+directly in the prompt: explicit "this is NOT redundant -- different
+downstream consumers" framing, a full worked example showing BOTH fields
+populated together for the exact failing test case (rather than the
+previous split presentation), and a repeated reminder at the end of the
+ASSUMPTIONS section itself (proximity to the actual decision point):
+"re-read your own assumption_check... if it named a real assumption, this
+field cannot be `[]`."
+
+**Live re-test result: unchanged.** `assumption_check` correctly named
+the exact same assumption verbatim a THIRD consecutive time --
+"The phrase 'the wrong decision' implies the user believes an objectively
+correct decision exists to find -- this is a framing-embedded
+assumption." -- and `assumptions=[]` a third consecutive time.
+
+**This is now 3 of 3 live attempts, across three genuinely different
+prompt strategies** (a worked example alone; a mandatory reasoning field
+plus a cross-field consistency rule; explicit non-redundancy framing plus
+a paired worked example plus a proximity-placed reminder), **with
+identical results every time**: the reasoning fires correctly, the list
+stays empty. This is a strongly reproducible pattern, not sampling noise,
+and further prompt-wording iteration looks like a poor use of further
+attempts without a different kind of lever. Not attempting a fourth prompt
+variant without checking in first -- reported back to the user with the
+options actually on the table: accept as a documented, model-specific
+limitation (pinned `openai/gpt-4o-mini`; untested whether a larger/
+different model shows the same ceiling); build the previously-declined
+mechanical validator despite its fragility, now that three prompt-only
+rounds have shown a real ceiling; or leave A04 open and move on.
