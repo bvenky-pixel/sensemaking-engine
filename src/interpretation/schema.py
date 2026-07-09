@@ -227,14 +227,20 @@ class Interpretation(BaseModel):
     goals: List[str]                 # what the user is trying to achieve
     decision_options: List[str]      # choices the user is explicitly weighing -- not beliefs
 
-    # v1.2 (see engine/decisions.md and interpretation-spec-v0.9.md's
-    # REOPENED `assumptions` entry): mandatory reasoning field, added after
-    # a prompt-only fix for `assumptions` under-population (A04, "Hidden
-    # assumptions") failed to hold on re-test against the real pipeline.
-    # Forces the model to explicitly state whether the user's own framing
-    # embeds an unstated belief before finalizing `assumptions`, rather
-    # than letting that check be silently skipped -- "typed over prompted"
-    # (governing law 3) applied to a generative gap, not a validation gap.
+    # v1.3 (see engine/decisions.md): `assumption_check` alone (v1.2)
+    # proved unreliable -- across a 30-test real-pipeline run, the model
+    # correctly identified a framing-embedded assumption in its own
+    # free-text reasoning but failed to copy it into `assumptions` in
+    # roughly half of those cases (not just A04's input -- a systemic
+    # transcription-compliance gap, not a single-input quirk). `has_assumption`
+    # is a much lower-entropy decision (a boolean) than "remember to
+    # duplicate this sentence into another field," ordered FIRST so the
+    # model commits to the yes/no answer before writing the justification
+    # or the list -- and it gives `_repair_assumption_list` below a cheap,
+    # reliable signal to auto-repair `assumptions` from `assumption_check`'s
+    # own text if the model still leaves the list empty, without having to
+    # parse or guess at the free-text field's meaning.
+    has_assumption: bool
     assumption_check: str
     assumptions: List[str]           # unstated beliefs implied but not directly said
     inferences: List[Inference]      # model's reads, each with confidence
@@ -275,5 +281,16 @@ class Interpretation(BaseModel):
             _strip_possessive(e) for e in self.entities
             if e.strip().lower() not in _PRONOUN_ENTITIES
         ]
+
+        # v1.3 auto-repair (see engine/decisions.md): has_assumption=True
+        # is the model's own committed signal that assumption_check names
+        # a real finding. If assumptions is still empty at this point,
+        # relocate assumption_check's own sentence into it rather than
+        # leaving the two fields contradicting each other -- this doesn't
+        # invent content (it's the model's own text) and doesn't parse or
+        # guess at what assumption_check means (it's gated purely on the
+        # boolean, never on the free text itself).
+        if self.has_assumption and not self.assumptions and self.assumption_check.strip():
+            self.assumptions = [self.assumption_check.strip()]
 
         return self

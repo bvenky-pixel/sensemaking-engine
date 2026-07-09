@@ -57,14 +57,25 @@ Judgment(
 - **Active Decisions** — Outstanding decisions.
 - **Open Unknowns** — Unknowns that materially affect goals.
 - **Contradictions** — Conflicts present in WorldState.
+- **Has Risk Signal** — (added 2026-07-09, see engine/decisions.md) a
+  mandatory boolean, ordered before Risk Scan, forcing the model to
+  commit to a low-entropy yes/no before writing the free-text
+  justification or the Risks list. Added after a full 30-test
+  re-validation showed Risk Scan's own finding failing to propagate into
+  `risks` in a large fraction of tests (not just E03's input) despite an
+  explicit cross-field consistency rule already in the prompt. Paired
+  with a code-level auto-repair validator (`_repair_risk_list`,
+  `src/judgment/schema.py`): if `has_risk_signal` is `True` and `risks`
+  is still empty, Risk Scan's own sentence is relocated into `risks`
+  rather than left contradicting it.
 - **Risk Scan** — (added 2026-07-09, see engine/decisions.md) a mandatory
-  reasoning field immediately preceding Risks/Opportunities, forcing an
-  explicit pass over WorldState content for risk-worthy signals
-  (including modest epistemic-humility risks grounded in ambiguous or
-  persistent negative-affect Claims) before finalizing those two fields.
-  Structural escalation after a prompt-only fix for this same gap (E03)
-  failed to hold on re-test, per this project's "typed over prompted,
-  once prompting has failed" discipline.
+  reasoning field immediately following Has Risk Signal, justifying that
+  answer with an explicit pass over WorldState content for risk-worthy
+  signals (including modest epistemic-humility risks grounded in
+  ambiguous or persistent negative-affect Claims) before finalizing
+  Risks/Opportunities. Structural escalation after a prompt-only fix for
+  this same gap (E03) failed to hold on re-test, per this project's
+  "typed over prompted, once prompting has failed" discipline.
 - **Risks** — Factors likely to hinder progress.
 - **Opportunities** — Factors likely to accelerate progress.
 - **Trajectory** — Improving, Stable, Deteriorating, or Uncertain.

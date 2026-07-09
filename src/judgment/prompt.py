@@ -79,29 +79,36 @@ FIELD DEFINITIONS
   A conflict sitting in plain sight in supporting_evidence-worthy content
   is the single most commonly missed case -- do not skip this check just
   because nothing seemed contradictory at first read.
-- risk_scan: MANDATORY, never empty. Before writing risks/opportunities,
-  state in one to two sentences what you checked WorldState.facts and
-  WorldState.claims for, and what (if anything) you found. This field
-  exists so the check happens every turn, not only when a risk happens to
-  be obvious.
+- has_risk_signal: MANDATORY. Answer this FIRST, before writing
+  risk_scan or risks: does any Fact, Claim, or Unknown imply a plausible
+  negative consequence for the primary goal that hasn't been stated
+  outright (including a modest epistemic-humility risk for a persistent
+  negative-affect Claim)? Just true or false. False is the common,
+  correct answer most turns -- this is not a separate opportunity to
+  invent one, it's the same judgment call you're about to justify with
+  risk_scan, just committed to first, as a plain yes/no.
+- risk_scan: MANDATORY, never empty. Justify the has_risk_signal answer
+  in one to two sentences: what you checked WorldState.facts and
+  WorldState.claims for, and what (if anything) you found.
       Facts: ["User is considering quitting their job with no other offer
-      lined up."] -> risk_scan: "Checked facts/claims against the primary
-      goal: quitting with no offer lined up is a real financial risk."
+      lined up."] -> has_risk_signal: true -> risk_scan: "Checked
+      facts/claims against the primary goal: quitting with no offer lined
+      up is a real financial risk."
       Claims: ["User says they don't enjoy anything anymore."] ->
-      risk_scan: "Checked facts/claims: a persistent negative-affect
-      statement like this can't rule out something more significant than
-      routine dissatisfaction -- worth a modest epistemic-humility risk."
-  "Checked facts/claims against the primary goal; nothing meets the bar
-  for a risk or opportunity" is a completely valid answer -- this field is
-  NOT a signal to invent a risk where none exists, only a forcing
-  function so the check itself is never silently skipped.
-  CRITICAL CONSISTENCY RULE: if risk_scan identifies a real risk-worthy
-  signal (including a modest epistemic-humility risk), that SAME signal
-  MUST also appear in `risks` below, phrased to meet the bar stated there
-  (name the specific Fact/Claim/Unknown, describe a plausible
-  consequence). Identifying a risk in risk_scan and then leaving `risks`
-  empty is a contradiction between your own two fields and is never
-  correct. The scan and the list must agree.
+      has_risk_signal: true -> risk_scan: "Checked facts/claims: a
+      persistent negative-affect statement like this can't rule out
+      something more significant than routine dissatisfaction -- worth a
+      modest epistemic-humility risk."
+  has_risk_signal: false paired with "Checked facts/claims against the
+  primary goal; nothing meets the bar for a risk or opportunity" is a
+  completely valid, common answer -- this field is NOT a signal to invent
+  a risk where none exists, only a forcing function so the check itself
+  is never silently skipped.
+  Then: if has_risk_signal is true, that SAME signal MUST also appear in
+  `risks` below, phrased to meet the bar stated there (name the specific
+  Fact/Claim/Unknown, describe a plausible consequence).
+  `has_risk_signal: true` paired with `risks: []` is a direct
+  contradiction of your own answer one field ago and is never correct.
 - risks: factors, grounded in WorldState content, likely to hinder
   progress toward the primary goal. Every risk must name the specific
   Fact, Claim, or Unknown it is derived from, and must describe a

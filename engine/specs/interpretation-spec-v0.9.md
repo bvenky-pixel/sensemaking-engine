@@ -178,6 +178,23 @@ silently skipped. This is the structural escalation governing law 3
 calls for once a prompt-only fix has failed, not a further prompt-wording
 attempt.
 
+**REOPENED AGAIN (2026-07-09, see engine/decisions.md):** three further
+prompt-only attempts to get `assumption_check`'s finding propagated into
+`assumptions` (a cross-field consistency rule, then explicit
+non-redundancy framing plus a paired worked example) all failed
+identically on A04, and a full 30-test re-validation showed the same
+propagation gap recurring in roughly half of ALL tests where
+`assumption_check` found something -- not an A04-specific quirk.
+**Decision: CHANGE — add `has_assumption: bool`**, ordered before
+`assumption_check`, so the model commits to a low-entropy yes/no answer
+before writing the free-text justification or the list. Paired with a
+code-level auto-repair validator (`_clean_up_cross_field_issues`,
+`src/interpretation/schema.py`): if `has_assumption` is `True` and
+`assumptions` is still empty, `assumption_check`'s own sentence is
+relocated into `assumptions` rather than left contradicting it. This
+doesn't invent content (it's the model's own text) and doesn't parse or
+guess at the free-text field's meaning (gated purely on the boolean).
+
 ### `inferences`
 1. **Purpose:** the model's own read on what the evidence means — the one tier deliberately allowed to go beyond exactly what was said.
 2. **Definition:** unchanged — hedge-word confidence cap (fixed this round to catch "possible" as well as "possibly") is the intended control here; no evidence this round of new leaks beyond what's already being managed.
@@ -254,7 +271,7 @@ Applying the "what breaks if this disappears" test to the surrounding state, not
 | `claims` | No change | — |
 | `goals` | Tighten definition, reconsider threshold | Medium |
 | `decision_options` | No change | — |
-| `assumptions` | Add cross-field dedup filter; **REOPENED 2026-07-09** — add mandatory `assumption_check` reasoning field (structural, prompt fix failed on retest) | High for this specific new failure shape |
+| `assumptions` | Add cross-field dedup filter; **REOPENED 2026-07-09** — add mandatory `assumption_check` reasoning field, then (after 3 prompt-only attempts to propagate its finding all failed) **REOPENED AGAIN** — add `has_assumption: bool` + code-level auto-repair validator | High for this specific new failure shape; boolean-gate fix not yet re-tested |
 | `inferences` | No change | — |
 | `unknowns` | Redefine + pattern backstop | Medium |
 | `biases` | No change | — |

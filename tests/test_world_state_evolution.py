@@ -42,6 +42,7 @@ def make_interp(**overrides) -> Interpretation:
         claims=[],
         goals=[],
         decision_options=[],
+        has_assumption=False,
         assumption_check="No framing-embedded assumption detected.",
         assumptions=[],
         inferences=[],

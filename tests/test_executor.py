@@ -23,6 +23,7 @@ _JUDGMENT = Judgment(
     open_unknowns=["Why hasn't it moved forward?"],
     active_decisions=[],
     contradictions=[],
+    has_risk_signal=True,
     risk_scan="Prolonged delay with no clear resolution is itself risk-worthy.",
     risks=["Prolonged delay may reduce motivation."],
     opportunities=["Strong intrinsic motivation once a path is found."],

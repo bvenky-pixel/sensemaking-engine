@@ -3369,3 +3369,67 @@ assumption_check/risk_scan propagation gap beyond A04's single
 documented instance, given it now looks like a systemic ~13/30
 compliance issue rather than one input's edge case. No code changes
 made this entry -- purely the re-validation findings.
+
+**2026-07-09 -- Boolean-gate fix implemented for the systemic
+assumption_check/risk_scan propagation gap, per explicit user decision.
+Not yet re-tested against the real pipeline (user asked to test ONLY
+A04 first, before any broader re-validation).**
+
+Root-cause framing agreed with the user: this was never a case of the
+model not understanding what to do -- `assumption_check`/`risk_scan`
+prove the reasoning fires correctly in the vast majority of cases. It is
+specifically a TRANSCRIPTION-COMPLIANCE gap: reliably copying content
+from one field into a second field, within the same generation, has a
+real ceiling for `openai/gpt-4o-mini` regardless of how the copy
+instruction is worded (4 different prompt-only attempts, same partial
+result). Decided against pushing a 5th prompt variant; decided against a
+hard validation failure (would turn a ~43% silent miss rate into ~43%
+outright turn failures, a worse regression); decided FOR replacing the
+free-text "did I find one" signal with a boolean, since a yes/no is a
+much lower-entropy commitment than "remember to retype this sentence
+into another field."
+
+**Implemented:**
+- `src/interpretation/schema.py`: added `has_assumption: bool`, ordered
+  BEFORE `assumption_check`/`assumptions` (decide -> justify -> populate).
+  Extended `_clean_up_cross_field_issues` with an auto-repair step: if
+  `has_assumption` is `True` and `assumptions` is still empty,
+  `assumption_check`'s own text is relocated into `assumptions`. Verified
+  by direct unit sanity-check (not just pytest): `has_assumption=True` +
+  empty `assumptions` correctly repairs; `has_assumption=False` correctly
+  leaves `assumptions` empty.
+- `src/judgment/schema.py`: added `has_risk_signal: bool`, ordered BEFORE
+  `risk_scan`/`risks`, same shape. New `_repair_risk_list` validator
+  (Judgment previously had no `model_validator` at all). Same direct
+  sanity-check performed and passed.
+- `src/interpretation/prompt.py` / `src/judgment/prompt.py`: new
+  "HAS ASSUMPTION" / "Has Risk Signal" instructions ordered first,
+  explicitly framed as a plain yes/no committed to before the
+  justification text -- not a second opportunity to invent a finding.
+  Simplified the now-redundant "critical consistency rule" prose since
+  the validator now enforces it in code rather than relying purely on
+  the model reading and following it.
+- Both new fields are auto-repair-only, never a hard failure -- consistent
+  with the decision above to preserve turn success rate.
+- Updated `interpretation-spec-v0.9.md`'s `assumptions` entry (REOPENED
+  AGAIN) and `judgment-specification-v2.md`'s field list (new "Has Risk
+  Signal" entry) per the schema-first discipline every prior round has
+  followed.
+- Updated all 5 test fixture files across the suite (same files touched
+  in every prior schema round) with `has_assumption`/`has_risk_signal`
+  values matching each fixture's existing assumption_check/risk_scan
+  content. 136 tests passing.
+- One incidental fix along the way: new prompt wording ("you're about to
+  explain in risk_scan") accidentally collided with
+  `test_adapt_judgment_prompt_has_no_worldstate_leaks_or_doubled_words`'s
+  doubled-word guard (`"in in"` is a substring of "expla-in in
+  risk_scan" purely by coincidence of where the words fall, not an
+  actual doubled-word bug) -- reworded to "justify with" in both prompts
+  to avoid the false-positive trigger.
+
+**Explicit scope limit for this entry, per direct user instruction:**
+live re-testing is scoped to A04 ONLY for now. Do not dispatch live tests
+against the other 12 previously-affected cases (C02, C05, R01, R02, R03,
+D01, E02, E05, A01, X01, X02, X05) until A04 is confirmed fixed under
+this new mechanism. This is a deliberate, cost-conscious staging decision
+by the user, not an oversight.

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Judgment(BaseModel):
@@ -35,12 +35,19 @@ class Judgment(BaseModel):
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
 
-    # Mandatory reasoning field (added 2026-07-09, see engine/decisions.md
-    # and judgment-specification-v2.md's Risk Scan entry) -- a prompt-only
-    # fix for risks/opportunities under-population (E03's missed
-    # epistemic-humility risk) failed to hold on re-test. Forces an
-    # explicit pass over WorldState content before finalizing risks/
-    # opportunities, rather than letting that pass be silently skipped.
+    # v1.3 (see engine/decisions.md): `risk_scan` alone (added 2026-07-09)
+    # proved unreliable across a 30-test real-pipeline run -- the model
+    # correctly identified a risk-worthy signal in its own free-text
+    # reasoning but failed to copy it into `risks` in a large fraction of
+    # those cases, not just the one input (E03) it was originally fixed
+    # against. `has_risk_signal` is a much lower-entropy decision (a
+    # boolean) than "remember to duplicate this sentence into another
+    # field," ordered FIRST so the model commits to the yes/no answer
+    # before writing the justification or the list -- and it gives
+    # `_repair_risk_list` below a cheap, reliable signal to auto-repair
+    # `risks` from `risk_scan`'s own text if the model still leaves the
+    # list empty, without parsing or guessing at the free-text field.
+    has_risk_signal: bool
     risk_scan: str
     risks: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
@@ -54,3 +61,16 @@ class Judgment(BaseModel):
     # reader can trace every assessment back to something actually in
     # WorldState -- migrate to ID references once WorldState supports them.
     supporting_evidence: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _repair_risk_list(self):
+        # has_risk_signal=True is the model's own committed signal that
+        # risk_scan names a real finding. If risks is still empty at this
+        # point, relocate risk_scan's own sentence into it rather than
+        # leaving the two fields contradicting each other -- this doesn't
+        # invent content (it's the model's own text) and doesn't parse or
+        # guess at what risk_scan means (it's gated purely on the boolean,
+        # never on the free text itself).
+        if self.has_risk_signal and not self.risks and self.risk_scan.strip():
+            self.risks = [self.risk_scan.strip()]
+        return self

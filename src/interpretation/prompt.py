@@ -167,44 +167,45 @@ decision_options above).
 decision_events=[] is correct whenever nothing in this turn speaks to an
 earlier decision option's fate.
 
-ASSUMPTION CHECK -- MANDATORY, never empty. Before writing `assumptions`,
-state in one sentence whether the user's own PHRASING (not just their
-explicit claims) embeds an unstated belief, and why.
+HAS ASSUMPTION -- MANDATORY. Answer this FIRST, before writing
+`assumption_check` or `assumptions`: does the user's own PHRASING (not
+just their explicit claims) embed an unstated belief? Just true or false.
     User: "I think I'm making the wrong decision."
-    GOOD assumption_check: "The phrase 'the wrong decision' implies the
-    user believes an objectively correct decision exists to find -- this
-    is a framing-embedded assumption."
+    has_assumption: true
     User: "I've been trying to move to the Product team for months."
-    GOOD assumption_check: "No framing-embedded assumption detected; the
+    has_assumption: false
+Answer honestly -- false is the common, correct answer most turns. This
+is not a separate opportunity to invent one; it's the same judgment call
+you're about to justify with `assumption_check`, just committed to first,
+as a plain yes/no.
+
+ASSUMPTION CHECK -- MANDATORY, never empty. Justify the `has_assumption`
+answer in one sentence.
+    User: "I think I'm making the wrong decision."
+    has_assumption: true
+    assumption_check: "The phrase 'the wrong decision' implies the user
+    believes an objectively correct decision exists to find -- this is a
+    framing-embedded assumption."
+    User: "I've been trying to move to the Product team for months."
+    has_assumption: false
+    assumption_check: "No framing-embedded assumption detected; the
     language describes an effort and duration without implying an
     unstated belief."
-This field exists specifically so the check happens every turn, not only
-when an assumption happens to be obvious. Writing "No framing-embedded
-assumption detected" is a completely valid answer -- the field must never
-be skipped or left as a placeholder, but it is NOT a signal to invent one
-where none exists.
 
-CRITICAL CONSISTENCY RULE: if `assumption_check` identifies a real
-framing-embedded assumption, that SAME assumption MUST also appear in
-`assumptions` below -- restate it there in the same form as any other
-assumption. Identifying one in `assumption_check` and then leaving
-`assumptions` empty is a contradiction between your own two fields and is
-never correct. The check and the list must agree.
-This is NOT redundant, even though it may feel like repeating yourself:
-`assumption_check` is your reasoning about WHETHER one exists;
-`assumptions` is the structured record OF it, read by a completely
-different downstream consumer that never sees `assumption_check` at all.
-Explaining your reasoning in one field does not excuse leaving the other
-empty -- both are required outputs, not one field summarizing the other.
-Full worked example, both fields shown together exactly as they should
+Then: if `has_assumption` is true, `assumptions` below MUST contain that
+same belief, restated in the same form as any other assumption --
+`has_assumption: true` paired with `assumptions: []` is a direct
+contradiction of your own answer one field ago and is never correct. If
+`has_assumption` is false, `assumptions` should normally stay empty.
+Full worked example, all three fields together exactly as they should
 appear in your output:
     User: "I think I'm making the wrong decision, but I can't explain why."
+    has_assumption: true
     assumption_check: "The phrase 'the wrong decision' implies the user
     believes an objectively correct decision exists to find -- this is a
     framing-embedded assumption."
     assumptions: ["User assumes there is an objectively correct decision
     to find."]
-    (Notice BOTH fields are populated here -- never just the first one.)
 
 ASSUMPTIONS -- a belief the user is ALREADY relying on right now,
 inferred from what they implied -- never a prediction about the future,
@@ -234,9 +235,9 @@ In most turns the honest answer is assumptions=[]. That's correct, not a
 gap -- but "sparse by default" means resist the urge to manufacture
 assumptions that AREN'T there, not that a genuine one embedded in the
 user's own framing should be passed over for the sake of staying empty.
-Before finalizing this field, re-read your own `assumption_check` one
-more time: if it named a real assumption, this field cannot be `[]` --
-go back and add it now if you haven't yet.
+Before finalizing this field, check your own `has_assumption` answer one
+more time: if it's `true`, this field cannot be `[]` -- go back and add
+the assumption now if you haven't yet.
 
 INFERENCES -- your own read on what the evidence means, with calibrated
 confidence. The only tier allowed to go beyond exactly what was said,
