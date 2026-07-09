@@ -3267,3 +3267,39 @@ limitation (pinned `openai/gpt-4o-mini`; untested whether a larger/
 different model shows the same ceiling); build the previously-declined
 mechanical validator despite its fragility, now that three prompt-only
 rounds have shown a real ceiling; or leave A04 open and move on.
+
+**Decision: ACCEPT as a documented, model-specific limitation. No further
+fix attempted this round.**
+
+`assumption_check` reliably identifies framing-embedded assumptions
+correctly (3 of 3 live attempts, verbatim-correct reasoning every time,
+pinned `openai/gpt-4o-mini`); `assumptions` reliably fails to carry that
+same finding into the structured list, regardless of prompt strategy
+(plain worked example; mandatory reasoning field + cross-field
+consistency rule; explicit non-redundancy framing + paired example +
+proximity reminder). This is a real, reproducible model-compliance
+ceiling for this specific field on this specific model, not a schema,
+spec, or prompt-clarity defect -- the instructions are unambiguous and
+the model's own `assumption_check` output proves it understood them
+correctly every time.
+
+Left in place, not rolled back: `assumption_check` itself, since it
+still does real work -- it correctly surfaces the reasoning (visible in
+debug/state output and, per the live logs, already flowing into
+Planner's `assumptions_to_test` in practice) even though it doesn't
+propagate into `assumptions` specifically. The mechanical auto-fill
+validator remains explicitly declined, not deferred-as-forgotten, for the
+same reason given above: parsing free-text reasoning to decide what to
+inject is fragile and risks the same "guessing at meaning" this project
+avoids elsewhere.
+
+**Status of the full round (Tier 1 + Tier 2 + this escalation):** of the
+six original confirmed gaps, five are closed or substantially addressed
+(clarity_score/requires_clarification, Judgment contradictions, Judgment
+risks including E03's epistemic-humility case, A03's tentative-phrasing
+discipline, and both Tier 2 signals -- goal/decision lifecycle and entity
+attribute enrichment). A04 (hidden assumptions) is the one confirmed,
+accepted, model-specific exception, documented here rather than silently
+dropped. Revisit only if a different/larger model is evaluated against
+this same prompt, or if new evidence suggests a different mechanism than
+the ones already ruled out.
