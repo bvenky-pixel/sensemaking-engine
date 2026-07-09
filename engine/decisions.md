@@ -3170,3 +3170,63 @@ multi-turn -- still only verified via the hand-built test suite and the
 manual sanity check above; a live multi-turn re-run (the 10-turn
 walkthrough) remains the next real-pipeline verification step for that
 half of this round's work.
+
+**2026-07-09 -- Structural escalation for A04/E03, round 2: mandatory
+reasoning fields + cross-field consistency rule. E03 CONFIRMED FIXED. A04
+CONFIRMED STILL BROKEN (2 of 2 live attempts) despite two escalations.**
+
+Per user instruction to fix A04/E03 directly, escalated per governing law
+3 ("typed over prompted, once a prompt fix has failed"): added mandatory
+`assumption_check: str` to Interpretation and `risk_scan: str` to Judgment
+(non-empty reasoning fields immediately preceding `assumptions`/`risks`,
+forcing the check itself to happen every turn). Updated
+`interpretation-spec-v0.9.md`'s `assumptions` entry and
+`judgment-specification-v2.md`'s field list accordingly. 136 tests
+passing after fixture updates across the test suite.
+
+**First live re-test (commit `1997f24`)** showed the forcing function
+working exactly as designed on the reasoning side, but NOT propagating
+into the list field it exists to inform:
+- A04: `assumption_check` = "The phrase 'the wrong decision' implies the
+  user believes an objectively correct decision exists to find -- this is
+  a framing-embedded assumption." (verbatim-correct) but `assumptions=[]`.
+- E03: `risk_scan` correctly identified the epistemic-humility signal but
+  `risks=[]`.
+
+Diagnosed this as the same shape of gap the Tier 1
+clarity_score/requires_clarification fix already closed successfully --
+two of the model's own fields disagreeing with each other. Added an
+explicit CRITICAL CONSISTENCY RULE to both prompts (commit `8b6230c`):
+a real finding in `assumption_check`/`risk_scan` MUST also appear in
+`assumptions`/`risks`.
+
+**Second live re-test (commit `8b6230c`, same two inputs):**
+- **E03: FIXED.** `risks=["User's claim of not enjoying anything anymore
+  may indicate underlying emotional distress, which could hinder their
+  ability to engage in activities or seek help."]` -- now populated,
+  correctly grounded, matches risk_scan's own reasoning. Consistency rule
+  held.
+- **A04: STILL BROKEN.** `assumption_check` again correctly identified
+  the exact right assumption verbatim ("The phrase 'the wrong decision'
+  implies the user believes an objectively correct decision exists to
+  find...") but `assumptions=[]` again. This is now 2 of 2 live attempts
+  with the same failure shape, not noise from one bad sample -- the
+  consistency rule holds for risk_scan/risks but not for
+  assumption_check/assumptions specifically.
+
+**Honest status: E03 is closed. A04 is not, after three rounds of
+escalation (worked example -> mandatory reasoning field -> cross-field
+consistency rule).** A plausible reason worth naming, not yet confirmed:
+`assumptions` has accumulated more rounds of "sparse by default, never
+invent" calibration pressure over this project's history (v0.7 hedge-word
+cap, v0.9 cross-field dedup, the original Tier 1 worked example) than
+`risks` has -- the model may be weighting that accumulated restraint
+framing more heavily for this specific field than the new consistency
+rule can overcome. Not verified; a hypothesis for whoever picks this back
+up. A further mechanical option (a Pydantic validator that force-copies
+`assumption_check` into `assumptions` when the former doesn't contain a
+"no assumption" marker phrase) was considered and NOT implemented --
+parsing a free-text reasoning field to decide what to auto-inject is
+fragile and depends on phrase-matching the model's own varying wording,
+a real risk of the same "guessing at meaning" this project has
+repeatedly corrected for elsewhere. Flagged for discussion, not built.
