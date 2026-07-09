@@ -144,6 +144,72 @@ ImpactDomain = Literal[
 ]
 
 
+# v1.1 (see engine/decisions.md and engine/specs/interpretation-spec-v1.1.md):
+# closes the "Goal/Decision lifecycle" and "Entity attribute enrichment"
+# gaps confirmed by the 2026-07-05 WorldState state-evolution suite and
+# left explicitly declined at the time ("the State Builder must not
+# compensate for a missing semantic signal with a heuristic" --
+# engine/decisions.md). These fields are the real upstream signal that
+# principle called for.
+#
+# Resolves interpretation-v1.1-proposal.md's two open questions: Option A
+# (Interpretation stays stateless; targets are best-effort
+# paraphrases/quotes, matched downstream by src/state/builder.py's
+# existing word-overlap mechanism) over Option B (giving Interpretation
+# read access to WorldState) -- Option A is adoptable without a pipeline
+# restructure. goal_updates/decision_events are ADDITIVE alongside
+# `goals`/`decision_options`, not a replacement -- a freshly-stated goal
+# with no existing match is just new, same as today.
+#
+# `GoalUpdateStatus` deliberately DUPLICATES world_state.GoalStatus rather
+# than importing it -- same reasoning as builder.py's duplicated
+# _word_overlap: Interpretation and WorldState are separate frozen
+# layers, and this avoids a cross-package dependency for one Literal that
+# may reasonably diverge later.
+GoalUpdateStatus = Literal["active", "paused", "completed", "abandoned"]
+DecisionEventType = Literal["proposed", "chosen", "rejected", "deferred"]
+
+
+class GoalUpdate(BaseModel):
+    """
+    Signals a lifecycle transition on an EXISTING goal -- never a new
+    goal (a freshly-stated goal with no prior match belongs in `goals`
+    instead). `goal` is a best-effort paraphrase/quote of the goal this
+    refers to; matched against WorldState.goals downstream by content
+    similarity, not by a stable ID (WorldState has none yet -- see
+    world_state.py module docstring, deferred to v1.1 provenance work).
+    """
+
+    goal: str
+    status: GoalUpdateStatus
+
+
+class DecisionEvent(BaseModel):
+    """
+    Signals something that happened to an EXISTING decision option
+    (chosen/rejected/deferred) -- never a new option (that's
+    `decision_options`' job, kept strictly extractive). `option` is a
+    best-effort paraphrase/quote, matched downstream the same way as
+    GoalUpdate.goal.
+    """
+
+    option: str
+    event: DecisionEventType
+
+
+class EntityAttributeUpdate(BaseModel):
+    """
+    A structured attribute learned about an entity already named in
+    `entities` (or named here for the first time in the same turn).
+    Additive alongside the flat `entities: List[str]`, which stays for
+    plain mentions with no new attribute information.
+    """
+
+    entity: str
+    attribute: str
+    value: str
+
+
 class Interpretation(BaseModel):
     # --- Phase 1: Prepare the Thinker ---
     urgency: Literal["low", "medium", "high"]   # v0.9: real Literal, was unenforced str
@@ -168,6 +234,11 @@ class Interpretation(BaseModel):
     entities: List[str]              # people/orgs/stakeholders mentioned (never the user themself)
     clarity_score: float = Field(ge=0.0, le=1.0)
     requires_clarification: bool
+
+    # --- v1.1: lifecycle/enrichment signals, see comment above Interpretation ---
+    goal_updates: List[GoalUpdate] = Field(default_factory=list)
+    decision_events: List[DecisionEvent] = Field(default_factory=list)
+    entity_attribute_updates: List[EntityAttributeUpdate] = Field(default_factory=list)
 
     @field_validator("core_question_confidence", "clarity_score", mode="before")
     @classmethod

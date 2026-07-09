@@ -141,6 +141,32 @@ sound reasonable.
           alternatives were named; if the user's second option is vague,
           keep it vague in the output too.
 
+GOAL UPDATES -- signals a lifecycle change on a goal THE USER HAS
+ALREADY STATED IN AN EARLIER TURN, never a freshly-stated goal (that
+belongs in `goals` above). Only include one when the user's own words
+indicate the goal is now paused, completed, or abandoned.
+    Turn 1: "I want to build Confidant."
+    Turn 5, User: "I launched the MVP last week."
+    GOOD: goal_updates=[{goal: "build Confidant", status: "completed"}]
+    User: "I'm not actively pursuing that anymore."
+    GOOD: status="abandoned"
+Do not invent a goal_update just because time has passed -- only when
+the user's own words describe the goal's fate. goal_updates=[] is
+correct whenever nothing in this turn speaks to an earlier goal's status.
+
+DECISION EVENTS -- signals something that happened to a decision option
+THE USER HAS ALREADY NAMED in an earlier turn (chosen, rejected, or
+deferred) -- never a newly-named option (that belongs in
+decision_options above).
+    Turn 1: "Should I apply externally or wait?"
+    Turn 4, User: "I've decided to wait."
+    GOOD: decision_events=[{option: "wait", event: "chosen"}]
+    (and, if the evidence supports it, the other option:
+    {option: "apply externally", event: "rejected"} or "deferred" if the
+    user frames it as postponed rather than ruled out)
+decision_events=[] is correct whenever nothing in this turn speaks to an
+earlier decision option's fate.
+
 ASSUMPTIONS -- a belief the user is ALREADY relying on right now,
 inferred from what they implied -- never a prediction about the future,
 never a judgment about the user's own behavior they didn't make, and
@@ -209,6 +235,16 @@ textbook-sounding label just because a quote is available to attach it to.
 
 ENTITIES -- people/orgs/stakeholders mentioned. Normalize possessives
 ("your boss" -> "boss"). Never include the user themself ("you", "I", "me").
+
+ENTITY ATTRIBUTE UPDATES -- a specific, structured fact learned about an
+entity, when the user states one. `entity` should match the name used in
+`entities`. Only include when the user directly states a specific
+attribute (a role, a relationship, a status) -- never infer one.
+    User: "My manager Sarah is being promoted to Head of Product."
+    GOOD: entities=["Sarah"], entity_attribute_updates=[
+        {entity: "Sarah", attribute: "role", value: "Head of Product"}]
+entity_attribute_updates=[] is correct whenever no specific attribute is
+stated -- a bare mention of a name belongs in `entities` alone.
 
 CLARITY SCORE / REQUIRES CLARIFICATION -- these two fields describe the
 SAME underlying judgment (how well-formed is the situation as stated) and

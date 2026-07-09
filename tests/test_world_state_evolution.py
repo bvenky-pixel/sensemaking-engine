@@ -17,7 +17,13 @@ a pass; where a gap was found, the test documents the gap instead.
 
 from __future__ import annotations
 
-from src.interpretation.schema import Inference, Interpretation
+from src.interpretation.schema import (
+    DecisionEvent,
+    EntityAttributeUpdate,
+    GoalUpdate,
+    Inference,
+    Interpretation,
+)
 from src.state.builder import update_state
 from src.state.world_state import WorldState
 
@@ -194,19 +200,24 @@ def test_unknown_resolution_still_misses_deep_semantic_gap_by_design():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Goal lifecycle -- documents a confirmed gap (explicitly framed by
-# the request as "depending on your current merge logic")
+# Test 4: Goal/Decision lifecycle -- v1.1 (see engine/decisions.md and
+# engine/specs/interpretation-spec-v1.1.md): this gap is now closed WHEN
+# Interpretation emits the typed signal. A co-occurring fact with no typed
+# signal still does NOT move status -- that's the correct, unchanged
+# behavior (the State Builder never guesses; it only acts on an explicit
+# goal_update/decision_event), not a leftover of the old gap.
 # ---------------------------------------------------------------------------
-def test_goal_lifecycle_never_advances_known_gap():
+def test_goal_status_unchanged_without_an_explicit_goal_update():
     """
-    Turn 1: "I want to build Confidant." Turn 2: "I launched the MVP."
+    Turn 1: "I want to build Confidant." Turn 2: a plain fact is stated
+    ("User launched the MVP.") with NO goal_updates signal.
 
-    ACTUAL, CONFIRMED BEHAVIOR: there is no signal path from a new
-    fact/claim to an existing Goal's status. The goal stays "active"
-    forever; "launched the MVP" becomes an independent Fact/Claim with no
-    link back to the Goal. Matches the KNOWN LIMITATION already documented
-    in src/state/world_state.py's module docstring -- this test confirms it
-    against a concrete example rather than leaving it as prose.
+    CORRECT BEHAVIOR (still, deliberately): the goal stays "active." A
+    co-occurring fact alone is not evidence of a lifecycle transition --
+    only an explicit GoalUpdate is. This is the "no heuristic
+    compensation for a missing signal" principle holding even after the
+    signal exists: the builder still never infers a transition from mere
+    proximity of a fact to a goal.
     """
     state = WorldState()
     state = update_state(state, make_interp(goals=["Build Confidant"]))
@@ -215,29 +226,103 @@ def test_goal_lifecycle_never_advances_known_gap():
     assert len(state.goals) == 1
     assert state.goals[0].content == "Build Confidant"
     assert state.goals[0].status == "active", (
-        "confirms the gap: goal status never advances even when a plausibly "
-        "relevant fact arrives"
+        "a bare co-occurring fact must not move goal status -- only an "
+        "explicit GoalUpdate should"
     )
     assert "User launched the MVP." in [f.content for f in state.facts]
 
 
-# ---------------------------------------------------------------------------
-# Test 5: Entity enrichment -- validates dedup, documents a confirmed gap
-# for attribute enrichment
-# ---------------------------------------------------------------------------
-def test_entity_dedup_works_but_attribute_enrichment_has_no_data_source():
+def test_goal_status_advances_with_an_explicit_goal_update():
     """
-    Turn 1: "My manager is Rahul." Turn 2: "Rahul now heads Product."
+    Turn 1: "I want to build Confidant." Turn 2: Interpretation emits a
+    GoalUpdate (the typed v1.1 signal) paraphrasing the same goal with
+    status="completed".
 
-    PART THAT WORKS (validates intended behavior): _merge_entities dedups
-    by name (case-insensitive) -- "Rahul" mentioned in both turns yields
-    exactly one Entity, not two.
+    CONFIRMS THE FIX: the matching existing Goal's status now actually
+    transitions, closing the gap test_goal_status_unchanged_without_an_
+    explicit_goal_update above documents as still-correctly-absent
+    without the signal.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(goals=["Build Confidant"]))
+    state = update_state(
+        state,
+        make_interp(
+            goal_updates=[GoalUpdate(goal="launched the MVP for Confidant", status="completed")]
+        ),
+    )
 
-    PART THAT DOESN'T (confirmed gap): Interpretation.entities is a flat
-    list of name strings only -- there is no structured data ("Rahul's new
-    role is Head of Product") flowing into Entity.attributes anywhere in
-    the pipeline. "Rahul now heads Product" lands only as a separate
-    Fact/Claim string; the Entity object's attributes stay empty regardless.
+    assert len(state.goals) == 1
+    assert state.goals[0].content == "Build Confidant"
+    assert state.goals[0].status == "completed", (
+        f"expected the GoalUpdate to transition the matching goal, got {state.goals}"
+    )
+
+
+def test_goal_update_with_no_matching_goal_is_dropped_not_fabricated():
+    """
+    A GoalUpdate whose text doesn't sufficiently overlap ANY existing goal
+    must not fabricate a new Goal -- goal_updates exists only for
+    transitions on something already tracked (goals: List[str] is where a
+    genuinely new goal belongs).
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(goals=["Move to the Product team"]))
+    state = update_state(
+        state,
+        make_interp(goal_updates=[GoalUpdate(goal="completely unrelated topic", status="completed")]),
+    )
+
+    assert len(state.goals) == 1, f"expected no fabricated goal, got {state.goals}"
+    assert state.goals[0].status == "active"
+
+
+def test_decision_events_resolve_chosen_and_rejected_options():
+    """
+    Turn 1: two decision options stated. Turn 2: Interpretation emits
+    DecisionEvents choosing one and rejecting the other.
+
+    CONFIRMS THE FIX: both matching Decisions transition to "resolved" --
+    the same "resolved means no longer live," not "resolved means
+    approved" reading Decision's own docstring already uses.
+    """
+    state = WorldState()
+    state = update_state(
+        state, make_interp(decision_options=["wait for the freeze to lift", "apply externally"])
+    )
+    state = update_state(
+        state,
+        make_interp(
+            decision_events=[
+                DecisionEvent(option="wait for the freeze to lift", event="chosen"),
+                DecisionEvent(option="apply externally", event="rejected"),
+            ]
+        ),
+    )
+
+    by_content = {d.content: d.status for d in state.decisions}
+    assert by_content["wait for the freeze to lift"] == "resolved"
+    assert by_content["apply externally"] == "resolved"
+
+
+# ---------------------------------------------------------------------------
+# Test 5: Entity enrichment -- dedup was already correct; v1.1 (see
+# engine/decisions.md and engine/specs/interpretation-spec-v1.1.md) closes
+# the attribute-enrichment gap WHEN Interpretation emits the typed signal.
+# A bare co-occurring fact still does NOT populate attributes -- that
+# remains correct, not a leftover gap.
+# ---------------------------------------------------------------------------
+def test_entity_dedup_and_attributes_stay_empty_without_a_typed_update():
+    """
+    Turn 1: "My manager is Rahul." Turn 2: "Rahul now heads Product" stated
+    only as a plain fact, with NO entity_attribute_updates signal.
+
+    Dedup (validates intended, already-working behavior): "Rahul" mentioned
+    in both turns yields exactly one Entity, not two.
+
+    Attributes (correct, deliberate): stay empty -- a bare co-occurring
+    fact is not evidence of a specific attribute; only an explicit
+    EntityAttributeUpdate should populate Entity.attributes.
     """
     state = WorldState()
     state = update_state(state, make_interp(entities=["Rahul"]))
@@ -250,10 +335,74 @@ def test_entity_dedup_works_but_attribute_enrichment_has_no_data_source():
     assert len(matching) == 1, f"expected exactly one Rahul entity, got {state.entities}"
     assert matching[0].status == "active"
     assert matching[0].attributes == [], (
-        "confirms the gap: entity attribute enrichment has no data source yet -- "
-        f"got {matching[0].attributes}"
+        "a bare co-occurring fact must not populate attributes -- only an "
+        f"explicit EntityAttributeUpdate should -- got {matching[0].attributes}"
     )
     assert "Rahul now heads Product." in [f.content for f in state.facts]
+
+
+def test_entity_attributes_populate_with_an_explicit_attribute_update():
+    """
+    Turn 1: "My manager is Rahul." Turn 2: Interpretation emits an
+    EntityAttributeUpdate for Rahul's new role.
+
+    CONFIRMS THE FIX: the matching Entity's attributes now actually get
+    set, closing the gap the previous test documents as still-correctly-
+    absent without the signal. Also confirms that a SECOND update to the
+    SAME attribute key replaces the value (refine, don't duplicate) rather
+    than appending a second entry.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(entities=["Rahul"]))
+    state = update_state(
+        state,
+        make_interp(
+            entity_attribute_updates=[
+                EntityAttributeUpdate(entity="Rahul", attribute="role", value="Head of Product")
+            ]
+        ),
+    )
+
+    matching = [e for e in state.entities if e.name.lower() == "rahul"]
+    assert len(matching) == 1
+    assert [(a.attribute, a.value) for a in matching[0].attributes] == [
+        ("role", "Head of Product")
+    ], f"expected the attribute update to apply, got {matching[0].attributes}"
+
+    # A later update to the SAME attribute key refines in place, not append.
+    state = update_state(
+        state,
+        make_interp(
+            entity_attribute_updates=[
+                EntityAttributeUpdate(entity="Rahul", attribute="role", value="VP of Product")
+            ]
+        ),
+    )
+    matching = [e for e in state.entities if e.name.lower() == "rahul"]
+    assert [(a.attribute, a.value) for a in matching[0].attributes] == [
+        ("role", "VP of Product")
+    ], f"expected in-place refinement, not a duplicate entry, got {matching[0].attributes}"
+
+
+def test_entity_attribute_update_creates_entity_if_not_separately_mentioned():
+    """
+    An EntityAttributeUpdate for a name that never separately appeared in
+    `entities` should still create the Entity -- the attribute statement
+    itself is evidence the entity exists, not a reason to drop it.
+    """
+    state = WorldState()
+    state = update_state(
+        state,
+        make_interp(
+            entity_attribute_updates=[
+                EntityAttributeUpdate(entity="Priya", attribute="role", value="CTO")
+            ]
+        ),
+    )
+
+    matching = [e for e in state.entities if e.name.lower() == "priya"]
+    assert len(matching) == 1, f"expected Priya to be created, got {state.entities}"
+    assert [(a.attribute, a.value) for a in matching[0].attributes] == [("role", "CTO")]
 
 
 # ---------------------------------------------------------------------------

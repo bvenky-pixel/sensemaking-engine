@@ -2961,3 +2961,142 @@ instead of silently degrading through Ollama. That's an accepted
 tradeoff, not an oversight -- the new cadence exists specifically to make
 hitting the limit in the first place the rare case, not something routed
 around after the fact.
+
+**2026-07-09 — v1.0 gap-fixing round: Tier 1 prompt fixes + Tier 2
+Interpretation v1.1 (Goal/Decision lifecycle, Entity attribute
+enrichment) implemented**
+
+Direct follow-up to the 30-test `gpt-4o-mini` validation run (Run 2, see
+`experiments/confidant-validation/log.md`) and the explicit user
+instruction to work on the confirmed v1.0 gaps before any v2 work. Full
+plan reasoning lives in the plan-mode file this round produced; this
+entry is the implementation record.
+
+**Tier 1 (prompt/spec-only, no schema change):**
+1. **`clarity_score`/`requires_clarification` consistency** --
+   `interpretation-spec-v0.9.md`'s "No issues observed... KEEP, unchanged"
+   call on these two fields (frozen 2026-07-02) is REOPENED: the 30-test
+   log directly contradicts it (worst case X04: `clarity_score=0.0` paired
+   with `requires_clarification=False`). Added the prompt guidance that
+   never existed for either field (zero prior mentions, confirmed by
+   grep), with a concrete threshold anchor (~0.3) and a worked example. No
+   code-level validator added yet -- per this codebase's own "typed over
+   prompted, once a prompt-only fix has failed" discipline, this is the
+   first prompt attempt on this pair; add a structural backstop (analogous
+   to `_cap_hedged_confidence`) only if a re-test still shows the
+   mismatch.
+2. **Judgment `contradictions`/`risks`/`opportunities` under-population**
+   (C02, R04, C04) -- both fields already had real, well-written
+   instructions; the model was still leaving them empty with the
+   conflicting/risk-relevant evidence sitting one line apart in
+   `supporting_evidence`. Added a mandatory active-cross-check instruction
+   (enumerate Fact/Claim pairs for contradictions; check each Fact/Claim
+   against the primary goal for risks) plus worked examples drawn directly
+   from C02's and C04's exact failure shapes, rather than only restating
+   the existing bar.
+3. **A04 (assumptions), A03 (belief-assertion), E03 (urgency
+   calibration)** -- three capability-specific misses, same "instructions
+   exist but this exact test still misses" pattern:
+   - Interpretation `assumptions`: added a worked example distinguishing a
+     genuine assumption embedded in the user's own framing ("the wrong
+     decision" implies "a right one exists") from manufactured content, so
+     the sparse-by-default rule doesn't read as "default to empty" in
+     ambiguous cases.
+   - Interpretation `urgency`: **discovered this field had ZERO prompt
+     guidance at all** (confirmed by grep -- not just insufficient,
+     entirely absent, despite being a required schema Literal). Added a
+     full URGENCY section, including explicit guidance for persistent
+     negative-affect statements (E03's "I don't enjoy anything anymore"
+     case) that a calm surface tone shouldn't pull the rating down to
+     "low" when the pattern described could plausibly be more serious.
+   - Judgment `risks`: added that a persistent negative-affect Claim can
+     itself ground a modestly-worded epistemic-humility risk (not a
+     diagnosis).
+   - Response Generator (`src/response/prompt.py`, root cause of A03 --
+     NOT an Interpretation issue): added an explicit instruction that
+     content sourced from Planner's `assumptions_to_test` must stay
+     phrased as tentative/a question, never asserted as settled fact --
+     A03's Response had asserted exactly the hypothesis Planner had
+     correctly flagged as unconfirmed one stage earlier.
+
+All 131 pre-existing tests passed unchanged after Tier 1 (prompt-only, no
+schema touched).
+
+**Tier 2 (real schema change, promotes `interpretation-v1.1-proposal.md`
+from discussion draft to `interpretation-spec-v1.1.md`, a real frozen
+spec):**
+
+Resolves the proposal's two open questions: **Option A** (Interpretation
+stays stateless; targets are best-effort paraphrases/quotes matched
+downstream by word-overlap, reusing `_is_resolved_by`) over Option B
+(giving Interpretation a WorldState view -- bigger pipeline change,
+deferred pending evidence Option A's match quality is inadequate); **Goal
+Updates additive**, not a replacement of `goals`.
+
+Implemented:
+- `src/interpretation/schema.py`: added `GoalUpdate`, `DecisionEvent`,
+  `EntityAttributeUpdate`, and the three corresponding `Interpretation`
+  fields (`goal_updates`, `decision_events`, `entity_attribute_updates`),
+  all `Field(default_factory=list)` -- fully additive, no existing field
+  touched. `GoalUpdateStatus`/`DecisionEventType` Literals are duplicated
+  from `world_state.GoalStatus`/a new decision-event vocabulary rather
+  than imported, matching `builder.py`'s existing duplicated
+  `_word_overlap` precedent (keeps Interpretation and WorldState
+  independently versionable).
+- `src/interpretation/prompt.py`: new GOAL UPDATES, DECISION EVENTS, and
+  ENTITY ATTRIBUTE UPDATES sections, same sparse-by-default framing as
+  every other field.
+- `src/state/world_state.py`: new `EntityAttribute` model
+  (`attribute`/`value`); `Entity.attributes` restructured from `List[str]`
+  (always empty, no data source) to `List[EntityAttribute]`. Updated the
+  module's KNOWN LIMITATION note to record that Goal/Decision lifecycle
+  now has a real advancement signal for the explicit-statement case.
+- `src/state/builder.py`: new `_apply_goal_updates` and
+  `_apply_decision_events` (both word-overlap-match against existing
+  Goals/Decisions, silently drop an unmatched update -- never fabricate a
+  new Goal/Decision from one); `_merge_entities` extended to consume
+  `entity_attribute_updates` (sets/replaces an entity's attribute by key
+  -- "refine, don't replace" applied per-attribute; creates the entity if
+  it wasn't separately mentioned in `entities` that turn). `DecisionEvent`
+  -> `DecisionStatus` mapping: `"chosen"`/`"rejected"` both -> `"resolved"`
+  (an option no longer being weighed, whichever way it went, matching
+  `Decision`'s own docstring reading); `"proposed"`/`"deferred"` are
+  deliberate no-ops (the former is `decision_options`' job; the latter has
+  no distinct WorldState status to move to yet -- not invented here).
+- **This is not a builder.py heuristic compensating for a missing
+  signal** -- the standing principle ("the State Builder must not
+  compensate for a missing semantic signal with a heuristic") is
+  satisfied, not worked around: the signal now legitimately exists
+  upstream in Interpretation, and the builder does exactly what Design
+  Principle 3 already called for ("mark superseded/resolved/retracted,
+  never remove").
+- `tests/test_world_state_evolution.py`: the two tests that previously
+  documented the goal-lifecycle and entity-enrichment gaps as
+  known-and-accepted were split, not deleted -- one half now confirms the
+  OLD behavior is still correct when no typed update is given (a bare
+  co-occurring fact must not move status/populate attributes -- the
+  builder still never guesses), the other half confirms the NEW behavior
+  when the typed signal is present. Added a decision-events test and an
+  entity-attribute-update-creates-entity test. 136 tests total, all
+  passing.
+
+**Explicitly still out of scope, not silently dropped:**
+- **Fact contradiction/supersede write-back into WorldState.** Judgment's
+  strengthened `contradictions` field (Tier 1, item 2) makes conflicts
+  visible via the Response, addressing the log's actual complaint. Marking
+  a Fact `superseded` in WorldState itself would need a write-back path
+  from Judgment into WorldState that doesn't exist (Judgment only reads
+  WorldState; `update_state` already ran earlier in the same turn) -- a
+  distinct, bigger pipeline question for its own future round.
+- **Unknown resolution's deep-semantic-gap case** (already-known,
+  unchanged this round -- see the 2026-07-05 entry above).
+
+Manually verified end-to-end (see plan-mode file for the exact scenario)
+that a goal stated in one turn transitions to `completed` after a later
+turn's `GoalUpdate`, both `DecisionEvent`s resolve correctly, and an
+`EntityAttributeUpdate` populates and then correctly refines (not
+duplicates) an entity's attribute. Re-running the 30-test validation
+suite against the updated prompts, and re-running the 10-turn
+`WorldState` walkthrough end-to-end with the real pipeline, are the
+next steps to confirm these hold under live model output rather than
+hand-built `Interpretation` objects -- not yet done as of this entry.

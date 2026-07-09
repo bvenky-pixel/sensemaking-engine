@@ -22,13 +22,19 @@ extending this file):
    conclusions.
 5. Every field has explicit merge semantics (see src/state/builder.py).
 
-KNOWN LIMITATION, same as the old ConversationState: lifecycle only ever
-advances in the "Resolved"/"Completed" direction based on signals that
-exist today (unknowns resolved by a matching new fact/claim). Goal and
-Decision status has no advancement signal yet -- Interpretation doesn't
-tell us "user completed this goal" or "user resolved this decision" --
-so those stay at their initial status until a future Interpretation field
-provides that signal. Not invented here.
+KNOWN LIMITATION, updated 2026-07-09 (see engine/decisions.md and
+engine/specs/interpretation-spec-v1.1.md): Goal and Decision status
+advancement now HAS a signal -- Interpretation's `goal_updates` and
+`decision_events` fields (v1.1) -- consumed by
+src/state/builder.py's `_apply_goal_updates`/`_apply_decision_events`.
+This closes the gap described below for the cases those fields cover
+(explicit lifecycle statements); it does not add any inference the
+Interpretation layer doesn't itself provide -- an unmatched update is
+dropped, never guessed at downstream. Original note, preserved for
+history: lifecycle previously only ever advanced in the "Resolved"/
+"Completed" direction based on unknowns resolved by a matching new
+fact/claim; Goal and Decision status had no advancement signal at all
+before this round.
 
 TODO / DESIGN NOTE (2026-07-05, not implemented -- see engine/decisions.md):
 WorldState currently conflates two different kinds of state under one
@@ -125,11 +131,26 @@ class Unknown(KnowledgeItem):
     status: UnknownStatus = "open"
 
 
+class EntityAttribute(BaseModel):
+    """
+    A single known attribute of an Entity (e.g. attribute="role",
+    value="Head of Product"). v1.1 (see engine/decisions.md and
+    engine/specs/interpretation-spec-v1.1.md): Entity.attributes was a
+    flat List[str] with no data source; Interpretation's
+    entity_attribute_updates now supplies real (attribute, value) pairs,
+    so the field is restructured to actually hold them rather than stay
+    permanently empty.
+    """
+
+    attribute: str
+    value: str
+
+
 class Entity(KnowledgeItem):
     name: str
     type: str = "unknown"  # Interpretation doesn't classify entity type yet
     status: EntityStatus = "active"
-    attributes: List[str] = Field(default_factory=list)
+    attributes: List[EntityAttribute] = Field(default_factory=list)
     relationships: List[str] = Field(default_factory=list)
 
 

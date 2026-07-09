@@ -21,11 +21,17 @@ from __future__ import annotations
 import re
 from typing import List, Tuple
 
-from src.interpretation.schema import Interpretation
+from src.interpretation.schema import (
+    DecisionEvent,
+    EntityAttributeUpdate,
+    GoalUpdate,
+    Interpretation,
+)
 from src.state.world_state import (
     Claim,
     Decision,
     Entity,
+    EntityAttribute,
     Fact,
     Goal,
     Unknown,
@@ -130,6 +136,66 @@ def _merge_content_items(existing: list, new_contents: List[str], model_cls) -> 
     return result
 
 
+# v1.1 (see engine/decisions.md and engine/specs/interpretation-spec-v1.1.md):
+# consumes Interpretation's goal_updates/decision_events/
+# entity_attribute_updates -- the real upstream signal the standing
+# principle ("the State Builder must not compensate for a missing
+# semantic signal with a heuristic") called for. Matching a `GoalUpdate`/
+# `DecisionEvent` target to an existing stored item still uses text
+# similarity (WorldState has no stable object IDs yet -- deferred to
+# v1.1 provenance work per world_state.py's module docstring), so this
+# is a narrower, more mechanical lookup than the fabrication these
+# functions replace, not a claim of full semantic matching. An update
+# with no sufficiently-similar existing item is dropped, never used to
+# fabricate a new one -- goal_updates/decision_events are exclusively for
+# transitions on something already tracked.
+
+# DecisionEvent.event -> DecisionStatus. "proposed" isn't mapped: a
+# proposed option is what `decision_options` already covers (a fresh
+# extraction), so a "proposed" event on an existing option is a no-op
+# here. "deferred" is also a no-op on status (WorldState's DecisionStatus
+# has no separate "postponed" state, and forcing it into "open" would
+# change nothing) -- included in the Literal for Interpretation's honesty
+# ("this was explicitly deferred, not silently ignored") even though the
+# merge layer doesn't yet have a distinct status to move it to.
+_DECISION_EVENT_TO_STATUS = {
+    "chosen": "resolved",
+    "rejected": "resolved",
+}
+
+
+def _apply_goal_updates(goals: List[Goal], updates: List[GoalUpdate]) -> List[Goal]:
+    """
+    Transition an existing Goal's status when a GoalUpdate's `goal` text
+    sufficiently overlaps an existing goal's content (same bidirectional
+    word-overlap check as unknown resolution). No match -> dropped, never
+    used to fabricate a new Goal (that's `goals: List[str]`'s job).
+    """
+    result = list(goals)
+    for update in updates:
+        for g in result:
+            if _is_resolved_by(update.goal, g.content) or _is_resolved_by(g.content, update.goal):
+                g.status = update.status
+                break
+    return result
+
+
+def _apply_decision_events(
+    decisions: List[Decision], events: List[DecisionEvent]
+) -> List[Decision]:
+    """Same matching mechanism as _apply_goal_updates, for Decisions."""
+    result = list(decisions)
+    for event in events:
+        new_status = _DECISION_EVENT_TO_STATUS.get(event.event)
+        if new_status is None:
+            continue
+        for d in result:
+            if _is_resolved_by(event.option, d.content) or _is_resolved_by(d.content, event.option):
+                d.status = new_status
+                break
+    return result
+
+
 def _reconcile_unknowns(
     existing: List[Unknown], new_unknowns: List[str], resolved_by: List[str]
 ) -> Tuple[List[Unknown], List[str]]:
@@ -167,8 +233,24 @@ def _reconcile_unknowns(
     return merged, resolved_contents
 
 
-def _merge_entities(existing: List[Entity], new_names: List[str]) -> List[Entity]:
-    """Enrich existing entities by name (case-insensitive), never duplicate."""
+def _merge_entities(
+    existing: List[Entity],
+    new_names: List[str],
+    attribute_updates: List[EntityAttributeUpdate],
+) -> List[Entity]:
+    """
+    Enrich existing entities by name (case-insensitive), never duplicate.
+
+    v1.1: attribute_updates now gives this function a real data source
+    for Entity.attributes (previously always []). An update for an entity
+    matched by name gets its attribute set (replacing any prior value for
+    that same attribute key -- Design Principle 2, "refine, don't
+    replace," applied at the attribute level: the entity record isn't
+    replaced, just this one attribute's current value). An update whose
+    entity was never separately mentioned in `new_names` still creates
+    the entity -- the attribute statement itself is evidence the entity
+    exists, not a reason to drop it.
+    """
     result = list(existing)
     by_name = {e.name.strip().lower(): e for e in result}
     for name in new_names:
@@ -177,8 +259,23 @@ def _merge_entities(existing: List[Entity], new_names: List[str]) -> List[Entity
             entity = Entity(name=name)
             result.append(entity)
             by_name[key] = entity
-        # Enrichment (attributes/relationships) has no data source yet --
-        # see src/state/world_state.py module docstring.
+
+    for update in attribute_updates:
+        key = update.entity.strip().lower()
+        entity = by_name.get(key)
+        if entity is None:
+            entity = Entity(name=update.entity)
+            result.append(entity)
+            by_name[key] = entity
+        for existing_attr in entity.attributes:
+            if existing_attr.attribute.strip().lower() == update.attribute.strip().lower():
+                existing_attr.value = update.value
+                break
+        else:
+            entity.attributes.append(
+                EntityAttribute(attribute=update.attribute, value=update.value)
+            )
+
     return result
 
 
@@ -198,7 +295,9 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     new_state.facts = _merge_content_items(state.facts, interp.observed_facts, Fact)
     new_state.claims = _merge_content_items(state.claims, interp.claims, Claim)
     new_state.goals = _merge_content_items(state.goals, interp.goals, Goal)
+    new_state.goals = _apply_goal_updates(new_state.goals, interp.goal_updates)
     new_state.decisions = _merge_content_items(state.decisions, interp.decision_options, Decision)
+    new_state.decisions = _apply_decision_events(new_state.decisions, interp.decision_events)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
 
     kept_inferences = [
@@ -218,7 +317,9 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
         new_state.facts = _merge_content_items(new_state.facts, resolved, Fact)
 
     new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
-    new_state.entities = _merge_entities(state.entities, interp.entities)
+    new_state.entities = _merge_entities(
+        state.entities, interp.entities, interp.entity_attribute_updates
+    )
     new_state.clarity_level = interp.clarity_score
 
     return new_state
