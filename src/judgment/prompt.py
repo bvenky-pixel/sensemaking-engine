@@ -79,6 +79,22 @@ FIELD DEFINITIONS
   A conflict sitting in plain sight in supporting_evidence-worthy content
   is the single most commonly missed case -- do not skip this check just
   because nothing seemed contradictory at first read.
+- risk_scan: MANDATORY, never empty. Before writing risks/opportunities,
+  state in one to two sentences what you checked WorldState.facts and
+  WorldState.claims for, and what (if anything) you found. This field
+  exists so the check happens every turn, not only when a risk happens to
+  be obvious.
+      Facts: ["User is considering quitting their job with no other offer
+      lined up."] -> risk_scan: "Checked facts/claims against the primary
+      goal: quitting with no offer lined up is a real financial risk."
+      Claims: ["User says they don't enjoy anything anymore."] ->
+      risk_scan: "Checked facts/claims: a persistent negative-affect
+      statement like this can't rule out something more significant than
+      routine dissatisfaction -- worth a modest epistemic-humility risk."
+  "Checked facts/claims against the primary goal; nothing meets the bar
+  for a risk or opportunity" is a completely valid answer -- this field is
+  NOT a signal to invent a risk where none exists, only a forcing
+  function so the check itself is never silently skipped.
 - risks: factors, grounded in WorldState content, likely to hinder
   progress toward the primary goal. Every risk must name the specific
   Fact, Claim, or Unknown it is derived from, and must describe a

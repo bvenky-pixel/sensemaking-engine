@@ -226,6 +226,16 @@ class Interpretation(BaseModel):
     claims: List[str]                # propositional content the user asserts as true
     goals: List[str]                 # what the user is trying to achieve
     decision_options: List[str]      # choices the user is explicitly weighing -- not beliefs
+
+    # v1.2 (see engine/decisions.md and interpretation-spec-v0.9.md's
+    # REOPENED `assumptions` entry): mandatory reasoning field, added after
+    # a prompt-only fix for `assumptions` under-population (A04, "Hidden
+    # assumptions") failed to hold on re-test against the real pipeline.
+    # Forces the model to explicitly state whether the user's own framing
+    # embeds an unstated belief before finalizing `assumptions`, rather
+    # than letting that check be silently skipped -- "typed over prompted"
+    # (governing law 3) applied to a generative gap, not a validation gap.
+    assumption_check: str
     assumptions: List[str]           # unstated beliefs implied but not directly said
     inferences: List[Inference]      # model's reads, each with confidence
     unknowns: List[str]              # gaps in the situation as stated -- not brainstormed next steps

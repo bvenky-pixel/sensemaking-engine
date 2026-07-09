@@ -163,6 +163,21 @@ If a field has no honest answer to #7, it is deleted or marked for removal.
 7. **Downstream consumer:** `ConversationState.assumptions`, `judgment/engine.py`'s `assumptions_surfaced` count.
 **Decision: KEEP, ADD cross-field dedup validator.**
 
+**REOPENED (2026-07-09, see engine/decisions.md):** A04 (Primary Capability
+"Hidden assumptions") repeatedly produced `assumptions=[]` even on a test
+whose own framing ("I think I'm making the wrong decision") embeds an
+obvious implicit belief (a right decision exists to find). A prompt-only
+fix (a worked example distinguishing this exact case) was tried first per
+governing law 3 and confirmed, on re-test against the real pipeline, NOT
+to hold -- `assumptions` stayed empty. **Decision: CHANGE — add a
+mandatory `assumption_check` field** (a required, non-empty reasoning
+string immediately preceding `assumptions`) that forces the model to
+explicitly state whether the user's own phrasing embeds an unstated
+belief before finalizing the list, rather than allowing the check to be
+silently skipped. This is the structural escalation governing law 3
+calls for once a prompt-only fix has failed, not a further prompt-wording
+attempt.
+
 ### `inferences`
 1. **Purpose:** the model's own read on what the evidence means — the one tier deliberately allowed to go beyond exactly what was said.
 2. **Definition:** unchanged — hedge-word confidence cap (fixed this round to catch "possible" as well as "possibly") is the intended control here; no evidence this round of new leaks beyond what's already being managed.
@@ -239,7 +254,7 @@ Applying the "what breaks if this disappears" test to the surrounding state, not
 | `claims` | No change | — |
 | `goals` | Tighten definition, reconsider threshold | Medium |
 | `decision_options` | No change | — |
-| `assumptions` | Add cross-field dedup filter | High for this specific new failure shape |
+| `assumptions` | Add cross-field dedup filter; **REOPENED 2026-07-09** — add mandatory `assumption_check` reasoning field (structural, prompt fix failed on retest) | High for this specific new failure shape |
 | `inferences` | No change | — |
 | `unknowns` | Redefine + pattern backstop | Medium |
 | `biases` | No change | — |

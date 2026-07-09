@@ -167,6 +167,23 @@ decision_options above).
 decision_events=[] is correct whenever nothing in this turn speaks to an
 earlier decision option's fate.
 
+ASSUMPTION CHECK -- MANDATORY, never empty. Before writing `assumptions`,
+state in one sentence whether the user's own PHRASING (not just their
+explicit claims) embeds an unstated belief, and why.
+    User: "I think I'm making the wrong decision."
+    GOOD assumption_check: "The phrase 'the wrong decision' implies the
+    user believes an objectively correct decision exists to find -- this
+    is a framing-embedded assumption."
+    User: "I've been trying to move to the Product team for months."
+    GOOD assumption_check: "No framing-embedded assumption detected; the
+    language describes an effort and duration without implying an
+    unstated belief."
+This field exists specifically so the check happens every turn, not only
+when an assumption happens to be obvious. Writing "No framing-embedded
+assumption detected" is a completely valid answer -- the field must never
+be skipped or left as a placeholder, but it is NOT a signal to invent one
+where none exists.
+
 ASSUMPTIONS -- a belief the user is ALREADY relying on right now,
 inferred from what they implied -- never a prediction about the future,
 never a judgment about the user's own behavior they didn't make, and

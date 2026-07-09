@@ -57,6 +57,14 @@ Judgment(
 - **Active Decisions** — Outstanding decisions.
 - **Open Unknowns** — Unknowns that materially affect goals.
 - **Contradictions** — Conflicts present in WorldState.
+- **Risk Scan** — (added 2026-07-09, see engine/decisions.md) a mandatory
+  reasoning field immediately preceding Risks/Opportunities, forcing an
+  explicit pass over WorldState content for risk-worthy signals
+  (including modest epistemic-humility risks grounded in ambiguous or
+  persistent negative-affect Claims) before finalizing those two fields.
+  Structural escalation after a prompt-only fix for this same gap (E03)
+  failed to hold on re-test, per this project's "typed over prompted,
+  once prompting has failed" discipline.
 - **Risks** — Factors likely to hinder progress.
 - **Opportunities** — Factors likely to accelerate progress.
 - **Trajectory** — Improving, Stable, Deteriorating, or Uncertain.

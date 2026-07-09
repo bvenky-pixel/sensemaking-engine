@@ -34,6 +34,14 @@ class Judgment(BaseModel):
     open_unknowns: List[str] = Field(default_factory=list)
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
+
+    # Mandatory reasoning field (added 2026-07-09, see engine/decisions.md
+    # and judgment-specification-v2.md's Risk Scan entry) -- a prompt-only
+    # fix for risks/opportunities under-population (E03's missed
+    # epistemic-humility risk) failed to hold on re-test. Forces an
+    # explicit pass over WorldState content before finalizing risks/
+    # opportunities, rather than letting that pass be silently skipped.
+    risk_scan: str
     risks: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
 
