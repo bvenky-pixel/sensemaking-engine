@@ -1,0 +1,439 @@
+# Judgment v3 — Design Proposal
+
+**Status:** DISCUSSION DRAFT (NOT FROZEN, NOT IMPLEMENTED)
+
+This document proposes the future direction of Confidant's Judgment layer following:
+
+* Interpretation v0.9 production use
+* WorldState v1 implementation
+* Multi-turn state evolution testing
+* Interpretation v2 planning
+
+This is a design document, not a schema specification.
+
+No prompt, schema, or code changes are implied by this document.
+
+---
+
+# Executive Summary
+
+Interpretation answers:
+
+> What is present?
+
+WorldState answers:
+
+> What do we know?
+
+Response answers:
+
+> How should we communicate?
+
+Judgment exists to answer:
+
+> What matters?
+
+Its responsibility is not extraction, storage, planning, or communication.
+
+Its responsibility is assessment.
+
+The purpose of Judgment is to transform accumulated knowledge into situational understanding.
+
+---
+
+# Architectural Position
+
+Current architecture:
+
+```text
+User
+  ↓
+Interpretation
+  ↓
+WorldState
+  ↓
+Judgment
+  ↓
+Response
+```
+
+Interpretation extracts.
+
+WorldState remembers.
+
+Judgment assesses.
+
+Response communicates.
+
+The long-term Planner layer (not yet implemented) will eventually own action generation and strategy formation.
+
+Judgment should remain upstream of planning.
+
+---
+
+# Core Purpose
+
+Judgment is the assessment layer.
+
+It identifies:
+
+* what is important
+* what is uncertain
+* what is conflicting
+* what appears to be driving the situation
+* what deserves further exploration
+
+Judgment does not decide what the user should do.
+
+---
+
+# Responsibilities
+
+## 1. Situation Assessment
+
+Judgment should produce an overall understanding of the user's current situation.
+
+Examples:
+
+* stalled career transition
+* unresolved relationship conflict
+* decision paralysis
+* competing priorities
+* escalating uncertainty
+
+This is synthesis, not extraction.
+
+Interpretation already performed extraction.
+
+---
+
+## 2. Salience Detection
+
+Not every fact matters equally.
+
+Judgment should identify:
+
+* central issues
+* secondary issues
+* background information
+
+The objective is prioritization of attention, not prioritization of actions.
+
+---
+
+## 3. Contradiction Assessment
+
+Interpretation v2 introduces contradictions.
+
+Interpretation's role:
+
+> Record the tension.
+
+Judgment's role:
+
+> Assess the significance of the tension.
+
+Example:
+
+Interpretation:
+
+```text
+Positive feedback conflicts with promotion outcome.
+```
+
+Judgment:
+
+```text
+Career advancement appears blocked despite positive performance signals.
+```
+
+Judgment may assess the implication.
+
+It may not invent an explanation.
+
+---
+
+## 4. Risk Assessment
+
+Interpretation v2 introduces risks.
+
+Interpretation's role:
+
+> Identify possible downside exposure.
+
+Judgment's role:
+
+> Assess which risks materially matter.
+
+Example:
+
+Interpretation:
+
+```text
+Loss of income
+Extended unemployment
+```
+
+Judgment:
+
+```text
+Financial uncertainty appears to be a significant constraint on decision making.
+```
+
+Judgment may assess significance.
+
+It may not forecast outcomes.
+
+---
+
+## 5. Uncertainty Assessment
+
+Unknowns are one of the strongest signals in the system.
+
+Judgment should evaluate:
+
+* how much uncertainty exists
+* whether clarification is needed
+* whether the current understanding is sufficient
+
+This is different from asking questions.
+
+It is an assessment of confidence.
+
+---
+
+## 6. Decision Readiness
+
+When decisions exist, Judgment should assess:
+
+* whether the user is actively evaluating options
+* whether important uncertainty remains
+* whether a decision appears blocked
+
+Judgment should not recommend an option.
+
+That belongs to a future Planner.
+
+---
+
+## 7. Goal Progress Assessment
+
+When goals exist, Judgment should assess:
+
+* active progress
+* stagnation
+* uncertainty around progress
+
+Judgment should not invent completion.
+
+Goal lifecycle updates belong elsewhere.
+
+---
+
+# Explicit Non-Responsibilities
+
+Judgment should not:
+
+* give advice
+* create action plans
+* generate recommendations
+* create coping strategies
+* coach
+* persuade
+* motivate
+* comfort
+* write responses
+* select response tone
+
+These belong to future layers.
+
+---
+
+# Relationship to Interpretation
+
+Interpretation is evidence-oriented.
+
+Judgment is meaning-oriented.
+
+Interpretation asks:
+
+> What is present?
+
+Judgment asks:
+
+> What does this collection of information suggest?
+
+Interpretation should avoid synthesis.
+
+Judgment should embrace synthesis.
+
+---
+
+# Relationship to WorldState
+
+WorldState stores knowledge.
+
+Judgment does not store knowledge.
+
+Judgment should never become a second memory layer.
+
+WorldState persists.
+
+Judgment assesses.
+
+---
+
+# Relationship to Future Planner
+
+This boundary is critical.
+
+## Judgment
+
+Answers:
+
+```text
+What matters?
+What is unclear?
+What is conflicting?
+What appears significant?
+```
+
+## Planner
+
+Will answer:
+
+```text
+What could be done?
+What options exist?
+What tradeoffs exist?
+What experiments could help?
+```
+
+The Planner should never have to rediscover the situation.
+
+Judgment should hand it an already-assessed situation.
+
+---
+
+# Proposed Judgment Principles
+
+## Principle 1
+
+Assessment over recommendation.
+
+---
+
+## Principle 2
+
+Significance over summarization.
+
+A summary repeats information.
+
+A judgment evaluates information.
+
+---
+
+## Principle 3
+
+Uncertainty is first-class.
+
+A good Judgment identifies what is not known.
+
+---
+
+## Principle 4
+
+Tension matters.
+
+Contradictions often reveal the most important dynamics in a situation.
+
+Judgment should surface them rather than flatten them.
+
+---
+
+## Principle 5
+
+Risks matter.
+
+Downside exposure often explains behavior better than stated preferences.
+
+Judgment should recognize meaningful constraints.
+
+---
+
+# Open Questions
+
+## Should Judgment assess trajectory?
+
+Examples:
+
+* improving
+* stagnant
+* deteriorating
+
+This was deferred from Judgment v2 because WorldState lacks historical transition tracking.
+
+Future WorldState versions may enable it.
+
+---
+
+## Should Judgment assess confidence?
+
+Interpretation already carries confidence fields.
+
+It is unclear whether Judgment should generate a separate assessment confidence.
+
+Further testing required.
+
+---
+
+## Should Judgment explicitly rank issues?
+
+Examples:
+
+```text
+Primary concern
+Secondary concern
+Background concern
+```
+
+Potentially useful.
+
+Not yet decided.
+
+---
+
+# Success Criteria
+
+A strong Judgment should:
+
+* identify the central issue
+* surface important uncertainty
+* recognize meaningful contradictions
+* recognize meaningful risks
+* synthesize state into understanding
+* avoid recommendations
+
+A user reading the resulting Judgment should feel:
+
+> "Yes, that accurately captures what is actually going on."
+
+before any advice, planning, or response generation occurs.
+
+---
+
+# Future Dependencies
+
+Judgment v3 should be revisited after:
+
+* Interpretation v2 implementation
+* Interpretation v2 benchmark results
+* Goal lifecycle work
+* Decision lifecycle work
+* WorldState v1.1
+
+Those systems will determine how much additional assessment capability Judgment needs.
+
+Until then, Judgment should remain focused on its core role:
+
+> Turning knowledge into understanding.

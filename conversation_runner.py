@@ -1,83 +1,23 @@
 """
-conversation_runner.py -- manual developer CLI for the Understanding Layer.
-
-PURPOSE
--------
-Lets a developer type messages into the terminal, one at a time, and watch
-ConversationState evolve after each one. There is no assistant reply
-generated -- this tool exists purely to observe StateUpdater's behavior in
-isolation, turn by turn.
-
-FLOW PER TURN
--------------
-1. Prompt for input in the terminal.
-2. Append the message to the in-memory transcript.
-3. Call StateUpdater with the current state + full transcript.
-4. Replace the current state with the validated result.
-5. Render the new state with StateInspector.
-6. Print a divider.
-Repeat until you type "exit" (or "quit").
-
-REQUIREMENTS
-------------
-- Python 3.9+
-- `openai` and `pydantic` installed (StateUpdater's dependencies)
-- This script uses MockStateUpdater by default, so no API key is required to
-  run it. To exercise the real LLM-backed StateUpdater instead, see
-  engine/state_updater.py and .env.example for OPENROUTER_API_KEY / Ollama
-  configuration.
-
-RUNNING IT
-----------
-    python conversation_runner.py
-
-EXAMPLE SESSION
-----------------
-    $ python conversation_runner.py
-    Conversation Runner -- Understanding Layer inspector
-    Type a message and press Enter. Type 'exit' to quit.
-    --------------------------------------------------
-
-    You: My partnerships team is upset about a landing page escalation
-         and I don't know how direct to be in my response.
-
-    ==================================================
-                    CONVERSATION STATE
-    ==================================================
-    Emotion
-    -------
-    Anxious (6/10)
-    ...
-    ==================================================
-
-    ==================================================
-
-    You: exit
-    Session ended.
-
-This script does NOT generate assistant replies. It only exercises
-StateUpdater + StateInspector against whatever you type.
+conversation_runner.py -- manual developer CLI for Understanding Layer
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+
 from typing import List
 
-from engine.state import ConversationState
 from engine.state_inspector import render
-from engine.mock_state_updater import MockStateUpdater
-from engine.state_updater import StateUpdateError
+
+from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
+from src.interpretation.debug import analyze_interpretation
+from src.orchestrator.engine import run_turn
+from src.state.world_state import WorldState
+
 
 DIVIDER = "=" * 50
 EXIT_COMMANDS = {"exit", "quit"}
-
-
-def build_transcript(turns: List[str]) -> str:
-    """Join accumulated turns into the flat transcript text StateUpdater
-    expects. Each turn is already prefixed with its speaker label."""
-    return "\n".join(turns)
 
 
 def run(model: str) -> None:
@@ -85,15 +25,9 @@ def run(model: str) -> None:
     print("Type a message and press Enter. Type 'exit' to quit.")
     print("-" * 50)
 
-    try:
-        updater = MockStateUpdater()
-    except Exception as exc:
-        print(f"Failed to initialize StateUpdater: {exc}")
-        print("Check that 'openai' and 'pydantic' are installed.")
-        sys.exit(1)
-
-    state = ConversationState()
-    transcript: List[str] = []
+    state = WorldState()
+    transcript: List[str] = []  # optional, currently unused
+    tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
 
     while True:
         try:
@@ -103,47 +37,78 @@ def run(model: str) -> None:
             break
 
         if not message:
-            # Nothing typed -- don't waste a turn or an API call on it.
             continue
 
         if message.lower() in EXIT_COMMANDS:
             print("Session ended.")
             break
 
+        # Keep transcript for future multi-turn reasoning (optional)
         transcript.append(f"User: {message}")
 
-        try:
-            state = updater.update(state, build_transcript(transcript))
-        except StateUpdateError as exc:
-            print(f"\n[StateUpdater error] {exc}")
-            if exc.raw_output:
-                print(f"[raw model output] {exc.raw_output}")
-            print("State was left unchanged for this turn.")
-            print(DIVIDER)
-            continue
-        except Exception as exc:
-            # Catch-all so a single bad turn can't crash the session --
-            # this is a debugging tool, it should keep running.
-            print(f"\n[Unexpected error] {exc}")
-            print("State was left unchanged for this turn.")
-            print(DIVIDER)
-            continue
+        turn_start = tracker.count()
+        outcome_start = tracker.outcome_count()
 
-        print()
-        render(state)
+        try:
+            # Orchestrator coordinates the fixed Interpretation -> WorldState
+            # -> Judgment -> Planner -> Response Generator sequence and
+            # reports exactly how far the turn got, even on a mid-pipeline
+            # failure -- see src/orchestrator/engine.py. `result.state`
+            # always reflects what's actually true (genuinely unchanged
+            # only if Interpretation itself failed), so state is never lost
+            # or misreported the way it was before Orchestrator existed.
+            result = run_turn(message, state, tracker=tracker)
+            state = result.state
+
+            if result.interpretation:
+                analyze_interpretation(result.interpretation)
+                print("\n--- INTERPRETATION (internal) ---")
+                print(result.interpretation.model_dump())
+
+                print("\n--- STATE (internal) ---")
+                render(state)
+
+            if result.judgment:
+                print("\n--- JUDGMENT (internal) ---")
+                print(result.judgment.model_dump())
+
+            if result.planner:
+                print("\n--- PLANNER (internal) ---")
+                print(result.planner.model_dump())
+
+            if result.response:
+                print("\n--- RESPONSE (user-facing) ---")
+                print(result.response.response_text)
+                print(f"[confidence={result.response.confidence}]")
+
+            if result.error:
+                print(f"\n[Error at {result.failed_stage}] {result.error}")
+
+            if is_tracking_enabled():
+                print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
+
+        except Exception as exc:
+            # Backstop only -- every EXPECTED failure mode (a stage's LLM
+            # call failing) is already handled above via TurnResult, never
+            # raised. This catches a genuinely unexpected bug (e.g. in
+            # render() or analyze_interpretation()) so the REPL loop
+            # survives instead of crashing outright.
+            print(f"\n[Unexpected error] {exc}")
+
         print(DIVIDER)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Manually chat with the Understanding Layer and inspect "
-        "ConversationState after every message."
+        description="Inspect WorldState after every message."
     )
+
     parser.add_argument(
         "--model",
         default="claude-sonnet-5",
-        help="Claude model to pass to StateUpdater (default: claude-sonnet-5).",
+        help="Unused for now unless wired into interpretation engine."
     )
+
     args = parser.parse_args()
     run(model=args.model)
 

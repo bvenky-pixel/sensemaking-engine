@@ -1,9 +1,10 @@
 name: Single-turn pipeline smoke test
 
 # Manual only -- runs ONE message through the real pipeline
-# (Interpretation -> State Builder -> WorldState -> Judgment), 2 real
-# LLM calls total. For verifying the pipeline still works end to end
-# after a fix, without the full evaluation harness's ~23-call cost.
+# (Interpretation -> State Builder -> WorldState -> Judgment -> Planner ->
+# Response Generator), 4 real LLM calls total, all against OpenRouter. For
+# verifying the pipeline still works end to end after a fix, without the
+# full evaluation harness's ~23-call cost.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +12,10 @@ on:
         description: "User message to run through the pipeline"
         required: false
         default: "I've been trying to move from my current team to the Product team for a few months now."
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free'; pin a specific :free model for a model-invariant quality run)"
+        required: false
+        default: ""
 
 jobs:
   smoketest:
@@ -29,5 +34,9 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CONFIDANT_TRACK_USAGE: "1"
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
         run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
           printf '%s\nexit\n' "${{ github.event.inputs.message }}" | python conversation_runner.py
