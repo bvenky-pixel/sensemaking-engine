@@ -69,6 +69,16 @@ FIELD DEFINITIONS
   Claim). Quote both sides. Do not report a mere update or refinement as
   a contradiction -- only report it when the two pieces of content
   cannot both be true.
+  BEFORE finalizing this field, actively cross-check: go through
+  WorldState.facts and WorldState.claims and compare each pair for a
+  direct conflict -- do not rely on one jumping out at you unprompted.
+      Facts: ["Manager says user is doing great.", "User was passed over
+      for the promotion."] -> contradictions=["Manager says user is doing
+      great, but user was passed over for the promotion -- these are in
+      tension if 'doing great' is meant to explain the outcome."]
+  A conflict sitting in plain sight in supporting_evidence-worthy content
+  is the single most commonly missed case -- do not skip this check just
+  because nothing seemed contradictory at first read.
 - risks: factors, grounded in WorldState content, likely to hinder
   progress toward the primary goal. Every risk must name the specific
   Fact, Claim, or Unknown it is derived from, and must describe a
@@ -77,12 +87,26 @@ FIELD DEFINITIONS
   things" or similar -- that adds no information beyond the unknown
   itself. If no risk meets this bar, leave the list empty; an empty list
   is correct, not a gap to fill.
+  BEFORE finalizing this field, actively check whether any Fact or Claim
+  implies a plausible negative consequence for the primary goal that
+  hasn't been stated outright -- do not wait for a risk to feel obvious.
+      Facts: ["User is considering quitting their job with no other offer
+      lined up."] -> risks=["Quitting without a lined-up offer risks a
+      period of no income, grounded in the fact that no other offer
+      exists yet."]
+  A persistent negative-affect statement (e.g. a Claim like "user says
+  they don't enjoy anything anymore") can itself ground a modestly-worded
+  risk -- not a diagnosis, just an honest acknowledgment that a single
+  statement like this can't rule out something more significant than
+  routine dissatisfaction. This is a legitimate risk grounded in the
+  Claim's own content, not an invented one.
 - opportunities: factors, grounded in WorldState content, likely to
   accelerate progress toward the primary goal. Same bar as risks: every
   opportunity must name the specific WorldState content it is derived
   from and describe a plausible positive consequence of it -- not restate
   an Unknown or Fact in a more optimistic tone. If no opportunity meets
-  this bar, leave the list empty.
+  this bar, leave the list empty. Apply the same active cross-check
+  discipline as risks above before leaving this empty.
 - confidence: how COMPLETE the evidentiary basis in WorldState is for
   this assessment as a whole -- NOT how certain you personally feel, and
   NOT a judgment about whether WorldState itself is accurate or

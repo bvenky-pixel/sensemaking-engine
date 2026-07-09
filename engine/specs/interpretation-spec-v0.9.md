@@ -198,6 +198,22 @@ If a field has no honest answer to #7, it is deleted or marked for removal.
 ### `clarity_score` / `requires_clarification`
 No issues observed this round. **Decision: KEEP, unchanged.**
 
+**REOPENED (2026-07-09, see engine/decisions.md):** the 30-test `gpt-4o-mini`
+validation run (`experiments/confidant-validation/log.md`, Run 2) directly
+contradicts the "no issues observed" call above. This was the single most
+repeated defect pattern across the entire 30-test log (C01, C02, C03, E03,
+X04), with X04 the worst case: `clarity_score=0.0` (the lowest, most honestly
+calibrated clarity signal in the whole run) paired with
+`requires_clarification=False` — the starkest, most indefensible instance of
+the pattern. Root cause: zero prompt guidance existed for either field (no
+definition, no threshold, no example) and no cross-field validator connects
+them. **Decision: CHANGE — add explicit prompt guidance defining the
+relationship between the two fields, with a concrete threshold anchor and a
+worked example.** No code-level validator yet, per this codebase's own
+"typed over prompted, once a prompt-only fix has failed" discipline — this is
+the first prompt attempt on this specific pair, so try that first and
+re-test against C01/X04 before considering a structural backstop.
+
 ---
 
 ## Part 4 — Cross-cutting finding (not an Interpretation field, but surfaced by this audit)
@@ -228,7 +244,7 @@ Applying the "what breaks if this disappears" test to the surrounding state, not
 | `unknowns` | Redefine + pattern backstop | Medium |
 | `biases` | No change | — |
 | `entities` | Add grounding filter, sequenced after `impact_domains` fix | Medium — may be redundant if `impact_domains` fix resolves it |
-| `clarity_score` / `requires_clarification` | No change | — |
+| `clarity_score` / `requires_clarification` | **REOPENED 2026-07-09** — add prompt guidance connecting the two fields | Medium — first prompt attempt on this pair; re-test before considering a structural backstop |
 | *(state)* `agency_level` | Remove or mark unimplemented | — |
 
 ---

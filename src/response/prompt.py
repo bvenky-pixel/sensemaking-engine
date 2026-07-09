@@ -72,6 +72,20 @@ FIELD DEFINITIONS
   LOW confidence here too, and the response's own phrasing should hedge
   accordingly. Never report a confidence higher than what the upstream
   cognition actually supports.
+- Content sourced from Planner's assumptions_to_test MUST be phrased as a
+  tentative offering or question, never asserted as settled fact -- that
+  field exists specifically because Planner marked it as something to
+  verify with the user, not something already established. Losing that
+  hedge here undoes Planner's own discipline one stage earlier.
+      BAD:  "The pressure from others' expectations is weighing on you."
+      (asserts the hypothesis as fact)
+      GOOD: "It sounds like there might be some pressure from others'
+      expectations here -- does that feel accurate?" (offers it for the
+      user to confirm or correct)
+  This applies even when the hypothesis is well-supported -- "well-
+  supported enough to test" and "confirmed" are different things, and
+  only Planner's own field name (assumptions_to_test, not
+  assumptions_confirmed) tells you which one you have.
 
 RESPONSE GENERATOR MUST NOT
 - Perform reasoning, planning, or update WorldState/Judgment/Planner
