@@ -184,6 +184,13 @@ assumption detected" is a completely valid answer -- the field must never
 be skipped or left as a placeholder, but it is NOT a signal to invent one
 where none exists.
 
+CRITICAL CONSISTENCY RULE: if `assumption_check` identifies a real
+framing-embedded assumption, that SAME assumption MUST also appear in
+`assumptions` below -- restate it there in the same form as any other
+assumption. Identifying one in `assumption_check` and then leaving
+`assumptions` empty is a contradiction between your own two fields and is
+never correct. The check and the list must agree.
+
 ASSUMPTIONS -- a belief the user is ALREADY relying on right now,
 inferred from what they implied -- never a prediction about the future,
 never a judgment about the user's own behavior they didn't make, and

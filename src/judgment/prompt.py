@@ -95,6 +95,13 @@ FIELD DEFINITIONS
   for a risk or opportunity" is a completely valid answer -- this field is
   NOT a signal to invent a risk where none exists, only a forcing
   function so the check itself is never silently skipped.
+  CRITICAL CONSISTENCY RULE: if risk_scan identifies a real risk-worthy
+  signal (including a modest epistemic-humility risk), that SAME signal
+  MUST also appear in `risks` below, phrased to meet the bar stated there
+  (name the specific Fact/Claim/Unknown, describe a plausible
+  consequence). Identifying a risk in risk_scan and then leaving `risks`
+  empty is a contradiction between your own two fields and is never
+  correct. The scan and the list must agree.
 - risks: factors, grounded in WorldState content, likely to hinder
   progress toward the primary goal. Every risk must name the specific
   Fact, Claim, or Unknown it is derived from, and must describe a
