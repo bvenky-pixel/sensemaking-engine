@@ -29,6 +29,7 @@ production data layer.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -40,7 +41,18 @@ from src.api.schema import MessageOut
 from src.orchestrator.schema import TurnResult
 from src.state.world_state import WorldState
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "confidant_mvp.db"
+# Deployment (see .github/workflows/deploy.yml, fly.toml) mounts a
+# persistent volume and points CONFIDANT_DB_PATH at a file inside it --
+# without this, the SQLite file would live in the container's own
+# ephemeral filesystem and every redeploy/restart would silently wipe
+# all session history, even with a volume declared. Defaults to a
+# repo-root-relative path for local dev, matching the original behavior.
+DB_PATH = Path(
+    os.environ.get(
+        "CONFIDANT_DB_PATH",
+        str(Path(__file__).resolve().parent.parent.parent / "confidant_mvp.db"),
+    )
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -81,6 +93,7 @@ def init_db(db_path: Optional[Path] = None) -> None:
     global DB_PATH
     if db_path is not None:
         DB_PATH = db_path
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA)
 

@@ -4019,3 +4019,87 @@ exactly as designed -- and that the smoketest's verification script
 correctly detects and fails on that condition. Next step: dispatch
 `api-smoketest.yml` on `main` with the real secret for the actual live
 proof.
+
+### 2026-07-10 (later): deployment artifacts added -- Fly.io, deployed via GitHub Actions rather than directly, due to a hard network policy restriction in this session
+
+The live `api-smoketest.yml` run confirmed the MVP works end-to-end
+(real `response_text` on both turns, 3 facts correctly accumulated in
+persisted WorldState across the SQLite round trip -- session log has the
+exact facts). A browser-driven check (Playwright, Chromium at
+`/opt/pw-browsers`) additionally confirmed the placeholder frontend
+itself: loads with correct styling, sends a message, and -- with no
+`OPENROUTER_API_KEY` available locally -- correctly showed one of
+`honestFailureMessage()`'s human-worded failure states rather than a
+crash, blank screen, or raw JSON. Only cosmetic issue: a harmless
+`/favicon.ico` 404.
+
+User then asked to deploy. Per explicit answers to three clarifying
+questions: Fly.io (recommended for its free-tier persistent-volume
+allowance, a real requirement given the SQLite backend), keep SQLite +
+a persistent volume rather than accepting ephemeral storage, and an
+interactive walkthrough rather than a fully automated hand-off.
+
+**Hard constraint discovered attempting this:** this session's outbound
+network goes through a policy-enforcing proxy restricted to an allowlist
+(Anthropic, GitHub, package registries) -- `fly.io` is explicitly
+blocked (confirmed via `curl $HTTPS_PROXY/__agentproxy/status`: a
+`connect_rejected`/403 recorded against `fly.io:443`). The proxy's own
+README is explicit: "do not retry or route around it -- report the
+blocked host." This is a policy denial, not a fixable credentials or
+config issue.
+
+**Resolution: run the actual `flyctl deploy` step from a GitHub Actions
+workflow instead of from this session.** GitHub-hosted runners have full
+internet access, and this repo already trusts them with
+`OPENROUTER_API_KEY` for the live smoketests -- the same trust model
+extends cleanly to a `FLY_API_TOKEN` secret for deployment. This sidesteps
+the network restriction entirely rather than attempting to route around
+it, consistent with the proxy's own instruction.
+
+**One necessary code fix first:** `src/api/db.py`'s `DB_PATH` was
+hardcoded relative to the repo root -- inside a container, that path
+lives in the image's own ephemeral layer, so even with a Fly volume
+declared and mounted, the SQLite file itself would never actually be
+inside it, and every restart/redeploy would silently wipe all session
+history. Made `DB_PATH` configurable via a `CONFIDANT_DB_PATH` env var
+(default unchanged, so local dev/tests are unaffected), and added
+`DB_PATH.parent.mkdir(parents=True, exist_ok=True)` to `init_db()` as a
+safety net. 148 tests still passing.
+
+**New files:**
+- `Dockerfile` -- `python:3.11-slim`, installs `requirements.txt`, sets
+  `CONFIDANT_DB_PATH=/data/confidant_mvp.db` (matching the Fly volume
+  mount below), runs `uvicorn src.api.server:app`. No frontend build
+  step needed -- `frontend/mvp/index.html` is static, served directly by
+  FastAPI's own `StaticFiles` mount.
+- `.dockerignore` -- excludes `.git`, test/cache dirs, and
+  `frontend/prototype/` (the large, already-rejected 126KB prototype,
+  not needed in the deployed image).
+- `fly.toml` -- hand-written (couldn't run `fly launch` to generate it,
+  same network restriction), following Fly's documented config schema:
+  `[[mounts]]` declares the `confidant_data` volume at `/data`;
+  `[http_service]` sets `auto_stop_machines`/`min_machines_running = 0`
+  so the single machine scales to zero when idle (cost-conscious for a
+  low-traffic personal MVP, consistent with this project's standing
+  cost discipline). `app = "confidant-sensemaking"` is a placeholder --
+  Fly app names are globally unique, so this will likely need to change
+  to whatever name is actually reserved; the file's own header comment
+  says so.
+- `.github/workflows/deploy.yml` -- `workflow_dispatch` only, deliberately
+  (deployment shouldn't happen silently on every push, same "manual by
+  default" discipline as every other workflow in this repo). Uses
+  `superfly/flyctl-actions/setup-flyctl@master` then `flyctl deploy
+  --remote-only`, authenticated via a `FLY_API_TOKEN` repo secret.
+
+**Explicitly NOT done by this session, and cannot be done from here:**
+creating the actual Fly.io account/app/volume (`fly apps create`, `fly
+volumes create confidant_data`), generating the `FLY_API_TOKEN` and
+adding it as a GitHub repo secret, and setting the deployed app's own
+runtime secret (`fly secrets set OPENROUTER_API_KEY=...` -- a SEPARATE
+mechanism from the GitHub Actions secret above; the GH secret only
+authenticates the deploy action itself, the Fly secret is what the
+running server actually reads at request time). All of these require
+either real Fly.io network access this session doesn't have, or
+handling a credential this session shouldn't touch directly -- both are
+the user's own one-time setup steps, walked through interactively rather
+than automated, per their explicit choice.

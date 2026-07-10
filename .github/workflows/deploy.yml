@@ -1,0 +1,24 @@
+name: Deploy MVP API to Fly.io
+
+# Manual only, deliberately -- deployment is not something that should
+# happen silently on every push. Runs on a GitHub-hosted runner (full
+# internet access) rather than any restricted environment, since it
+# needs to reach fly.io's API. Requires a FLY_API_TOKEN repo secret
+# (Settings -> Secrets and variables -> Actions) generated from a Fly.io
+# account -- see fly.toml's own comments for the one-time app/volume
+# setup this assumes already exists.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
