@@ -4431,3 +4431,109 @@ Judgment trajectory assessment itself, consuming `turn_count`/
 confirmed via earlier research that Judgment's system prompt explicitly
 enumerates WorldState substructure and would need updating to reference
 these new fields) -- not started yet.
+
+### 2026-07-11 (later): Judgment trajectory/stagnation assessment -- third reasoning-depth v2 increment, implemented and confirmed live (with one honest nuance)
+
+The payoff round for the WorldState provenance work: Judgment can now
+notice a Goal or Decision has sat unchanged for multiple turns --
+something no stateless LLM conversation can do, but which Confidant's
+persistent, turn-numbered WorldState now supports directly.
+
+**Departed from the spec's literal sketch, deliberately.**
+`judgment-specification-v2.md` already named a `Trajectory` field
+("Improving, Stable, Deteriorating, or Uncertain"), dropped from v2's
+real output pending exactly this WorldState work. Implementing it
+literally would have produced a single vague enum -- exactly the kind of
+unfounded-sounding label that reads as generic-LLM output, the same
+complaint that started this whole effort. Replaced it with a concrete,
+evidence-cited alternative: **`stagnation_notes: List[str]`**
+(`src/judgment/schema.py`). The spec was amended to mark `Trajectory` as
+**superseded**, not silently deleted -- same convention
+`interpretation-spec-v1.1.md` used for `decision_events`.
+
+**Architectural decision: compute the turn-gap arithmetic in Python, not
+in the LLM prompt.** `turn_count - provenance.last_updated >= threshold`
+is pure integer math over data already in WorldState -- exactly the
+class of mechanical computation this project has repeatedly found LLMs
+unreliable at self-tracking (the entire reason the boolean-gate pattern
+exists for `has_risk_signal`/`has_decision_resolution`: models don't
+reliably notice-and-act-on their own findings without a forcing
+function). New pure function `compute_stagnation_signals` in
+`src/judgment/engine.py` (same category as `recommend_phase_transition`
+in the same file -- deterministic, non-LLM, unit-tested directly, no
+mocking needed): scans Goals with `status="active"` and Decisions with
+`status="open"` only (paused/completed/abandoned Goals and
+resolved/deferred/expired Decisions are never flagged -- a "deferred"
+Decision is an already-acknowledged postponement, not neglect), skips
+items with no `provenance`, and produces plain-language fact strings for
+gaps `>= STAGNATION_TURN_THRESHOLD` (first-cut `3`, explicitly NOT
+empirically calibrated -- same honest framing as
+`UNKNOWN_RESOLUTION_OVERLAP_THRESHOLD` in `src/state/builder.py`).
+
+**Judgment receives these as a clearly labeled, separate INPUT** (new
+"Stagnation Signals" section in `build_messages`, `src/judgment/prompt.py`
+-- explicitly told this is mechanically computed, not something it
+generates), and produces `stagnation_notes` as genuine SYNTHESIS: which
+raw signal, if any, is actually significant, versus already explained by
+a stated Fact/Claim (an external blocker, an agreed wait) -- those should
+be left out or reframed, never used to imply the user is at fault. Two
+new JUDGMENT MUST NOT lines added: "invent a reason for stagnation not
+grounded in WorldState" and "imply the user is at fault for a Goal/
+Decision blocked by something external to them." No boolean-gate on this
+field -- no evidence yet of the transcription-compliance failure that
+justified one elsewhere, same reasoning as `secondary_issues`.
+
+**Wired into Planner's `resolution_blocker`** (`src/planner/prompt.py`),
+with explicit instruction to raise a stagnation note gently, as an
+observation, never as pressure -- consistent with Planner's own
+Governing Law 2 (user agency is absolute). No Response Generator
+change -- Response only ever sees Planner's output.
+
+**Tests:** new `tests/test_judgment_stagnation.py` (8 tests, pure Python,
+no LLM/mocking) covering: stale active Goal/open Decision each produce a
+signal; paused/completed/abandoned Goals and resolved/deferred/expired
+Decisions never flagged even when stale; an item with no provenance is
+skipped, not treated as stagnant; under-threshold produces nothing;
+custom threshold respected. Plus one schema round-trip test in
+`test_world_state_evolution.py` (empty by default, populated list
+survives construction) and `_MINIMAL_JUDGMENT` mock-dict updates across
+three test files for consistency with prior-round practice. 165 tests
+passing, no regressions.
+
+**Live verification** (`worldstate-walkthrough.yml`, `openai/gpt-4o-mini`,
+same real 10-turn transcript used for the provenance round): the
+deterministic layer worked exactly as arithmetic predicts --
+`stagnation_notes` stayed empty turns 1-8 (the Goal isn't created until
+turn 6; gaps of 0/1/2 stay under the threshold-3 cutoff), then fired
+correctly at turn 9 (gap=3) and turn 10 (gap=4), with the exact turn
+counts quoted verbatim in each note. This confirms the signal timing,
+threshold logic, and prompt wiring all work correctly on real,
+non-constructed data.
+
+**One honest nuance, not a structural failure:** at turn 10, Judgment's
+own `stagnation_notes` said the goal "has had no movement in 4 turns,
+with nothing in view explaining the pause" -- but the SAME Judgment
+output's own `primary_problem` ("...is stagnant due to the freeze on
+transfers") and `key_blockers` (["Team is frozen for new transfers until
+Q3."]) correctly identify the freeze as exactly that explanation. This is
+a real, narrow miss on the "leave out or reframe if already explained"
+instruction -- the model didn't cross-check its own `stagnation_notes`
+wording against its own `primary_problem`/`key_blockers` in the same
+response. It did NOT propagate downstream, though: Planner's
+`resolution_blocker` correctly attributed the block to the freeze, and
+the final user-facing Response read as appropriately non-judgmental,
+acknowledging the freeze as the cause rather than implying the user
+hadn't acted. So the mechanism is sound and the actual delivered
+experience wasn't degraded, but `stagnation_notes` itself is the one
+field that didn't fully thread the needle this run -- worth tightening
+(e.g. an explicit instruction to check the note's claim against
+`key_blockers`/`primary_problem` before finalizing it) if this recurs
+across more real conversations. Filed as a refinement candidate, not
+re-iterated blindly right now -- consistent with this project's
+"confirm with real data before assuming a fix is needed" discipline.
+
+**Status: three reasoning-depth v2 increments shipped this arc** --
+Judgment salience (secondary_issues), WorldState provenance (turn_count/
+first_seen/last_updated), and Judgment trajectory/stagnation
+(stagnation_notes). All three reach real, user-visible output, verified
+live, not just unit-tested.
