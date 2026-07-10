@@ -24,7 +24,8 @@ from src.interpretation.schema import (
     Inference,
     Interpretation,
 )
-from src.state.builder import update_state
+from src.judgment.schema import DecisionResolution, Judgment
+from src.state.builder import apply_judgment_resolutions, update_state
 from src.state.world_state import WorldState
 
 
@@ -359,6 +360,109 @@ def test_has_decision_event_false_leaves_decision_events_empty():
     interp = make_interp(has_decision_event=False, decision_event_option="", decision_event_type="")
 
     assert interp.decision_events == []
+
+
+def make_judgment(**overrides) -> Judgment:
+    """Minimal-defaults Judgment builder, same pattern as make_interp."""
+    defaults = dict(
+        primary_problem="",
+        primary_goal="",
+        current_focus="",
+        key_blockers=[],
+        open_unknowns=[],
+        active_decisions=[],
+        contradictions=[],
+        has_risk_signal=False,
+        risk_scan="No risk-worthy signal identified.",
+        risks=[],
+        opportunities=[],
+        has_decision_resolution=False,
+        decision_resolution_option="",
+        decision_resolution_status="",
+        confidence=0.5,
+        supporting_evidence=[],
+    )
+    defaults.update(overrides)
+    return Judgment(**defaults)
+
+
+def test_apply_judgment_resolutions_moves_decision_off_open():
+    """
+    Decision lifecycle, round 3 (2026-07-10, see engine/decisions.md):
+    Interpretation's decision_events kept failing for a structural
+    reason -- it's a stateless, single-message function that never sees
+    WorldState, so it can only guess at a prior turn's exact
+    decision_option text. Judgment reads the full WorldState verbatim
+    every turn, so it can quote the real option directly instead of
+    inventing a label. `apply_judgment_resolutions` is the one exception
+    to "Judgment never writes to WorldState" -- confirms the mechanism
+    moves a real Decision's status off "open" using Judgment's own
+    exact-quote output, not Interpretation's decision_events at all.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(decision_options=["applying externally"]))
+
+    judgment = make_judgment(
+        has_decision_resolution=True,
+        decision_resolution_option="applying externally",
+        decision_resolution_status="deferred",
+        decision_resolutions=[DecisionResolution(option="applying externally", status="deferred")],
+    )
+    new_state = apply_judgment_resolutions(state, judgment)
+
+    assert new_state.decisions[0].status == "deferred"
+    # never mutates the caller's state
+    assert state.decisions[0].status == "open"
+
+
+def test_has_decision_resolution_auto_repairs_empty_decision_resolutions_list():
+    """
+    Same boolean-gate auto-repair pattern as has_assumption/
+    has_risk_signal/has_decision_event, at the Judgment layer this time.
+    Unlike decision_events, this one is expected to actually hold live:
+    Judgment already has the exact WorldState.decisions text in front of
+    it, so this is a transcription-compliance gap, not a retrieval one.
+    """
+    judgment = make_judgment(
+        has_decision_resolution=True,
+        decision_resolution_option="applying externally",
+        decision_resolution_status="deferred",
+        decision_resolutions=[],
+    )
+
+    assert judgment.decision_resolutions == [
+        DecisionResolution(option="applying externally", status="deferred")
+    ]
+
+
+def test_has_decision_resolution_false_leaves_decision_resolutions_empty():
+    """has_decision_resolution=False must never fabricate a resolution."""
+    judgment = make_judgment(
+        has_decision_resolution=False, decision_resolution_option="", decision_resolution_status=""
+    )
+
+    assert judgment.decision_resolutions == []
+
+
+def test_apply_judgment_resolutions_no_match_leaves_decisions_unchanged():
+    """
+    A resolution whose option doesn't sufficiently overlap ANY existing
+    Decision must not fabricate or corrupt a Decision -- same "no match
+    -> dropped, never used to fabricate" discipline as
+    _apply_goal_updates/_apply_decision_events.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(decision_options=["applying externally"]))
+
+    judgment = make_judgment(
+        has_decision_resolution=True,
+        decision_resolution_option="completely unrelated topic",
+        decision_resolution_status="deferred",
+        decision_resolutions=[DecisionResolution(option="completely unrelated topic", status="deferred")],
+    )
+    new_state = apply_judgment_resolutions(state, judgment)
+
+    assert new_state.decisions[0].status == "open"
 
 
 # ---------------------------------------------------------------------------

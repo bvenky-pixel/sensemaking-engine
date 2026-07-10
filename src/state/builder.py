@@ -27,6 +27,7 @@ from src.interpretation.schema import (
     GoalUpdate,
     Interpretation,
 )
+from src.judgment.schema import Judgment
 from src.state.world_state import (
     Claim,
     Decision,
@@ -197,6 +198,37 @@ def _apply_decision_events(
                 d.status = new_status
                 break
     return result
+
+
+def apply_judgment_resolutions(state: WorldState, judgment: Judgment) -> WorldState:
+    """
+    Applies Judgment.decision_resolutions to WorldState.decisions --
+    added 2026-07-10 (see engine/decisions.md "decision lifecycle, round
+    3") after Interpretation's own decision_events (even with its
+    boolean-gate escalation) proved structurally unable to fix this:
+    Interpretation is a stateless, single-message function that never
+    sees WorldState, so it can only guess at a previous turn's exact
+    decision_option text, never reliably reproduce it. Judgment reads
+    the full WorldState verbatim every turn, so `option` here should
+    almost always be an exact (or near-exact) match -- still routed
+    through the same `_is_resolved_by` word-overlap check as
+    `_apply_decision_events` for consistency and light tolerance to
+    quoting variation, not because a fuzzy match is expected to be doing
+    much work here.
+
+    Called by the orchestrator AFTER `run_judgment` returns (Judgment
+    itself only ever reads WorldState, per its own design principles --
+    this function is what turns Judgment's read-only assessment into the
+    one exception: a write-back), so this turn's Planner/Response see
+    the corrected status, and so does every later turn's WorldState.
+    """
+    new_state = state.model_copy(deep=True)  # never mutate the caller's state
+    for resolution in judgment.decision_resolutions:
+        for d in new_state.decisions:
+            if _is_resolved_by(resolution.option, d.content) or _is_resolved_by(d.content, resolution.option):
+                d.status = resolution.status
+                break
+    return new_state
 
 
 def _reconcile_unknowns(

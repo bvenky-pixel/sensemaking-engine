@@ -20,9 +20,28 @@ Judgment.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+
+class DecisionResolution(BaseModel):
+    """
+    Signals that a decision option already tracked in WorldState (status
+    still "open" as of the WorldState Judgment was given) has since been
+    resolved or deferred, per this turn's Facts/Claims. `option` MUST be
+    the EXACT text of the existing WorldState.decisions entry -- Judgment
+    is given the full serialized WorldState verbatim (see
+    src/judgment/engine.py::run_judgment), so unlike Interpretation's
+    `decision_events` (a stateless, single-message function that can only
+    guess at a prior turn's exact extracted text), Judgment can quote the
+    real thing directly. See engine/decisions.md "decision lifecycle,
+    round 3" for why this moved here instead of staying an Interpretation
+    concern.
+    """
+
+    option: str
+    status: Literal["resolved", "deferred"]
 
 
 class Judgment(BaseModel):
@@ -34,6 +53,25 @@ class Judgment(BaseModel):
     open_unknowns: List[str] = Field(default_factory=list)
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
+
+    # v1.4 (see engine/decisions.md "decision lifecycle, round 3"):
+    # Interpretation's decision_events (even after its own boolean-gate
+    # escalation) kept failing for a structural reason, not a compliance
+    # one -- Interpretation is a stateless, single-message function that
+    # never sees WorldState.decisions, so "anchor to the previously-
+    # extracted option text" asked it to recall a string it was never
+    # shown. Judgment reads the full WorldState every turn (including the
+    # real, exact decision text), so it can quote it directly instead of
+    # guessing. `has_decision_resolution` is the SAME boolean-gate lever
+    # that already fixed has_assumption/has_risk_signal -- appropriate
+    # here because, unlike decision_events, this is once again a
+    # transcription-compliance problem (does the model bother to check
+    # and copy), not a retrieval problem (Judgment already has the
+    # ground truth in front of it).
+    has_decision_resolution: bool
+    decision_resolution_option: str  # exact WorldState.decisions text; "" if has_decision_resolution is False
+    decision_resolution_status: Literal["", "resolved", "deferred"]
+    decision_resolutions: List[DecisionResolution] = Field(default_factory=list)
 
     # v1.3 (see engine/decisions.md): `risk_scan` alone (added 2026-07-09)
     # proved unreliable across a 30-test real-pipeline run -- the model
@@ -73,4 +111,23 @@ class Judgment(BaseModel):
         # never on the free text itself).
         if self.has_risk_signal and not self.risks and self.risk_scan.strip():
             self.risks = [self.risk_scan.strip()]
+
+        # has_decision_resolution=True is the model's own committed
+        # signal that decision_resolution_option/status names a real
+        # transition. If decision_resolutions is still empty at this
+        # point, reconstruct one -- both source fields are already
+        # structured (not free text to parse or guess at), so this is a
+        # mechanical relocation, the same class of repair as risks above.
+        if (
+            self.has_decision_resolution
+            and not self.decision_resolutions
+            and self.decision_resolution_option.strip()
+            and self.decision_resolution_status
+        ):
+            self.decision_resolutions = [
+                DecisionResolution(
+                    option=self.decision_resolution_option.strip(),
+                    status=self.decision_resolution_status,
+                )
+            ]
         return self

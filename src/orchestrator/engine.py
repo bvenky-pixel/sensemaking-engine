@@ -50,7 +50,7 @@ from src.judgment.engine import JudgmentError, recommend_phase_transition, run_j
 from src.orchestrator.schema import TurnResult
 from src.planner.engine import PlannerError, run_planner
 from src.response.engine import ResponseGeneratorError, run_response_generator
-from src.state.builder import update_state
+from src.state.builder import apply_judgment_resolutions, update_state
 from src.state.world_state import WorldState
 
 
@@ -97,6 +97,15 @@ def run_turn(
         return TurnResult(
             state=state, interpretation=interp, failed_stage="judgment", error=str(exc),
         )
+
+    # Judgment itself never writes to WorldState (it only ever reads it,
+    # per its own design principles) -- this is the one deliberate
+    # exception: turning Judgment's decision_resolutions assessment into
+    # an actual WorldState.decisions status update, so this turn's
+    # Planner/Response (and every later turn) see the corrected status
+    # instead of it staying silently stuck at "open". See
+    # engine/decisions.md "decision lifecycle, round 3".
+    state = apply_judgment_resolutions(state, judgment)
 
     try:
         plan = run_planner(state, judgment, tracker=tracker)

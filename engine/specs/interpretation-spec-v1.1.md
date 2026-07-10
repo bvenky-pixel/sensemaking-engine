@@ -165,6 +165,22 @@ collapsing the two.
    round, once real usage — the walkthrough's "wait and see" case —
    showed it was needed).
 7. **Downstream consumer:** `src/state/builder.py::_apply_decision_events`.
+8. **Superseded as the primary mechanism (2026-07-10, see
+   engine/decisions.md "decision lifecycle, round 3").** Even the
+   boolean-gate above didn't hold on live re-test: the model committed
+   `has_decision_event=true` with non-blank option/type, but still
+   invented a fresh label ("waiting until Q3") instead of the real
+   tracked option ("applying externally"). Root cause is structural, not
+   a compliance gap a schema forcing-function can fix: Interpretation is
+   a stateless, single-message function that never sees
+   `WorldState.decisions`, so it has no ground truth to anchor to — it
+   can only guess at what a prior turn called something. This field is
+   left in place (harmless, still schema-valid, occasionally may happen
+   to match) but `Judgment.decision_resolutions` (see
+   judgment-specification-v2.md) is now the PRIMARY, reliable mechanism
+   for this signal, since Judgment reads the full WorldState verbatim
+   every turn and can quote the real option text directly instead of
+   inventing one.
 
 ### `entity_attribute_updates`
 

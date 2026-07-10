@@ -57,6 +57,9 @@ _MINIMAL_JUDGMENT = {
     "risk_scan": "No risk-worthy signal identified.",
     "risks": [],
     "opportunities": [],
+    "has_decision_resolution": False,
+    "decision_resolution_option": "",
+    "decision_resolution_status": "",
     "confidence": 0.4,
     "supporting_evidence": [],
 }

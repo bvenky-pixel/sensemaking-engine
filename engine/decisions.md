@@ -3769,3 +3769,112 @@ fixed assumptions/risks this session:
 Next step: dispatch a live re-test of the same turn-10 walkthrough input
 against the boolean-gate mechanism to confirm it holds under the real
 model, same discipline as A04's live confirmation.
+
+### 2026-07-10: decision lifecycle, round 3 -- Interpretation's boolean-gate CONFIRMED insufficient (root cause is structural, not compliance); moved to Judgment with a new write-back exception
+
+**Live re-test of the round-2 boolean-gate: confirmed NOT sufficient.**
+Added a debug print of the raw `has_decision_event`/`decision_event_option`/
+`decision_event_type` values (previously only the post-repair
+`decision_events` list was visible, making it impossible to tell which
+part of the mechanism was failing) and re-ran the walkthrough. Turn 10's
+raw values: `has_decision_event: True | decision_event_option: 'waiting
+until Q3' | decision_event_type: 'chosen'`. The gate fired correctly, the
+auto-repair correctly relocated both fields into `decision_events`
+(`- decision event: 'waiting until Q3' -> chosen` appeared in the debug
+output, confirming the mechanical repair code itself works) -- but the
+option text is a fresh invention, not the real tracked option ("Apply
+externally"), so it still doesn't match anything in
+`WorldState.decisions` and the row stayed `(status=open)`.
+
+**This is the clearest possible evidence that the failure is NOT a
+compliance gap.** The model isn't forgetting to commit, isn't leaving
+fields blank, isn't refusing to follow instructions -- it confidently
+filled in every field, just with content that was never going to match.
+Root cause: **Interpretation is a stateless, single-message function**
+(see `src/interpretation/engine.py`'s own module docstring and
+`run_interpretation`'s signature -- it takes `user_text` alone, never
+WorldState, never conversation history). Every version of this fix
+(the original prose list, the anchoring worked example, the boolean-gate)
+asked the model to "anchor to a previously-extracted option" -- but
+that's asking it to recall an exact string it was structurally never
+shown. Boolean-gating fixes "the model has the right answer somewhere in
+its own reasoning this turn but forgets to copy it" (proven twice now:
+Has Assumption, Has Risk Signal). It cannot fix "the model was never
+given the information in the first place." No further Interpretation-
+prompt iteration was attempted -- reported this finding to the user
+directly rather than a blind fifth attempt.
+
+**User's decision: move detection to Judgment, explicitly reopening the
+write-back architecture question this project deferred in the original
+Tier 1/2 plan.** Judgment reads the full serialized WorldState verbatim
+every turn (`state.model_dump_json()`, see `src/judgment/engine.py`) --
+including the real `WorldState.decisions` text -- so it can quote the
+existing option directly instead of guessing. This turns the same
+underlying problem back into a transcription-compliance gap (does the
+model bother to check and copy what it's already looking at), which is
+exactly the class of problem boolean-gating already fixes.
+
+**Implementation:**
+1. **`src/judgment/schema.py`**: new `DecisionResolution` class
+   (`option: str`, `status: Literal["resolved","deferred"]` -- simpler
+   than Interpretation's `DecisionEvent`, since Judgment doesn't need
+   the chosen/rejected distinction, both already collapse to the same
+   downstream status). New mandatory fields `has_decision_resolution: bool`,
+   `decision_resolution_option: str`, `decision_resolution_status:
+   Literal["","resolved","deferred"]`, ordered before
+   `decision_resolutions: List[DecisionResolution]`. Same auto-repair
+   pattern as `_repair_risk_list`/Interpretation's decision_events
+   validator: if `has_decision_resolution` and `decision_resolutions` is
+   empty, mechanically reconstruct one from the two structured fields --
+   no free-text parsing, same discipline as every prior repair.
+2. **`src/judgment/prompt.py`**: new "Has Decision Resolution" /
+   "Decision Resolution Option / Status" / "Decision Resolutions"
+   sections, instructing the model to check `WorldState.decisions`
+   entries with `status="open"` against this turn's Facts/Claims, and to
+   QUOTE the existing option text verbatim (it's right there in
+   WorldState, never paraphrase or invent). Extended `active_decisions`'
+   existing guidance: exclude a decision from `active_decisions` the
+   same turn a resolution is reported for it, even before the WorldState
+   write-back actually lands.
+3. **`src/state/builder.py`**: new `apply_judgment_resolutions(state,
+   judgment) -> WorldState` function, sitting alongside
+   `_apply_decision_events` and reusing the same `_is_resolved_by`
+   word-overlap matcher (lighter tolerance needed here than for
+   Interpretation's version, since Judgment's `option` should already be
+   near-exact, but kept for consistency and to tolerate minor quoting
+   variation). New import: `from src.judgment.schema import Judgment` --
+   checked for circular imports (judgment/schema.py imports nothing from
+   src.state; judgment/engine.py imports `src.state.world_state`, a
+   different module than `src.state.builder`) -- none found.
+4. **`src/orchestrator/engine.py`**: `run_turn` now calls
+   `state = apply_judgment_resolutions(state, judgment)` immediately
+   after `run_judgment` succeeds and before Planner runs -- the ONE
+   deliberate exception to "Judgment never writes to WorldState" (per
+   its own design principles, now annotated in
+   `judgment-specification-v2.md`): Judgment itself still only ever
+   reads WorldState; the write-back is a separate orchestrator-level
+   step consuming Judgment's output, not Judgment mutating anything
+   itself. This means THIS turn's Planner/Response (not just next
+   turn's WorldState) see the corrected status too.
+5. Updated `judgment-specification-v2.md` (new field entries, a Design
+   Principles footnote on the #2 exception, `active_decisions`
+   exclusion rule) and `interpretation-spec-v1.1.md` (`decision_events`
+   entry 8: marked superseded as the primary mechanism, left in place as
+   harmless/occasionally-matching, not removed).
+6. Updated all 4 existing Judgment fixtures across the test suite
+   (`test_executor.py`, `test_orchestrator.py`, `test_evaluation_harness.py`,
+   `test_reliability_instrumentation.py`) with the three new mandatory
+   fields. Added a `make_judgment` helper (mirroring `make_interp`) and
+   4 new tests to `tests/test_world_state_evolution.py`:
+   `test_apply_judgment_resolutions_moves_decision_off_open` (confirms
+   the write-back works and never mutates the caller's state),
+   `test_has_decision_resolution_auto_repairs_empty_decision_resolutions_list`,
+   `test_has_decision_resolution_false_leaves_decision_resolutions_empty`,
+   `test_apply_judgment_resolutions_no_match_leaves_decisions_unchanged`
+   (no-match discipline, same as `_apply_goal_updates`/
+   `_apply_decision_events`). 143 tests passing (was 139).
+
+Next step: live re-test of the same 10-turn walkthrough to confirm
+Judgment's decision_resolutions actually moves "Apply externally" off
+`open` under the real model -- same discipline as every other live
+confirmation this project has required before calling a fix closed.

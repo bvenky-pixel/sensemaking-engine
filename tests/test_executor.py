@@ -27,6 +27,9 @@ _JUDGMENT = Judgment(
     risk_scan="Prolonged delay with no clear resolution is itself risk-worthy.",
     risks=["Prolonged delay may reduce motivation."],
     opportunities=["Strong intrinsic motivation once a path is found."],
+    has_decision_resolution=False,
+    decision_resolution_option="",
+    decision_resolution_status="",
     confidence=0.35,
     supporting_evidence=[],
 )
