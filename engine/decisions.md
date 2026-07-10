@@ -4347,3 +4347,87 @@ first_seen/last_updated) this project doesn't have yet -- the second,
 larger step in the sequencing the user chose. Any boolean-gate escalation
 for `secondary_issues` remains unvalidated and un-added until real
 testing shows a need for one.
+
+### 2026-07-11: WorldState provenance -- trajectory prerequisite, implemented and confirmed live
+
+Second reasoning-depth v2 increment: the data-layer prerequisite for
+trajectory/stagnation assessment, per the user's own chosen sequencing
+(salience first, trajectory second). This round is pure WorldState
+plumbing -- no Judgment change, no trajectory field, no prompt update.
+That's still the next, separate round once this data actually exists to
+reason over.
+
+Added `Provenance(source, first_seen, last_updated)` to
+`src/state/world_state.py`, replacing `KnowledgeItem.provenance`'s old
+untyped `Optional[dict] = None` placeholder in place (no rename -- it was
+never populated by anything, so zero migration risk for already-persisted
+WorldState, including the live deployed prototype's real session data).
+Added `WorldState.turn_count: int = 0`, incremented exactly once per turn
+by `update_state` (`src/state/builder.py`) -- the single per-turn
+WorldState mutation entrypoint already unconditionally called every turn
+-- and threaded through every construction/mutation site this same call:
+`_merge_content_items`/`_merge_entities` stamp `first_seen=last_updated=turn`
+on newly created items; `_apply_goal_updates`/`_apply_decision_events`
+bump only `last_updated` on a matched item's status change;
+`apply_judgment_resolutions` (Judgment's one write-back exception) reads
+`state.turn_count` (already incremented earlier the same turn) to do the
+same for a resolved Decision, without incrementing the counter itself --
+exactly one increment per turn, owned solely by `update_state`. No
+`src/orchestrator/engine.py` change at all -- the counter lives entirely
+inside `WorldState`/`update_state`; no caller needs to know about it.
+
+Design grounded directly in `engine/specs/WorldState-spec-v1.md`'s own
+`# Provenance` section (present since v1, never implemented until now) --
+its worked example already showed almost exactly this shape. Deliberately
+did NOT implement that example's `supporting_evidence` (a list of every
+turn that touched an item) -- no motivating use case yet, and it would
+require bookkeeping on every reaffirmation, not just creation/status-
+change, a bigger behavior change than asked for. Spec amended in place
+(dated, pointing here) rather than a new versioned addendum file --
+confirmed via research that WorldState has no stated preference of its
+own, and this section was graduating from spec'd-but-unimplemented to
+implemented, not being invented fresh (Judgment's established in-place-
+amendment convention was the closer precedent).
+
+**Tests:** 5 new tests in `tests/test_world_state_evolution.py` --
+turn_count increments by exactly 1 per `update_state` call across a
+3-turn sequence; a new Fact/Entity gets `first_seen == last_updated ==`
+its creation turn; a Goal created turn 1 then status-changed via
+`goal_updates` turn 3 keeps `first_seen == 1` while `last_updated == 3`;
+same for a Decision resolved via `apply_judgment_resolutions`, confirming
+it reads `state.turn_count` rather than incrementing it. This mechanism
+is pure deterministic Python (turn arithmetic + object construction), not
+LLM-dependent -- unlike Judgment salience, there was no model-compliance
+question to validate live. 156 tests passing, no regressions (only 2
+existing test call sites construct a KnowledgeItem subtype directly --
+`tests/test_executor.py`'s two `Decision(...)` calls -- and both still
+construct fine since `provenance` stays optional).
+
+**Live integration check** anyway, per this project's standing discipline
+of confirming every schema change against a real pipeline run: added a
+small provenance summary to `scripts/run_worldstate_walkthrough.py`'s
+output (printed `turn_count` plus every Goal/Decision's `first_seen`/
+`last_updated`) and dispatched the real 10-turn, 40-real-LLM-call
+walkthrough (`openai/gpt-4o-mini`). Result: `turn_count` correctly reached
+10; every single Fact/Claim/Goal/Decision/Unknown/Entity across the whole
+transcript was stamped with the exact correct creation turn (the Goal at
+turn 6, the Decision "applying externally" at turn 7, the Sarah entity at
+turn 2, etc.) -- confirmed by reading the full per-turn WORLDSTATE debug
+output, not just the final summary. `last_updated` did NOT diverge from
+`first_seen` for either the Goal or the Decision this run -- turn 10's
+Judgment output shows `has_decision_resolution: False` and
+Interpretation's `has_decision_event: False`, meaning the model didn't
+register "I've decided to wait until Q3" as resolving the "applying
+externally" decision this particular run. This is a known, already-
+flagged ambiguity in this exact transcript from the earlier decision-
+lifecycle round 3 work (the user's own call at the time: "I think we are
+splitting hairs here"), not a new gap introduced by this round -- the
+deterministic unit tests above already fully prove the last_updated-bump
+logic fires correctly whenever the upstream signal does.
+
+**Status: WorldState provenance prerequisite complete.** Next round:
+Judgment trajectory assessment itself, consuming `turn_count`/
+`provenance` (which will require its own Judgment prompt/schema work,
+confirmed via earlier research that Judgment's system prompt explicitly
+enumerates WorldState substructure and would need updating to reference
+these new fields) -- not started yet.
