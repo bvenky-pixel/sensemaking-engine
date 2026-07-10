@@ -12,6 +12,10 @@ on:
         description: "Number of recent log lines to fetch"
         required: false
         default: "200"
+      session_id:
+        description: "Optional session id -- if set, also curls its /debug endpoint (public app URL, no Fly auth needed)"
+        required: false
+        default: ""
 
 jobs:
   fetch-logs:
@@ -27,3 +31,8 @@ jobs:
         run: flyctl logs -a confidantsense --no-tail | tail -n "${{ github.event.inputs.lines }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Fetch session debug state
+        if: ${{ github.event.inputs.session_id != '' }}
+        run: |
+          curl -sS "https://confidantsense.fly.dev/sessions/${{ github.event.inputs.session_id }}/debug" | python3 -m json.tool
