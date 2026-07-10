@@ -61,6 +61,7 @@ _MINIMAL_JUDGMENT = {
     "primary_goal": "Move to the Product team.",
     "current_focus": "Understanding why Sarah keeps deferring.",
     "key_blockers": ["Sarah has not given a clear reason."],
+    "secondary_issues": [],
     "open_unknowns": ["Why Sarah keeps deferring the transfer."],
     "active_decisions": [],
     "contradictions": [],

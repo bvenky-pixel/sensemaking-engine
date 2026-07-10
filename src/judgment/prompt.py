@@ -59,6 +59,18 @@ FIELD DEFINITIONS
   restatement of primary_problem.
 - key_blockers: constraints actually preventing progress, each grounded
   in a specific Fact/Claim/Unknown. Not speculative obstacles.
+- secondary_issues: real issues you noticed in WorldState but did NOT
+  escalate to primary_problem -- genuinely secondary, not a restatement
+  of primary_problem in different words, and not every minor detail in
+  WorldState. Each entry must name the specific Fact/Claim/Unknown it is
+  grounded in. Most turns, especially early ones, will have no distinct
+  secondary issue yet -- an empty list is the common, correct answer, not
+  a gap to fill.
+      Facts: ["User wants to move to the Product team.", "Founder is
+      averse to change.", "User and their manager don't get along."] ->
+      primary_problem: "Founder's resistance is blocking the user's move
+      to Product." secondary_issues: ["Strained relationship with their
+      current manager, separate from the Product-team question."]
 - open_unknowns: from WorldState.unknowns, the ones that MATERIALLY
   affect an active goal or decision -- not every open unknown is worth
   surfacing here, only the ones that matter to what's actually at stake.

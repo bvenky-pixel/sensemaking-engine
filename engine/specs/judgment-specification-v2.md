@@ -65,6 +65,19 @@ Judgment(
 - **Primary Goal** — The highest-priority active goal.
 - **Current Focus** — What the user is currently working on.
 - **Key Blockers** — Constraints preventing progress.
+- **Secondary Issues** — (added 2026-07-10, see engine/decisions.md
+  "Judgment salience -- first reasoning-depth v2 increment") real,
+  WorldState-grounded issues Judgment noticed but deliberately did NOT
+  escalate to Primary Problem -- the first step toward the "salience"
+  responsibility named in `engine/specs/judgement-v3-design` (never
+  frozen or implemented in full, but this is its first concrete piece):
+  Judgment should commit to a hierarchy of attention, not just a flat
+  list. No boolean-gate paired with this field, unlike Has Risk Signal/
+  Has Decision Resolution above -- those gates were added only after
+  real batch testing proved a specific detects-but-fails-to-transcribe
+  failure mode for those fields; this is a brand-new field with no such
+  evidence yet, so it ships plain and would only be escalated the same
+  way if live testing reveals that failure shape.
 - **Active Decisions** — Outstanding decisions still marked `open` in
   WorldState.decisions, MINUS any Judgment is reporting a Decision
   Resolution for this same turn (see below) — a decision stops being

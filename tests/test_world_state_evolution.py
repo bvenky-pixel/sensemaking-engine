@@ -369,6 +369,7 @@ def make_judgment(**overrides) -> Judgment:
         primary_goal="",
         current_focus="",
         key_blockers=[],
+        secondary_issues=[],
         open_unknowns=[],
         active_decisions=[],
         contradictions=[],
@@ -384,6 +385,26 @@ def make_judgment(**overrides) -> Judgment:
     )
     defaults.update(overrides)
     return Judgment(**defaults)
+
+
+def test_judgment_secondary_issues_defaults_empty_and_accepts_grounded_entries():
+    """
+    Salience v1 (2026-07-10, see engine/decisions.md "Judgment salience --
+    first reasoning-depth v2 increment"): secondary_issues has no
+    boolean-gate/auto-repair (unlike has_risk_signal/has_decision_resolution
+    above) -- there's no evidence yet of the detects-but-fails-to-transcribe
+    failure mode that justified those gates for a brand-new field. This is
+    a plain schema round-trip check: empty by default, and a populated list
+    survives construction untouched.
+    """
+    empty = make_judgment()
+    assert empty.secondary_issues == []
+
+    populated = make_judgment(
+        primary_problem="Founder's resistance is blocking the move to Product.",
+        secondary_issues=["Strained relationship with their current manager."],
+    )
+    assert populated.secondary_issues == ["Strained relationship with their current manager."]
 
 
 def test_apply_judgment_resolutions_moves_decision_off_open():

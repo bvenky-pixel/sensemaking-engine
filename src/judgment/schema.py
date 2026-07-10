@@ -50,6 +50,19 @@ class Judgment(BaseModel):
     current_focus: str
 
     key_blockers: List[str] = Field(default_factory=list)
+
+    # v1.5 (added 2026-07-10, see engine/decisions.md "Judgment salience --
+    # first reasoning-depth v2 increment"): real, WorldState-grounded
+    # issues Judgment noticed but deliberately did NOT escalate to
+    # primary_problem. No boolean-gate here, unlike has_risk_signal/
+    # has_decision_resolution -- those gates were added only after real
+    # batch testing proved a specific detects-but-fails-to-transcribe
+    # failure mode for those fields; adding one here pre-emptively, with
+    # zero evidence of that failure shape for a brand-new field, would
+    # invent unvalidated capability. Escalate later only if the same
+    # failure shape shows up in live testing.
+    secondary_issues: List[str] = Field(default_factory=list)
+
     open_unknowns: List[str] = Field(default_factory=list)
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)

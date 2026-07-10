@@ -31,6 +31,7 @@ _MINIMAL_JUDGMENT = {
     "primary_goal": "",
     "current_focus": "",
     "key_blockers": [],
+    "secondary_issues": [],
     "open_unknowns": [],
     "active_decisions": [],
     "contradictions": [],

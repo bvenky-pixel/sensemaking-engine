@@ -50,6 +50,7 @@ _MINIMAL_JUDGMENT = {
     "primary_goal": "Move to the Product team.",
     "current_focus": "Understanding why the transfer stalled.",
     "key_blockers": [],
+    "secondary_issues": [],
     "open_unknowns": [],
     "active_decisions": [],
     "contradictions": [],
