@@ -253,6 +253,24 @@ class Interpretation(BaseModel):
 
     # --- v1.1: lifecycle/enrichment signals, see comment above Interpretation ---
     goal_updates: List[GoalUpdate] = Field(default_factory=list)
+
+    # v1.2 (2026-07-10, see engine/decisions.md "decision lifecycle
+    # boolean-gate"): the 10-turn WorldState walkthrough showed
+    # `decision_events` reproducing the exact same silent-omission shape
+    # `has_assumption`/`has_risk_signal` were built to fix -- across two
+    # live samples of the same turn, the model either invented a fresh
+    # label for the side that "won" (unmatchable downstream) or emitted
+    # no event at all, never a correctly-anchored one. Unlike
+    # assumptions/risks, a single free-text reasoning field can't be
+    # mechanically relocated into `decision_events` on repair (an event
+    # needs a specific EXISTING option AND an event type, not just a
+    # sentence) -- so instead of a prose reasoning field, the anchor
+    # itself is asked for directly, as two small structured fields, which
+    # CAN be mechanically recombined into a DecisionEvent without parsing
+    # or guessing at free text.
+    has_decision_event: bool
+    decision_event_option: str  # must match an EXISTING decision_options entry; "" if has_decision_event is False
+    decision_event_type: Literal["", "chosen", "rejected", "deferred"]
     decision_events: List[DecisionEvent] = Field(default_factory=list)
     entity_attribute_updates: List[EntityAttributeUpdate] = Field(default_factory=list)
 
@@ -292,5 +310,24 @@ class Interpretation(BaseModel):
         # boolean, never on the free text itself).
         if self.has_assumption and not self.assumptions and self.assumption_check.strip():
             self.assumptions = [self.assumption_check.strip()]
+
+        # v1.2 auto-repair (see engine/decisions.md "decision lifecycle
+        # boolean-gate"): has_decision_event=True is the model's own
+        # committed signal that a previously-tracked decision option's
+        # fate changed this turn. If decision_events is still empty,
+        # reconstruct one from decision_event_option/decision_event_type
+        # -- both already-structured fields the model filled in directly
+        # (not free text being parsed), so this is a mechanical
+        # relocation, the same class of repair as assumptions above, not
+        # a guess at meaning.
+        if (
+            self.has_decision_event
+            and not self.decision_events
+            and self.decision_event_option.strip()
+            and self.decision_event_type
+        ):
+            self.decision_events = [
+                DecisionEvent(option=self.decision_event_option.strip(), event=self.decision_event_type)
+            ]
 
         return self

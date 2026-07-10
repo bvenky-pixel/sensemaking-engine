@@ -51,6 +51,9 @@ _INTERP = Interpretation(
     entities=[],
     clarity_score=0.5,
     requires_clarification=False,
+    has_decision_event=False,
+    decision_event_option="",
+    decision_event_type="",
 )
 
 _JUDGMENT = Judgment(

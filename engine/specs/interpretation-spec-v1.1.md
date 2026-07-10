@@ -137,16 +137,33 @@ collapsing the two.
    `src/state/builder.py::_apply_decision_events`'s word-overlap check,
    so the event is silently dropped — confirmed via the 10-turn
    WorldState walkthrough before this fix).
-6. **Validation rule:** none at the schema level. Downstream,
-   `src/state/builder.py::_apply_decision_events` maps `"chosen"`/`"rejected"`
-   to `WorldState.DecisionStatus = "resolved"` (an option no longer being
-   actively weighed, whether it was picked or ruled out — matching
-   `Decision`'s own docstring reading of `"resolved"`). `"proposed"` is a
-   no-op on status (`decision_options` already covers it). `"deferred"`
-   now maps to its own real `DecisionStatus = "deferred"` (added
-   2026-07-10, closing exactly the gap this entry originally flagged as
-   deliberately left for a future round, once real usage — the walkthrough's
-   "wait and see" case — showed it was needed).
+6. **Validation rule:** `has_decision_event: bool`, `decision_event_option:
+   str`, `decision_event_type: Literal["","chosen","rejected","deferred"]`
+   (added 2026-07-10, see engine/decisions.md "decision lifecycle
+   boolean-gate"). Even with the asymmetric-case prompt fix above, two
+   live samples of the exact same walkthrough turn showed the model
+   either inventing an unmatchable option label or emitting no
+   `decision_events` entry at all — the identical silent-omission shape
+   `has_assumption`/`has_risk_signal` were built to fix, so the same
+   lever was applied here. Unlike those two fields, a single free-text
+   reasoning field can't be mechanically relocated into `decision_events`
+   on repair (an event needs a specific EXISTING option AND an event
+   type, not just a sentence) — so instead of prose, the anchor is asked
+   for directly as two small structured fields. `Interpretation`'s
+   `model_validator` reconstructs a `DecisionEvent` from
+   `decision_event_option`/`decision_event_type` if `has_decision_event`
+   is true and `decision_events` is still empty — a mechanical
+   relocation of already-structured fields, not a parse of free text.
+   Downstream, `src/state/builder.py::_apply_decision_events` maps
+   `"chosen"`/`"rejected"` to `WorldState.DecisionStatus = "resolved"`
+   (an option no longer being actively weighed, whether it was picked or
+   ruled out — matching `Decision`'s own docstring reading of
+   `"resolved"`). `"proposed"` is a no-op on status (`decision_options`
+   already covers it). `"deferred"` maps to its own real
+   `DecisionStatus = "deferred"` (added 2026-07-10, closing exactly the
+   gap this entry originally flagged as deliberately left for a future
+   round, once real usage — the walkthrough's "wait and see" case —
+   showed it was needed).
 7. **Downstream consumer:** `src/state/builder.py::_apply_decision_events`.
 
 ### `entity_attribute_updates`
@@ -188,7 +205,7 @@ collapsing the two.
 | Field | Decision | Confidence this closes the gap |
 |---|---|---|
 | `goal_updates` | New, additive alongside `goals` | High for the explicit-statement case this was designed for; does not claim to catch inferred/implicit transitions |
-| `decision_events` | New, additive alongside `decision_options` | Revisited 2026-07-10: `"deferred"` now maps to a real `DecisionStatus`; `option` anchoring rule added to the prompt after the walkthrough showed the model inventing a fresh label for the winning side when only one side had been extracted |
+| `decision_events` | New, additive alongside `decision_options` | Revisited 2026-07-10 twice: `"deferred"` now maps to a real `DecisionStatus`; prompt anchoring rule added, then escalated to a boolean-gate (`has_decision_event`/`decision_event_option`/`decision_event_type` + auto-repair) after the anchoring-only prompt fix still left two live samples either inventing an unmatchable label or emitting no event at all |
 | `entity_attribute_updates` | New, additive alongside `entities`; `Entity.attributes` restructured to hold it | High for the explicit-statement case; matching remains text-based, not ID-based, until WorldState gains stable object IDs |
 
 **Status**: These three fields are FROZEN as of this entry, implemented

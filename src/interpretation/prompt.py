@@ -154,41 +154,70 @@ Do not invent a goal_update just because time has passed -- only when
 the user's own words describe the goal's fate. goal_updates=[] is
 correct whenever nothing in this turn speaks to an earlier goal's status.
 
-DECISION EVENTS -- signals something that happened to a decision option
-THE USER HAS ALREADY NAMED in an earlier turn (chosen, rejected, or
-deferred) -- never a newly-named option (that belongs in
-decision_options above). The `option` value here MUST be text that
-matches something already extracted as a decision_option in an earlier
-turn -- never a fresh label for whichever side just "won," even if that
-side is the one the user is now acting on.
-    Turn 1: "Should I apply externally or wait?" (both sides explicitly
-    named -> decision_options=["apply externally", "wait"] that turn)
+HAS DECISION EVENT -- MANDATORY. Answer this FIRST, before writing
+`decision_event_option`, `decision_event_type`, or `decision_events`:
+does this turn report a change in fate (chosen, rejected, or deferred)
+for a decision option THE USER HAS ALREADY NAMED in an earlier turn --
+never a freshly-named option (that belongs in `decision_options`
+instead)? Just true or false. False is the common, correct answer most
+turns.
+    Turn 1: "Should I apply externally or wait?"
     Turn 4, User: "I've decided to wait."
-    GOOD: decision_events=[{option: "wait", event: "chosen"}]
-    (and, if the evidence supports it, the other option:
-    {option: "apply externally", event: "rejected"} or "deferred" if the
-    user frames it as postponed rather than ruled out)
-Common failure case: only ONE side of the decision was ever explicitly
-named as its own decision_option (the other side -- often the status quo
-or "keep waiting" -- was never separately extracted because the user
-never phrased it as an option in its own right).
+    has_decision_event: true
+    User: "I'm also considering just applying externally."
+    (a fresh option being raised, not a resolution)
+    has_decision_event: false
+
+DECISION EVENT OPTION / TYPE -- MANDATORY. If `has_decision_event` is
+true, name the EXISTING option (text that already appears in an earlier
+turn's `decision_options`) whose fate changed, and the event type
+(`chosen`, `rejected`, or `deferred`). If `has_decision_event` is false,
+both are empty strings ("").
+Critical anchoring rule: `decision_event_option` MUST be text that
+already exists as a decision_option from an earlier turn -- NEVER a
+fresh label for whichever side just "won," even when that's the side
+the user is now acting on. A common failure shape: only ONE side of a
+decision was ever explicitly named as its own decision_option (the
+other side -- often the status quo, or "keep waiting" -- was never
+separately extracted because the user never phrased it as an option in
+its own right).
     Turn 1: "I'm also considering just applying externally if this drags
     on much longer." -> decision_options=["applying externally"] that
     turn ("continuing to wait" is never itself named as an option)
     Turn 4, User: "I've decided to wait until Q3 and see what happens."
-    BAD:  decision_events=[{option: "wait until Q3", event: "chosen"}]
-    (invents a label for the side that was never extracted -- this
-    cannot be matched to anything in decision_options and the event is
-    silently lost)
-    GOOD: decision_events=[{option: "applying externally", event:
-    "deferred"}] (anchors to the option that DOES already exist,
-    reporting what happened to IT -- deferred, since the user is
-    postponing rather than permanently ruling it out)
+    has_decision_event: true
+    BAD:  decision_event_option: "wait until Q3", decision_event_type:
+    "chosen" (invents a label for the side that was never extracted --
+    this cannot be matched to anything in decision_options and the
+    event is lost)
+    GOOD: decision_event_option: "applying externally",
+    decision_event_type: "deferred" (anchors to the option that DOES
+    already exist, reporting what happened to IT -- deferred, since the
+    user is postponing rather than permanently ruling it out)
 Whenever only one side of a decision has ever been extracted, always
 report the event in terms of that already-named side, never in terms of
 the unnamed alternative the user is now acting on instead.
-decision_events=[] is correct whenever nothing in this turn speaks to an
-earlier decision option's fate.
+
+DECISION EVENTS -- the structured list, built from the fields above.
+If `has_decision_event` is true, this list MUST contain an entry for
+`decision_event_option`/`decision_event_type` -- `has_decision_event:
+true` paired with `decision_events: []` is a direct contradiction of
+your own answer, same as leaving `decision_event_option` blank. If both
+sides of the same decision changed fate this turn (both were previously
+named as separate decision_options), this list may contain a second
+entry for the other side too -- `decision_event_option`/
+`decision_event_type` above only need to capture the primary one.
+    Turn 1: "Should I apply externally or wait?" (both sides explicitly
+    named -> decision_options=["apply externally", "wait"] that turn)
+    Turn 4, User: "I've decided to wait."
+    has_decision_event: true, decision_event_option: "wait",
+    decision_event_type: "chosen"
+    decision_events=[{option: "wait", event: "chosen"}, {option: "apply
+    externally", event: "rejected"}] (the second entry only if the
+    evidence actually supports treating the other option as ruled out,
+    not merely unmentioned)
+decision_events=[] (with has_decision_event=false) is correct whenever
+nothing in this turn speaks to an earlier decision option's fate.
 
 HAS ASSUMPTION -- MANDATORY. Answer this FIRST, before writing
 `assumption_check` or `assumptions`: does the user's own PHRASING (not

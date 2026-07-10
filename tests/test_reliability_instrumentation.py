@@ -267,6 +267,9 @@ def test_interpretation_records_success_outcome(monkeypatch):
         "entities": [],
         "clarity_score": 0.5,
         "requires_clarification": False,
+        "has_decision_event": False,
+        "decision_event_option": "",
+        "decision_event_type": "",
     }
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setattr("src.interpretation.engine.call_provider", _always_succeeds(minimal_interp))

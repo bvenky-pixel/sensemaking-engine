@@ -51,6 +51,9 @@ def make_interp(**overrides) -> Interpretation:
         entities=[],
         clarity_score=0.5,
         requires_clarification=False,
+        has_decision_event=False,
+        decision_event_option="",
+        decision_event_type="",
     )
     defaults.update(overrides)
     return Interpretation(**defaults)
@@ -325,6 +328,37 @@ def test_decision_event_deferred_moves_status_off_open():
     )
 
     assert state.decisions[0].status == "deferred"
+
+
+def test_has_decision_event_auto_repairs_empty_decision_events_list():
+    """
+    Boolean-gate for decision_events (added 2026-07-10, see
+    engine/decisions.md "decision lifecycle boolean-gate"): across two
+    live samples, the model either invented a fresh option label
+    (unmatchable downstream) or emitted no decision_events entry at all
+    for a turn that plainly resolved an existing option -- the same
+    silent-omission shape has_assumption/has_risk_signal were built to
+    fix. If has_decision_event=True but decision_events is still empty,
+    the auto-repair must reconstruct one from decision_event_option/
+    decision_event_type (both already-structured fields, not parsed free
+    text) rather than leaving the two signals contradicting each other.
+    """
+    interp = make_interp(
+        decision_options=["applying externally"],
+        has_decision_event=True,
+        decision_event_option="applying externally",
+        decision_event_type="deferred",
+        decision_events=[],
+    )
+
+    assert interp.decision_events == [DecisionEvent(option="applying externally", event="deferred")]
+
+
+def test_has_decision_event_false_leaves_decision_events_empty():
+    """has_decision_event=False must never fabricate a decision_events entry."""
+    interp = make_interp(has_decision_event=False, decision_event_option="", decision_event_type="")
+
+    assert interp.decision_events == []
 
 
 # ---------------------------------------------------------------------------

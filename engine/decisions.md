@@ -3676,3 +3676,96 @@ chosen/rejected test's style. 137 tests passing (was 136).
 Next step: re-test C01 (still pending, interrupted by the free-tier
 failure), X02, and the decision-lifecycle case together, per user
 instruction to test all three fixes in one go.
+
+### 2026-07-10 (later same day): all three re-tested on paid model -- X02
+CONFIRMED FIXED; C01/A03 still inconclusive (untested, not broken);
+decision lifecycle escalated to a boolean-gate after the anchoring-only
+prompt fix proved insufficient on a second live sample
+
+Re-ran C01, X02, A03, and the 10-turn walkthrough on `openai/gpt-4o-mini`
+after two free-tier attempts (`openrouter/free`) failed outright with
+provider errors (429 rate-limit, empty content) -- those free-tier runs
+were discarded as inconclusive, not treated as fix failures.
+
+**X02: CONFIRMED FIXED.** Planner's `planning_constraints` now includes
+`'no direct questions in the response'`, and the Response contains zero
+"?" characters. Both halves of the two-sided fix (Planner surfacing the
+constraint, Response Generator treating it as non-negotiable) held
+together on a real model call.
+
+**A03 and C01: still inconclusive, not demonstrated broken.** A03's
+`assumptions_to_test` came back empty again (the fix's target field
+still isn't being exercised by this input). C01 produced yet another
+different, self-consistent output (`core_question_confidence=0.0`
+this time, statement-only Response) -- the original specific
+combination has now failed to reproduce across two separate retests.
+Per explicit user instruction, both are being set aside for now as
+lower-severity/untested rather than confirmed-and-unfixed; no further
+action this round.
+
+**Decision lifecycle: the anchoring-only prompt fix from the previous
+entry did NOT hold on live re-test -- a THIRD distinct failure shape.**
+Turn 10 this run: Phase 3b showed no `decision_events` entry emitted at
+all (`- (none this turn)`) -- "I've decided to wait until Q3" was
+captured only as a fact/claim/inference, never routed to the
+decision-event path. `WorldState.decisions` stayed at
+`Apply externally (status=open)`, unchanged from turn 7. Across three
+live samples of the identical turn 10 input, the model has now shown
+three different behaviors: (1) invented a fresh, unmatchable option
+label ("wait until Q3" -> chosen); (2) [inconclusive -- a free-tier
+provider failure, discarded]; (3) emitted no event at all. This is a
+reliability problem in getting the signal out, not a single deterministic
+defect -- the same class of silent-omission gap `has_assumption`/
+`has_risk_signal` were built to fix, just one level further downstream.
+
+Per explicit user instruction ("set aside A03/C01 as not high severity;
+decision lifecycle is medium severity -- solve it with the boolean-gate
+solution"), escalated per governing law 3 ("typed over prompted, once a
+prompt-only fix has failed") using the exact same lever that already
+fixed assumptions/risks this session:
+
+- **`src/interpretation/schema.py`**: added `has_decision_event: bool`,
+  `decision_event_option: str`, `decision_event_type: Literal["",
+  "chosen", "rejected", "deferred"]`, ordered before `decision_events`,
+  all mandatory (no defaults) -- same "force the commitment" shape as
+  `has_assumption`/`has_risk_signal`. Deliberately NOT a single free-text
+  reasoning field (unlike `assumption_check`/`risk_scan`): a
+  `decision_events` repair needs a specific EXISTING option AND an event
+  type, not just a relocatable sentence, and parsing free text to invent
+  those two would be exactly the "guessing at meaning" this project has
+  repeatedly avoided. Instead the anchor is asked for directly as two
+  small structured fields, which auto-repair can mechanically recombine
+  into a `DecisionEvent` without parsing anything -- new
+  `_clean_up_cross_field_issues` clause: `if has_decision_event and not
+  decision_events and decision_event_option.strip() and
+  decision_event_type: decision_events = [DecisionEvent(option=...,
+  event=...)]`.
+- **`src/interpretation/prompt.py`**: new "HAS DECISION EVENT" and
+  "DECISION EVENT OPTION / TYPE" sections ahead of the existing DECISION
+  EVENTS section (which now describes the list as "built from the
+  fields above" and still allows a second list entry for the other side
+  of a decision when both were previously named). Reused the exact
+  asymmetric-case worked example from the prior entry (only "applying
+  externally" ever named -> anchor to it, event=deferred), now expressed
+  through the two structured fields instead of prose.
+- Checked whether `run_interpretation`'s post-construction grounding
+  filter (the thing that broke the assumptions auto-repair) could strip
+  this one too: it doesn't touch `decision_events` or `decision_options`
+  at all today, so no analogous engine-level fix is needed here -- the
+  schema-level repair alone should be sufficient, unlike assumptions.
+- Updated `interpretation-spec-v1.1.md`'s `decision_events` entry and
+  summary table row. Added two new tests to
+  `tests/test_world_state_evolution.py`:
+  `test_has_decision_event_auto_repairs_empty_decision_events_list`
+  (confirms the repair fires) and
+  `test_has_decision_event_false_leaves_decision_events_empty` (confirms
+  no fabrication when the boolean is false). 139 tests passing (was
+  137). Also updated all 4 existing Interpretation fixtures across the
+  test suite (`test_orchestrator.py`, `test_evaluation_harness.py`,
+  `test_reliability_instrumentation.py`, `test_world_state_evolution.py`'s
+  `make_interp`) with the three new mandatory fields, same pattern as
+  every prior schema round.
+
+Next step: dispatch a live re-test of the same turn-10 walkthrough input
+against the boolean-gate mechanism to confirm it holds under the real
+model, same discipline as A04's live confirmation.
