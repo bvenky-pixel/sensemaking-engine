@@ -78,3 +78,47 @@ document it now owns, requires the same discipline applied here: treat
 it as a real design review, check every principle against Shared
 Thinking and the Ten-Year Test, and update this log with what changed
 and why -- not a quiet edit to a frozen document.
+
+---
+
+**2026-07-10 — `frontend/mvp/index.html` added: a throwaway placeholder UI, NOT a reopening of the freeze**
+
+The backend gained its first real HTTP API this session
+(`src/api/server.py`, see engine/decisions.md), and the user asked to
+move toward a functional MVP -- explicitly a minimal end-to-end proof
+first, not the v4-aligned redesign (still sequenced, still not started).
+`frontend/mvp/index.html` is a single static HTML/JS file, no framework,
+no build step, served directly by the API server via `StaticFiles` --
+built solely to prove a real person can have a persistent, multi-turn
+conversation with Confidant over HTTP. It does **not** implement
+Journeys, Sessions, Home, or Settings (`information-architecture-v1.md`'s
+three spaces), does not attempt ambient presence, Quiet Discovery, or any
+other v4 experiential goal, and is explicitly disposable -- it exists
+outside `frontend/specs/` and `frontend/prototype/` on purpose, so it's
+unambiguous this isn't a second design direction competing with v4.
+
+It still honors the two cheapest, hardest-to-retrofit constraints already
+on record, since ignoring them would cost nothing to avoid and would mean
+redoing this page's copy/interaction later rather than just its visuals:
+- **No technical vocabulary** (`interaction-model-v4.md`'s explicit ban
+  on "processing"/"generating"/"memory updated" etc.) -- waiting and
+  failure states use plain human phrasing ("Confidant is considering what
+  you shared…").
+- **Writing and sending are distinct actions** (v4's "most protected
+  interaction") -- a textarea plus an explicit "Share" button, never bare
+  Enter-to-send.
+
+It also honors `frontend-engineering-architecture-v1.md` principle 2
+(partial completion represented honestly): a failed `failed_stage` from
+the API produces a message describing what actually happened at that
+stage, never a generic technical error.
+
+A handful of CSS custom properties (paper/ink color tokens, serif/sans
+font stack) were lifted from `frontend/prototype/confidant.html`'s
+`:root` block for non-embarrassing baseline styling -- its rejected
+chat-shaped structure and copy were not reused.
+
+**This does not touch the freeze.** No document in `frontend/specs/` was
+read as settled-and-then-changed by this addition; the v4 screen redesign
+remains exactly as open and exactly as sequenced as the freeze entry
+above already states.

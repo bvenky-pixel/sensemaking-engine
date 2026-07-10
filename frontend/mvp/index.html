@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Confidant (MVP)</title>
+<style>
+  :root {
+    --paper: #E9E3D8;
+    --paper-raised: #DFD8C8;
+    --paper-recede: #F1ECE2;
+    --ink: #2A2620;
+    --ink-muted: #6E6656;
+    --ink-faint: #9A9382;
+    --accent: #3D4B64;
+    --line: #D2C9B6;
+    --radius: 3px;
+    --serif: 'Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1E1C18;
+      --paper-raised: #262320;
+      --paper-recede: #17150F;
+      --ink: #E9E3D8;
+      --ink-muted: #B3AB99;
+      --ink-faint: #736C5C;
+      --accent: #8FA3C2;
+      --line: #3A362C;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  main {
+    width: 100%;
+    max-width: 640px;
+    padding: 2.5rem 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink-muted);
+    margin: 0 0 1.5rem;
+  }
+  .note {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    margin: -1rem 0 1.5rem;
+  }
+  #transcript {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    overflow-y: auto;
+    padding-bottom: 1rem;
+  }
+  .entry { max-width: 90%; line-height: 1.5; }
+  .entry.person { align-self: flex-end; text-align: right; }
+  .entry.confidant { align-self: flex-start; }
+  .entry .bubble {
+    display: inline-block;
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius);
+    background: var(--paper-raised);
+    text-align: left;
+  }
+  .entry.person .bubble { background: var(--accent); color: var(--paper); }
+  .entry .status {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+    margin-top: 1rem;
+  }
+  textarea {
+    width: 100%;
+    min-height: 4.5rem;
+    resize: vertical;
+    background: var(--paper-recede);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 1rem;
+    padding: 0.7rem 0.85rem;
+  }
+  textarea:focus { outline: 1px solid var(--accent); }
+  .actions { display: flex; justify-content: flex-end; }
+  button {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    background: var(--accent);
+    color: var(--paper);
+    border: none;
+    border-radius: var(--radius);
+    padding: 0.55rem 1.3rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Confidant</h1>
+  <p class="note">Early proof-of-concept interface — not the intended design.</p>
+  <div id="transcript"></div>
+  <form id="composer">
+    <textarea id="input" placeholder="What's on your mind?"></textarea>
+    <div class="actions">
+      <button id="share" type="submit">Share</button>
+    </div>
+  </form>
+</main>
+
+<script>
+(function () {
+  const transcriptEl = document.getElementById('transcript');
+  const form = document.getElementById('composer');
+  const inputEl = document.getElementById('input');
+  const shareBtn = document.getElementById('share');
+
+  function addEntry(role, text, isStatus) {
+    const wrap = document.createElement('div');
+    wrap.className = 'entry ' + (role === 'user' ? 'person' : 'confidant');
+    if (isStatus) {
+      wrap.innerHTML = '<span class="status"></span>';
+      wrap.querySelector('.status').textContent = text;
+    } else {
+      wrap.innerHTML = '<span class="bubble"></span>';
+      wrap.querySelector('.bubble').textContent = text;
+    }
+    transcriptEl.appendChild(wrap);
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    return wrap;
+  }
+
+  async function getOrCreateSession() {
+    const existing = localStorage.getItem('confidant_session_id');
+    if (existing) return existing;
+    const res = await fetch('/sessions', { method: 'POST' });
+    const data = await res.json();
+    localStorage.setItem('confidant_session_id', data.id);
+    return data.id;
+  }
+
+  async function restoreTranscript(sessionId) {
+    const res = await fetch('/sessions/' + sessionId + '/messages');
+    if (!res.ok) return;
+    const messages = await res.json();
+    messages.forEach((m) => addEntry(m.role, m.content, false));
+  }
+
+  function honestFailureMessage(failedStage) {
+    if (failedStage === 'interpretation') {
+      return "Something interrupted my understanding of that — would you mind trying again?";
+    }
+    if (failedStage === 'judgment' || failedStage === 'planner') {
+      return "I heard that clearly, but had trouble finishing my thought. Could you try again?";
+    }
+    if (failedStage === 'response') {
+      return "I understood and thought this through, but couldn't quite find the words. One more try?";
+    }
+    return "Something didn't go as expected. Could you try again?";
+  }
+
+  let sessionId = null;
+
+  form.addEventListener('submit', async function (evt) {
+    evt.preventDefault();
+    const content = inputEl.value.trim();
+    if (!content) return;
+
+    inputEl.value = '';
+    inputEl.disabled = true;
+    shareBtn.disabled = true;
+
+    addEntry('user', content, false);
+    const statusEntry = addEntry('confidant', 'Confidant is considering what you shared…', true);
+
+    try {
+      const res = await fetch('/sessions/' + sessionId + '/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content }),
+      });
+      const data = await res.json();
+      statusEntry.remove();
+
+      if (data.response_text) {
+        addEntry('assistant', data.response_text, false);
+      } else {
+        addEntry('assistant', honestFailureMessage(data.failed_stage), true);
+      }
+    } catch (err) {
+      statusEntry.remove();
+      addEntry('assistant', "I couldn't reach Confidant just now. Please try again in a moment.", true);
+    } finally {
+      inputEl.disabled = false;
+      shareBtn.disabled = false;
+      inputEl.focus();
+    }
+  });
+
+  getOrCreateSession().then(async (id) => {
+    sessionId = id;
+    await restoreTranscript(id);
+  });
+})();
+</script>
+</body>
+</html>

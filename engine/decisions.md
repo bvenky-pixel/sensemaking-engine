@@ -3914,3 +3914,108 @@ ambiguous test input (e.g. an explicit "I've decided NOT to apply
 externally" statement) to separate "does the mechanism fire when the
 signal is unambiguous" from "can the model resolve genuinely ambiguous
 phrasing" -- not further iteration on this specific transcript's turn 10.
+
+### 2026-07-10: First MVP API layer -- FastAPI + SQLite wrapping the Orchestrator, so a real person can actually use Confidant
+
+With the v1.0 reasoning-pipeline gap list closed and validated live, the
+user asked to move toward a functional MVP. Investigation confirmed
+`run_turn` (src/orchestrator/engine.py) was only ever reachable via a CLI
+script (`conversation_runner.py`) or `workflow_dispatch` -- no HTTP API,
+no session persistence, no way for an actual person to use it. Separately,
+`frontend/specs/` has extensive, FROZEN interaction-design philosophy
+(interaction-model-v4.md, "Shared Thinking") but zero implementation --
+the one prototype (`frontend/prototype/confidant.html`) was already
+rejected in that design review as "just an AI chat app," has no backend
+wiring, and no frontend framework/API transport was ever chosen anywhere
+in the frozen docs (deliberately deferred, per
+`frontend-engineering-architecture-v1.md`).
+
+**Scope, per explicit user answers to three clarifying questions:** build
+a minimal end-to-end proof now (not the full v4 vision), start with
+backend + a placeholder UI rather than doing the not-yet-started v4
+screen redesign first, and the user asked me to propose the stack rather
+than specifying one.
+
+**Stack: FastAPI + uvicorn + SQLite.** Every existing pipeline schema
+(Interpretation/Judgment/Planner/Response/WorldState/TurnResult) is
+already a plain Pydantic `BaseModel` -- FastAPI serializes these directly
+with no glue code and free OpenAPI docs. No HTTP framework existed
+anywhere in the repo before this (confirmed via full-repo search).
+SQLite (stdlib, zero external infra) persists one row per session as
+`WorldState.model_dump_json()` -- this is the FIRST time this codebase
+has ever exercised `WorldState.model_validate_json()`: every prior call
+site (conversation_runner.py, scripts/run_worldstate_walkthrough.py,
+src/evaluation/confidant_runner.py, every test) only ever constructed a
+fresh `WorldState()` and carried it forward in-process for the life of
+one script run.
+
+**New files:**
+- `src/api/schema.py` -- API-layer request/response models
+  (`CreateSessionResponse`, `SendMessageRequest`, `SendMessageResponse`,
+  `MessageOut`). Deliberately narrow: Judgment/Planner/Interpretation are
+  never returned from the main messages endpoint, per this project's own
+  standing principle that they're internal cognitive artifacts, not
+  user-facing (see judgment-specification-v2.md, planner-specification-v1.md).
+- `src/api/db.py` -- SQLite helpers (`init_db`, `create_session`,
+  `load_state`, `save_turn_result`, `append_message`, `get_messages`,
+  `load_debug`). Two tables: `sessions` (WorldState JSON + a `debug_json`
+  column holding the last full `TurnResult`, purely for a developer/demo
+  endpoint mirroring what `conversation_runner.py` already prints to a
+  terminal) and `messages` (the raw transcript -- WorldState only ever
+  holds *structured extraction*, never the raw text, so restoring a
+  scrollback on page reload needs this separately).
+- `src/api/server.py` -- the FastAPI app. `POST /sessions`,
+  `GET /sessions/{id}/messages`, `POST /sessions/{id}/messages` (the main
+  loop: load state, `run_turn(content, state)`, persist
+  `result.state` -- always the value to trust regardless of
+  `failed_stage`, exactly per `TurnResult`'s own documented design --
+  append both messages, return the curated response), and
+  `GET /sessions/{id}/debug` (developer-only, not linked from the
+  placeholder UI). Each session gets its own `UsageTracker()`, never the
+  shared `default_tracker`, so concurrent sessions' instrumentation never
+  mixes if `CONFIDANT_TRACK_USAGE` is ever set -- same reasoning
+  `conversation_runner.py` already documents for its own single tracker.
+  Mounts `frontend/mvp/` as static files at `/`, so `uvicorn
+  src.api.server:app` alone is the entire local dev setup -- one process,
+  same-origin, no CORS workaround needed.
+- `tests/test_api_server.py` -- mocks `call_provider` at each engine's
+  import path (same pattern as `test_reliability_instrumentation.py`).
+  The one test genuinely worth calling out:
+  `test_second_message_reflects_accumulated_state` mocks Interpretation to
+  introduce a DIFFERENT fact on each of two calls, then asserts BOTH facts
+  are present in the persisted WorldState after both requests -- built
+  specifically to fail if the SQLite round trip silently started fresh
+  each request rather than actually persisting. 148 tests passing (was
+  143).
+- `.github/workflows/api-smoketest.yml` -- new `workflow_dispatch`
+  workflow, same live-proof discipline as `single-turn-smoketest.yml`/
+  `worldstate-walkthrough.yml`: starts the real server, drives a real
+  2-turn conversation over HTTP against the real API with the real
+  `OPENROUTER_API_KEY` secret, and verifies (via
+  `scripts/check_api_smoketest.py` -- kept as a standalone script rather
+  than an inline heredoc, since a heredoc's leading whitespace collided
+  with YAML's own indentation on the first draft) that both turns got
+  real `response_text` and the persisted WorldState actually accumulated
+  a fact.
+- `requirements.txt` -- added `fastapi>=0.110.0`, `uvicorn[standard]>=0.29.0`.
+- `.gitignore` -- excluded `confidant_mvp.db` (the runtime SQLite file).
+
+**Explicitly out of scope this round** (see frontend/decisions.md for the
+frontend-specific version of this): the actual v4-aligned screen redesign
+(Home/Journey/Settings, ambient presence, Quiet Discovery) -- unchanged,
+still the next design step whenever picked up; auth/multi-user accounts,
+deployment/hosting, and any real frontend framework choice -- this MVP's
+HTML page is explicitly throwaway, not a foundation for the eventual real
+UI; any change to the reasoning pipeline itself -- this round is pure
+plumbing around the already-validated `run_turn`.
+
+Verified locally: full test suite passes (148/148); `uvicorn
+src.api.server:app` starts, serves the static page at `/`, and
+`POST /sessions` returns a real session id. A live 2-turn dry run
+(without a real `OPENROUTER_API_KEY` available in this environment)
+confirmed the failure path surfaces honestly end-to-end -- `failed_stage`/
+`error` propagate all the way from `run_turn` through the API response,
+exactly as designed -- and that the smoketest's verification script
+correctly detects and fails on that condition. Next step: dispatch
+`api-smoketest.yml` on `main` with the real secret for the actual live
+proof.

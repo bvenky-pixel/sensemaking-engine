@@ -1,3 +1,7 @@
+# MVP API server's local SQLite session store (src/api/db.py) -- runtime
+# data, never committed.
+confidant_mvp.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

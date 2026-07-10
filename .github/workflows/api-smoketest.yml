@@ -1,0 +1,78 @@
+name: MVP API smoke test
+
+# Manual only -- starts the real MVP API server (src/api/server.py) and
+# drives a real 2-turn conversation against it over HTTP, the same
+# pattern as single-turn-smoketest.yml/worldstate-walkthrough.yml but for
+# the API layer instead of calling the orchestrator directly. This is the
+# live proof that a session's WorldState actually survives the SQLite
+# round trip between requests (see src/api/db.py's module docstring --
+# every prior test/script only ever held WorldState in-process).
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  smoketest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start the API server
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONFIDANT_TRACK_USAGE: "1"
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          nohup python3 -m uvicorn src.api.server:app --host 127.0.0.1 --port 8000 \
+            > server.log 2>&1 &
+          echo "server_pid=$!" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 20); do
+            if curl -s -o /dev/null http://127.0.0.1:8000/; then
+              echo "Server is up."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Drive a real 2-turn conversation and verify persistence
+        run: |
+          SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/sessions | jq -r '.id')
+          echo "Session: $SESSION_ID"
+
+          RESP1=$(curl -s -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "I'\''ve been trying to move from my current team to the Product team for a few months now."}')
+          echo "Turn 1 response: $RESP1"
+
+          RESP2=$(curl -s -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "My manager Sarah keeps saying it'\''s not the right time, but never gives a clear reason."}')
+          echo "Turn 2 response: $RESP2"
+
+          DEBUG=$(curl -s "http://127.0.0.1:8000/sessions/$SESSION_ID/debug")
+
+          export RESP1 RESP2 DEBUG
+          python3 scripts/check_api_smoketest.py
+
+      - name: Server log (always shown for debugging)
+        if: always()
+        run: cat server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: kill "$server_pid" 2>/dev/null || true
