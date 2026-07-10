@@ -14,6 +14,12 @@
 app = 'confidantsense'
 primary_region = 'lhr'
 
+[env]
+  # Not a secret -- OpenRouter model routing choice, safe to commit.
+  # Overrides the openrouter/free auto-router default (see
+  # src/llm/providers.py) with a pinned paid model for reliability.
+  OPENROUTER_MODEL = 'openai/gpt-4o-mini'
+
 [build]
 
 [[mounts]]
