@@ -3550,3 +3550,59 @@ first surfaced in Run 3 (13/30 tests affected). The boolean-gate design
 (has_assumption/has_risk_signal + auto-repair, plus the
 grounding-filter-ordering fix above) is now the standing mechanism for
 both fields.
+
+### 2026-07-10: Tier 2 walkthrough re-run -- entity attribute enrichment CONFIRMED, decision-lifecycle CONFIRMED still gapped (real matching-strategy limitation, diagnosed precisely)
+
+First live verification of the Tier 2 fixes (`goal_updates`/
+`decision_events`/`entity_attribute_updates`) against the real pipeline,
+via the 10-turn `worldstate-walkthrough.yml` (career-decision scenario,
+`scripts/run_worldstate_walkthrough.py`) -- previously only verified via
+hand-built unit tests. Added a "[Phase 3b -- Lifecycle/enrichment
+signals (v1.1)]" debug print to `src/interpretation/debug.py`
+(`analyze_interpretation`) first, since neither `conversation_runner.py`
+nor the walkthrough script's debug summary ever surfaced these three
+fields -- without it, a WorldState-level miss couldn't be told apart
+from a model-compliance miss vs. a merge-layer miss.
+
+**Entity attribute enrichment: CONFIRMED WORKING end to end.** Turn 8
+("Sarah mentioned she's actually being promoted to Head of Product in
+Q3.") Phase 3b: `entity attribute update: 'Sarah'.role = 'Head of
+Product'`. WorldState's `entities` row from turn 8 onward:
+`Sarah (status=active, type=unknown, attributes=[{'attribute': 'role',
+'value': 'Head of Product'}])` -- exact match, stable through turn 10.
+
+**Decision lifecycle: CONFIRMED gapped, root cause now precise (ruling
+out two earlier hypotheses).** Turn 10 ("I've decided to wait until Q3
+and see what happens once she's in the new role.") Phase 3b:
+`decision event: 'wait until Q3' -> chosen`. So the model DID correctly
+recognize the turn as resolving a decision (ruling out "model never
+emitted a signal"), and the event type is `chosen`, not `deferred`
+(ruling out the "deferred is a documented no-op on status" hypothesis
+raised when this was first spotted). WorldState's `decisions` row after
+turn 10: `Apply externally (status=open)` -- unchanged since turn 7,
+because `_apply_decision_events` (`src/state/builder.py`) can only match
+an event to an EXISTING `Decision.content` via word-overlap, and
+`'wait until Q3'` shares zero words with the only stored option,
+`'Apply externally'` (extracted turn 7). No update to the existing
+entry, no new entry created -- the event is silently dropped.
+
+**Real root cause: a matching-strategy gap, not a code bug or model
+failure.** `decision_events`' own prompt worked example teaches the
+model to name the WINNING alternative (`"decided to wait"` ->
+`option: "wait"`), which only resolves cleanly via text-matching when
+the user named BOTH sides of the decision explicitly early on (the
+worked example's own setup: `"Should I apply externally or wait?"`).
+This transcript only ever named one side ("applying externally") as a
+stored `decision_option` -- "wait" itself was never extracted as its own
+option, so a `chosen` event framed around "wait" has nothing to
+text-match against, even though a human reader would immediately
+recognize this as resolving the same decision thread. Same category of
+limitation as the already-logged unknown-resolution gap: pure lexical
+word-overlap can't bridge two different phrasings of two sides of one
+decision -- would need a real signal from a richer schema (e.g. Judgment
+seeing both stored options and the resolving statement together) or
+semantic matching, not a better string-matching trick.
+
+**Decision: log as a known, documented gap for now. No fix attempted
+this round**, per explicit user instruction -- same disposition as X02's
+instruction-following gap above. Not scheduled.
