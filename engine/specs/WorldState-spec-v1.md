@@ -210,6 +210,18 @@ Infer deep psychological conclusions
 
 # Provenance
 
+**IMPLEMENTED 2026-07-10** (see engine/decisions.md "WorldState
+provenance -- trajectory prerequisite") -- `source`/`first_seen`/
+`last_updated` and turn numbering (`WorldState.turn_count`) below are
+real, not aspirational. `supporting_evidence` (a list of every turn that
+touched an item) is deliberately NOT implemented -- no motivating use
+case yet, since it would require bookkeeping on every reaffirmation, not
+just creation/status-change. The worked example below is kept as
+originally written for continuity, but the actual `Provenance` model
+(`src/state/world_state.py`) has only `source`/`first_seen`/
+`last_updated` -- treat `supporting_evidence` in the example as future
+work, not current shape.
+
 Every durable piece of knowledge should be traceable to the conversation
 that created or updated it.
 

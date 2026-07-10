@@ -7,8 +7,12 @@ Implements the "Core Structure" of engine/specs/WorldState_Specification_v1.md
 v1, not WorldState Ultimate" -- proving the new data model and merge
 semantics, not the full spec in one pass. Deferred to later iterations
 (see engine/decisions.md for the full v1/v1.1/v1.2/v1.3 breakdown):
-- v1.1: provenance (source/first_seen/last_updated/supporting_evidence),
-  turn numbering, stable object IDs
+- v1.1: provenance (source/first_seen/last_updated) and turn numbering --
+  IMPLEMENTED 2026-07-10 (see engine/decisions.md "WorldState provenance
+  -- trajectory prerequisite"; Provenance class + WorldState.turn_count
+  below). `supporting_evidence` and stable object IDs remain deferred --
+  no motivating use case yet for the former, and nothing in this round
+  depends on the latter (matching still goes by content/word-overlap).
 - v1.2: conversation_summary, emotional_history (trend computation)
 - v1.3: project graph, cross-links between entities and goals
 
@@ -70,6 +74,27 @@ UnknownStatus = Literal["open", "resolved"]
 EntityStatus = Literal["active", "retracted"]
 
 
+class Provenance(BaseModel):
+    """
+    v1.1 (added 2026-07-10, see engine/decisions.md "WorldState provenance
+    -- trajectory prerequisite"): when a knowledge item was first created
+    and when its status last actually changed, both as turn numbers (see
+    WorldState.turn_count). `source` names which layer created the item --
+    always "interpretation" today, since that's the only thing that ever
+    creates a new KnowledgeItem.
+
+    Deliberately excludes `supporting_evidence` (a list of every turn that
+    touched the item) from the original WorldState-spec-v1.md worked
+    example -- that would require bookkeeping on every reaffirmation, not
+    just creation/status-change, a bigger behavior change with no current
+    motivating use case. Add it later if trajectory work actually needs it.
+    """
+
+    source: str
+    first_seen: int
+    last_updated: int
+
+
 class KnowledgeItem(BaseModel):
     """
     Common shape shared by every durable knowledge object (Fact, Claim,
@@ -78,14 +103,16 @@ class KnowledgeItem(BaseModel):
     from rather than six ad hoc shapes.
 
     `status` is required on every subtype (each narrows the Literal and
-    default to its own lifecycle). `confidence` and `provenance` are
-    placeholders for v1.1 -- see engine/decisions.md -- nothing populates
-    them yet, so they stay None rather than a fabricated default.
+    default to its own lifecycle). `confidence` is still a placeholder for
+    a future round -- nothing populates it yet, so it stays None rather
+    than a fabricated default. `provenance` was the same kind of
+    placeholder until v1.1 (see Provenance above) -- now populated by
+    src/state/builder.py at creation and at every status transition.
     """
 
     status: str
     confidence: Optional[float] = None
-    provenance: Optional[dict] = None  # placeholder shape; real Provenance model lands in v1.1
+    provenance: Optional[Provenance] = None
 
 
 class Fact(KnowledgeItem):
@@ -189,3 +216,11 @@ class WorldState(BaseModel):
     decisions: List[Decision] = Field(default_factory=list)
     unknowns: List[Unknown] = Field(default_factory=list)
     entities: List[Entity] = Field(default_factory=list)
+
+    # v1.1 (added 2026-07-10, see engine/decisions.md "WorldState
+    # provenance -- trajectory prerequisite"): incremented exactly once
+    # per turn, solely by src/state/builder.py::update_state -- the single
+    # per-turn WorldState mutation entrypoint. 0 for a brand-new session
+    # with no turns yet. Nothing else (Orchestrator, the API layer) needs
+    # to know about or manage this counter.
+    turn_count: int = 0

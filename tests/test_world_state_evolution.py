@@ -618,3 +618,109 @@ def test_inference_embedded_confidence_annotation_is_stripped():
     assert inference_text == (
         "User's previous concern reflects a misunderstanding of the situation (confidence=0.50)"
     )
+
+
+def test_turn_count_increments_once_per_update_state_call():
+    """
+    WorldState provenance, v1.1 (2026-07-10, see engine/decisions.md
+    "WorldState provenance -- trajectory prerequisite"): turn_count starts
+    at 0 for a brand-new session and increments by exactly 1 per
+    update_state call, regardless of what the turn's Interpretation
+    contains -- this is the single per-turn counter every provenance stamp
+    below is stamped against.
+    """
+    state = WorldState()
+    assert state.turn_count == 0
+
+    state = update_state(state, make_interp())
+    assert state.turn_count == 1
+
+    state = update_state(state, make_interp())
+    assert state.turn_count == 2
+
+    state = update_state(state, make_interp())
+    assert state.turn_count == 3
+
+
+def test_new_fact_stamped_with_provenance_at_creation():
+    """A Fact created on turn 1 gets first_seen == last_updated == 1,
+    source == "interpretation" -- Facts have no in-place mutation path
+    today, so first_seen and last_updated will only ever match for them
+    under current merge semantics (see _merge_content_items)."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))
+
+    assert len(state.facts) == 1
+    provenance = state.facts[0].provenance
+    assert provenance is not None
+    assert provenance.source == "interpretation"
+    assert provenance.first_seen == 1
+    assert provenance.last_updated == 1
+
+
+def test_goal_status_change_bumps_last_updated_but_not_first_seen():
+    """A Goal created on turn 1, left untouched on turn 2, then
+    status-changed via goal_updates on turn 3: first_seen stays 1
+    (when it was actually created), last_updated moves to 3 (when its
+    status actually changed) -- exactly the signal a future trajectory
+    assessment needs to tell "just created" apart from "long-stagnant."
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(goals=["Move to the Product team."]))
+    assert state.goals[0].provenance.first_seen == 1
+    assert state.goals[0].provenance.last_updated == 1
+
+    state = update_state(state, make_interp())  # turn 2, nothing relevant happens
+    assert state.goals[0].provenance.last_updated == 1  # untouched, correctly
+
+    state = update_state(
+        state,
+        make_interp(goal_updates=[GoalUpdate(goal="Move to the Product team.", status="paused")]),
+    )
+
+    assert state.turn_count == 3
+    assert state.goals[0].status == "paused"
+    assert state.goals[0].provenance.first_seen == 1
+    assert state.goals[0].provenance.last_updated == 3
+
+
+def test_decision_resolution_via_judgment_bumps_last_updated_not_first_seen():
+    """Same signal as the Goal test above, but through
+    apply_judgment_resolutions -- the one write-back exception to
+    "Judgment never writes to WorldState" (see engine/decisions.md
+    "decision lifecycle, round 3"). Confirms it stamps last_updated using
+    state.turn_count rather than incrementing the counter itself -- only
+    update_state ever does that."""
+    state = WorldState()
+    state = update_state(state, make_interp(decision_options=["applying externally"]))
+    assert state.decisions[0].provenance.first_seen == 1
+    assert state.decisions[0].provenance.last_updated == 1
+
+    state = update_state(state, make_interp())  # turn 2, nothing relevant happens
+
+    judgment = make_judgment(
+        has_decision_resolution=True,
+        decision_resolution_option="applying externally",
+        decision_resolution_status="deferred",
+        decision_resolutions=[DecisionResolution(option="applying externally", status="deferred")],
+    )
+    state = apply_judgment_resolutions(state, judgment)
+
+    assert state.turn_count == 2  # apply_judgment_resolutions never increments it
+    assert state.decisions[0].status == "deferred"
+    assert state.decisions[0].provenance.first_seen == 1
+    assert state.decisions[0].provenance.last_updated == 2
+
+
+def test_entity_stamped_with_provenance_at_creation():
+    """An Entity created via _merge_entities gets the same creation-time
+    stamp as Facts/Claims/Goals/Decisions/Unknowns."""
+    state = WorldState()
+    state = update_state(state, make_interp(entities=["Sarah"]))
+
+    assert len(state.entities) == 1
+    provenance = state.entities[0].provenance
+    assert provenance is not None
+    assert provenance.source == "interpretation"
+    assert provenance.first_seen == 1
+    assert provenance.last_updated == 1

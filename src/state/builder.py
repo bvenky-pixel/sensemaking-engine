@@ -35,6 +35,7 @@ from src.state.world_state import (
     EntityAttribute,
     Fact,
     Goal,
+    Provenance,
     Unknown,
     WorldState,
 )
@@ -118,7 +119,7 @@ def _merge_unique(existing: List[str], new: List[str]) -> List[str]:
     return merged
 
 
-def _merge_content_items(existing: list, new_contents: List[str], model_cls) -> list:
+def _merge_content_items(existing: list, new_contents: List[str], model_cls, turn: int) -> list:
     """
     Generic merge for the typed Fact/Claim/Goal/Decision/Unknown tiers:
     dedup by content (case-insensitive), append genuinely new items as a
@@ -126,13 +127,26 @@ def _merge_content_items(existing: list, new_contents: List[str], model_cls) -> 
     are returned unchanged -- status transitions are handled by whichever
     caller has the signal for them (see _reconcile_unknowns below for the
     one transition Interpretation actually gives us evidence for).
+
+    `turn` (added 2026-07-10, see engine/decisions.md "WorldState
+    provenance -- trajectory prerequisite") stamps every newly created
+    item with Provenance(first_seen=last_updated=turn) -- always
+    "interpretation" as source, since that's the only thing that ever
+    creates a new KnowledgeItem. A reaffirmed-but-unchanged existing item
+    is still returned untouched, same as before this field existed --
+    dedup happens before this loop even sees it.
     """
     result = list(existing)
     seen = {item.content.strip().lower() for item in result}
     for content in new_contents:
         key = content.strip().lower()
         if key not in seen:
-            result.append(model_cls(content=content))
+            result.append(
+                model_cls(
+                    content=content,
+                    provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
+                )
+            )
             seen.add(key)
     return result
 
@@ -168,26 +182,34 @@ _DECISION_EVENT_TO_STATUS = {
 }
 
 
-def _apply_goal_updates(goals: List[Goal], updates: List[GoalUpdate]) -> List[Goal]:
+def _apply_goal_updates(goals: List[Goal], updates: List[GoalUpdate], turn: int) -> List[Goal]:
     """
     Transition an existing Goal's status when a GoalUpdate's `goal` text
     sufficiently overlaps an existing goal's content (same bidirectional
     word-overlap check as unknown resolution). No match -> dropped, never
     used to fabricate a new Goal (that's `goals: List[str]`'s job).
+
+    `turn` (added 2026-07-10, see engine/decisions.md "WorldState
+    provenance -- trajectory prerequisite") bumps the matched Goal's
+    provenance.last_updated -- first_seen/source are left untouched, since
+    this is a status change on an existing item, not a new one.
     """
     result = list(goals)
     for update in updates:
         for g in result:
             if _is_resolved_by(update.goal, g.content) or _is_resolved_by(g.content, update.goal):
                 g.status = update.status
+                if g.provenance is not None:
+                    g.provenance.last_updated = turn
                 break
     return result
 
 
 def _apply_decision_events(
-    decisions: List[Decision], events: List[DecisionEvent]
+    decisions: List[Decision], events: List[DecisionEvent], turn: int
 ) -> List[Decision]:
-    """Same matching mechanism as _apply_goal_updates, for Decisions."""
+    """Same matching mechanism as _apply_goal_updates, for Decisions --
+    including the same provenance.last_updated bump on a matched item."""
     result = list(decisions)
     for event in events:
         new_status = _DECISION_EVENT_TO_STATUS.get(event.event)
@@ -196,6 +218,8 @@ def _apply_decision_events(
         for d in result:
             if _is_resolved_by(event.option, d.content) or _is_resolved_by(d.content, event.option):
                 d.status = new_status
+                if d.provenance is not None:
+                    d.provenance.last_updated = turn
                 break
     return result
 
@@ -221,18 +245,26 @@ def apply_judgment_resolutions(state: WorldState, judgment: Judgment) -> WorldSt
     this function is what turns Judgment's read-only assessment into the
     one exception: a write-back), so this turn's Planner/Response see
     the corrected status, and so does every later turn's WorldState.
+
+    Stamps provenance.last_updated using state.turn_count (added 2026-07-10,
+    see engine/decisions.md "WorldState provenance -- trajectory
+    prerequisite") -- already incremented earlier this same turn by
+    update_state, so this does NOT increment it again; exactly one
+    increment per turn, owned solely by update_state.
     """
     new_state = state.model_copy(deep=True)  # never mutate the caller's state
     for resolution in judgment.decision_resolutions:
         for d in new_state.decisions:
             if _is_resolved_by(resolution.option, d.content) or _is_resolved_by(d.content, resolution.option):
                 d.status = resolution.status
+                if d.provenance is not None:
+                    d.provenance.last_updated = new_state.turn_count
                 break
     return new_state
 
 
 def _reconcile_unknowns(
-    existing: List[Unknown], new_unknowns: List[str], resolved_by: List[str]
+    existing: List[Unknown], new_unknowns: List[str], resolved_by: List[str], turn: int
 ) -> Tuple[List[Unknown], List[str]]:
     """
     Drop any existing unknown that a newly-stated fact/claim appears to
@@ -264,7 +296,7 @@ def _reconcile_unknowns(
         else:
             still_open.append(u)
 
-    merged = _merge_content_items(still_open, new_unknowns, Unknown)
+    merged = _merge_content_items(still_open, new_unknowns, Unknown, turn)
     return merged, resolved_contents
 
 
@@ -272,6 +304,7 @@ def _merge_entities(
     existing: List[Entity],
     new_names: List[str],
     attribute_updates: List[EntityAttributeUpdate],
+    turn: int,
 ) -> List[Entity]:
     """
     Enrich existing entities by name (case-insensitive), never duplicate.
@@ -285,13 +318,23 @@ def _merge_entities(
     entity was never separately mentioned in `new_names` still creates
     the entity -- the attribute statement itself is evidence the entity
     exists, not a reason to drop it.
+
+    `turn` (added 2026-07-10, see engine/decisions.md "WorldState
+    provenance -- trajectory prerequisite") stamps every newly created
+    Entity the same way _merge_content_items does. Enriching an EXISTING
+    entity's attributes does NOT bump last_updated -- out of scope this
+    round (trajectory only cares about Goal/Decision status transitions,
+    per the approved plan; entities aren't part of that).
     """
     result = list(existing)
     by_name = {e.name.strip().lower(): e for e in result}
     for name in new_names:
         key = name.strip().lower()
         if key not in by_name:
-            entity = Entity(name=name)
+            entity = Entity(
+                name=name,
+                provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
+            )
             result.append(entity)
             by_name[key] = entity
 
@@ -299,7 +342,10 @@ def _merge_entities(
         key = update.entity.strip().lower()
         entity = by_name.get(key)
         if entity is None:
-            entity = Entity(name=update.entity)
+            entity = Entity(
+                name=update.entity,
+                provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
+            )
             result.append(entity)
             by_name[key] = entity
         for existing_attr in entity.attributes:
@@ -317,6 +363,15 @@ def _merge_entities(
 def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     new_state = state.model_copy(deep=True)  # never mutate the caller's state
 
+    # v1.1 (added 2026-07-10, see engine/decisions.md "WorldState
+    # provenance -- trajectory prerequisite"): exactly one increment per
+    # turn, owned solely here -- update_state is the single per-turn
+    # WorldState mutation entrypoint, unconditionally called every turn by
+    # the Orchestrator. Every provenance stamp this turn (below, and later
+    # in apply_judgment_resolutions) uses this same value.
+    new_state.turn_count = state.turn_count + 1
+    turn = new_state.turn_count
+
     # --- Phase 2 ---
     new_state.surface_complaint = interp.surface_complaint or state.surface_complaint
     # Only move core_question when this turn is at least as confident as
@@ -327,12 +382,12 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
         new_state.core_question_confidence = interp.core_question_confidence
 
     # --- Phase 3: epistemic tiers, kept separate, never flattened ---
-    new_state.facts = _merge_content_items(state.facts, interp.observed_facts, Fact)
-    new_state.claims = _merge_content_items(state.claims, interp.claims, Claim)
-    new_state.goals = _merge_content_items(state.goals, interp.goals, Goal)
-    new_state.goals = _apply_goal_updates(new_state.goals, interp.goal_updates)
-    new_state.decisions = _merge_content_items(state.decisions, interp.decision_options, Decision)
-    new_state.decisions = _apply_decision_events(new_state.decisions, interp.decision_events)
+    new_state.facts = _merge_content_items(state.facts, interp.observed_facts, Fact, turn)
+    new_state.claims = _merge_content_items(state.claims, interp.claims, Claim, turn)
+    new_state.goals = _merge_content_items(state.goals, interp.goals, Goal, turn)
+    new_state.goals = _apply_goal_updates(new_state.goals, interp.goal_updates, turn)
+    new_state.decisions = _merge_content_items(state.decisions, interp.decision_options, Decision, turn)
+    new_state.decisions = _apply_decision_events(new_state.decisions, interp.decision_events, turn)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
 
     kept_inferences = [
@@ -343,17 +398,17 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     new_state.inferences = _merge_unique(state.inferences, kept_inferences)
 
     updated_unknowns, resolved = _reconcile_unknowns(
-        state.unknowns, interp.unknowns, interp.observed_facts + interp.claims
+        state.unknowns, interp.unknowns, interp.observed_facts + interp.claims, turn
     )
     new_state.unknowns = updated_unknowns
     if resolved:
         # Resolved unknowns become facts (spec: "Unknowns -- Remove only
         # when answered. Resolved unknowns become facts.").
-        new_state.facts = _merge_content_items(new_state.facts, resolved, Fact)
+        new_state.facts = _merge_content_items(new_state.facts, resolved, Fact, turn)
 
     new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
     new_state.entities = _merge_entities(
-        state.entities, interp.entities, interp.entity_attribute_updates
+        state.entities, interp.entities, interp.entity_attribute_updates, turn
     )
     new_state.clarity_level = interp.clarity_score
 
