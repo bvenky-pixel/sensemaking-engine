@@ -15,7 +15,7 @@ actually exposes to a real client -- `SendMessageResponse` mirrors what
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -41,3 +41,19 @@ class MessageOut(BaseModel):
     role: str
     content: str
     created_at: str
+
+
+class ClarityBriefResponse(BaseModel):
+    """Unlike Judgment/Planner, a Clarity Brief (src/executor/engine.py) is
+    itself the user-facing artifact -- a fixed-template synthesis of a
+    completed turn, not raw internal cognition -- so its fields are
+    exposed directly rather than curated further. `rendered_markdown` is
+    the same content pre-formatted as a document, for a client that just
+    wants to display it without reassembling the sections itself."""
+
+    situation: str
+    key_insights: List[str]
+    current_direction: str
+    remaining_unknowns: List[str]
+    decisions: List[str]
+    rendered_markdown: str

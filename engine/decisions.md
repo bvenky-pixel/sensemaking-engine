@@ -4198,3 +4198,68 @@ flagged a real risk signal from the conversation content, and Response
 produced a coherent, on-topic reply. This is the concrete proof the MVP
 milestone set out for: a real person, using the real deployed app, gets
 the real reasoning pipeline, with real persistence, end to end.
+
+### 2026-07-10 (later still): reframed as "prototype," not "MVP" -- proved the system works, not that its output is differentiated; System Architecture v2 found already implemented; Clarity Brief wired into the live UI as a first small step
+
+Once actually used live, the user's own assessment was blunt and correct:
+the deployed app proves the end-to-end system and the underlying idea
+work, but the OUTPUT quality reads as roughly equivalent to a generic
+LLM conversation. Renaming it "prototype" rather than "MVP" going
+forward -- an MVP implies the product's core value is already there in
+minimal form; this only proves the pipes connect.
+
+The user's stated next direction: move toward "v2," more ambitious and
+sophisticated, specifically to build the actual differentiator. Before
+proposing any implementation, checked what "v2" would even mean against
+what's actually in this repo:
+
+- `engine/specs/system-architecture-v2-specification.md` already exists,
+  but its four components (Orchestrator, Instrumentation, Learning,
+  Executor) are explicitly, deliberately NOT about reasoning/output
+  quality -- the spec's own governing boundary is that none of them
+  "reason about the user's world." Implementing it would improve
+  reliability/observability/artifact-generation, not what a user reads.
+- Research (two parallel Explore passes) found three of the four already
+  built and tested as of 2026-07-05: Instrumentation
+  (`src/instrumentation/usage.py`), Orchestrator
+  (`src/orchestrator/engine.py`), and Executor
+  (`src/executor/engine.py`, a Clarity Brief template -- built, tested,
+  but never wired into any live call path). Only Learning
+  (`src/learning/__init__.py`) remains a stub, and deliberately so --
+  the spec itself says building "durable pattern detection" before real
+  usage volume exists would invent capability the evidence doesn't
+  support, the same discipline this project has applied everywhere else
+  (Interpretation's hardening rounds, Judgment's "resist tuning until
+  Planner exists," Planner's own restraint at n=1/n=2).
+
+So the real differentiator work has to be a NEW design effort inside the
+Sensemaking Engine itself (Judgment/Planner/Response depth) -- no
+existing spec covers it, unlike the ops layer which turned out to
+already be done. Given the user's choice ("wire up Clarity Brief first,
+then reasoning depth"), this entry covers only the first, small part:
+
+**Clarity Brief exposed via a new `GET /sessions/{id}/clarity-brief`
+endpoint** (`src/api/server.py`) and a plain-language "See where things
+stand" toggle in `frontend/mvp/index.html` (see `frontend/decisions.md`
+for the UI-side reasoning). Reconstructs `WorldState`/`Judgment`/
+`Planner` from the same `debug_json` blob `/debug` already persists,
+calls the existing `build_clarity_brief`/`render_clarity_brief`
+unchanged -- no changes to Executor itself, this is purely a new call
+site. Returns 404 ("Nothing to summarize yet") until a turn has actually
+completed Judgment and Planner. New response schema
+`ClarityBriefResponse` (`src/api/schema.py`) is deliberately NOT curated
+the way `SendMessageResponse` curates Judgment/Planner away -- a Clarity
+Brief is itself the user-facing artifact, per its own spec, so its
+fields are exposed directly. 150 tests passing (2 new: 404-before-any-
+turn, and a populated-turn case asserting the exact field mapping --
+`key_insights` = primary_problem + risks + opportunities,
+`remaining_unknowns` = Judgment's curated open_unknowns, not raw
+WorldState.unknowns). Verified live via Playwright against a real
+locally-running server: pre-completion empty state renders correctly,
+and submitting a message that hits the local honest-failure path (no
+`OPENROUTER_API_KEY` set) leaves the toggle showing the same graceful
+empty state rather than crashing.
+
+This is a small, low-risk integration step, not the differentiator
+itself -- the reasoning-depth design push is the substantive work still
+ahead.

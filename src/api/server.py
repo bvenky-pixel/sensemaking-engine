@@ -34,9 +34,19 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from src.api import db
-from src.api.schema import CreateSessionResponse, MessageOut, SendMessageRequest, SendMessageResponse
+from src.api.schema import (
+    ClarityBriefResponse,
+    CreateSessionResponse,
+    MessageOut,
+    SendMessageRequest,
+    SendMessageResponse,
+)
+from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.instrumentation.usage import UsageTracker
+from src.judgment.schema import Judgment
 from src.orchestrator.engine import run_turn
+from src.planner.schema import Planner
+from src.state.world_state import WorldState
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "mvp"
 
@@ -94,6 +104,28 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
 def get_debug(session_id: str) -> dict:
     _require_session(session_id)
     return db.load_debug(session_id) or {}
+
+
+@app.get("/sessions/{session_id}/clarity-brief", response_model=ClarityBriefResponse)
+def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
+    """Unlike /debug, this is meant to be shown to the actual user -- see
+    src/api/schema.py's ClarityBriefResponse docstring. 404s until at
+    least one turn has completed Judgment and Planner (a turn that failed
+    before those stages has nothing to build a brief from yet)."""
+    _require_session(session_id)
+    debug = db.load_debug(session_id)
+    if not debug or not debug.get("judgment") or not debug.get("planner"):
+        raise HTTPException(status_code=404, detail="Nothing to summarize yet")
+
+    state = WorldState.model_validate(debug["state"])
+    judgment = Judgment.model_validate(debug["judgment"])
+    planner = Planner.model_validate(debug["planner"])
+    brief = build_clarity_brief(state, judgment, planner)
+
+    return ClarityBriefResponse(
+        **brief.model_dump(),
+        rendered_markdown=render_clarity_brief(brief),
+    )
 
 
 if _FRONTEND_DIR.exists():

@@ -120,6 +120,36 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: default; }
+  .brief-toggle {
+    align-self: flex-start;
+    background: none;
+    color: var(--ink-muted);
+    padding: 0.3rem 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  #brief {
+    display: none;
+    background: var(--paper-recede);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  #brief.visible { display: block; }
+  #brief h2 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--ink-faint);
+    margin: 0.9rem 0 0.3rem;
+  }
+  #brief h2:first-child { margin-top: 0; }
+  #brief ul { margin: 0; padding-left: 1.2rem; }
+  #brief p { margin: 0; }
 </style>
 </head>
 <body>
@@ -127,6 +157,8 @@
   <h1>Confidant</h1>
   <p class="note">Early proof-of-concept interface — not the intended design.</p>
   <div id="transcript"></div>
+  <button type="button" class="brief-toggle" id="briefToggle">See where things stand</button>
+  <div id="brief"></div>
   <form id="composer">
     <textarea id="input" placeholder="What's on your mind?"></textarea>
     <div class="actions">
@@ -141,6 +173,8 @@
   const form = document.getElementById('composer');
   const inputEl = document.getElementById('input');
   const shareBtn = document.getElementById('share');
+  const briefToggle = document.getElementById('briefToggle');
+  const briefEl = document.getElementById('brief');
 
   function addEntry(role, text, isStatus) {
     const wrap = document.createElement('div');
@@ -185,6 +219,71 @@
     }
     return "Something didn't go as expected. Could you try again?";
   }
+
+  function renderBrief(data) {
+    briefEl.innerHTML = '';
+    briefEl.appendChild(_buildSection('Situation', data.situation));
+    briefEl.appendChild(_buildList('Key Insights', data.key_insights));
+    briefEl.appendChild(_buildSection('Current Direction', data.current_direction));
+    briefEl.appendChild(_buildList('Remaining Unknowns', data.remaining_unknowns));
+    briefEl.appendChild(_buildList('Decisions', data.decisions));
+  }
+
+  function _buildSection(title, text) {
+    const wrap = document.createElement('div');
+    const h = document.createElement('h2');
+    h.textContent = title;
+    const p = document.createElement('p');
+    p.textContent = text || '(none)';
+    wrap.appendChild(h);
+    wrap.appendChild(p);
+    return wrap;
+  }
+
+  function _buildList(title, items) {
+    const wrap = document.createElement('div');
+    const h = document.createElement('h2');
+    h.textContent = title;
+    wrap.appendChild(h);
+    if (!items || !items.length) {
+      const p = document.createElement('p');
+      p.textContent = '(none)';
+      wrap.appendChild(p);
+    } else {
+      const ul = document.createElement('ul');
+      items.forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        ul.appendChild(li);
+      });
+      wrap.appendChild(ul);
+    }
+    return wrap;
+  }
+
+  let briefVisible = false;
+
+  briefToggle.addEventListener('click', async function () {
+    briefVisible = !briefVisible;
+    if (!briefVisible) {
+      briefEl.classList.remove('visible');
+      return;
+    }
+    briefEl.innerHTML = '<p>Gathering where things stand…</p>';
+    briefEl.classList.add('visible');
+    try {
+      const res = await fetch('/sessions/' + sessionId + '/clarity-brief');
+      if (res.status === 404) {
+        briefEl.innerHTML = '<p>Nothing to summarize yet — keep sharing a bit more first.</p>';
+        return;
+      }
+      if (!res.ok) throw new Error('request failed');
+      const data = await res.json();
+      renderBrief(data);
+    } catch (err) {
+      briefEl.innerHTML = '<p>Couldn\'t gather a summary just now. Please try again in a moment.</p>';
+    }
+  });
 
   let sessionId = null;
 

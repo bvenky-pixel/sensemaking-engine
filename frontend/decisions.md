@@ -122,3 +122,45 @@ chat-shaped structure and copy were not reused.
 read as settled-and-then-changed by this addition; the v4 screen redesign
 remains exactly as open and exactly as sequenced as the freeze entry
 above already states.
+
+---
+
+**2026-07-10 — Executor's Clarity Brief wired into the placeholder UI**
+
+Following the deployed prototype being judged output-quality-equivalent
+to a generic LLM (see the corresponding `engine/decisions.md` entry), the
+user chose a small, low-risk win before starting the bigger reasoning-
+depth design push: expose the already-built-but-never-wired Executor
+Clarity Brief (`src/executor/engine.py`, built 2026-07-05 but never
+called from any live path per its own decisions-log entry).
+
+Unlike Judgment/Planner, a Clarity Brief IS meant to be user-facing --
+it's Executor's fixed-template synthesis of a completed turn (Situation/
+Key Insights/Current Direction/Remaining Unknowns/Decisions), not raw
+internal cognition -- so this isn't a violation of "Judgment/Planner stay
+internal" (see `src/api/schema.py`'s `SendMessageResponse` docstring for
+that separate, still-intact rule).
+
+Added a plain-language toggle, **"See where things stand"** -- avoiding
+both "summary" (mildly technical/report-like) and any synonym for
+"analysis," consistent with the same no-technical-vocabulary constraint
+honored everywhere else in this file. New `GET
+/sessions/{id}/clarity-brief` endpoint (`src/api/server.py`) 404s with
+"Nothing to summarize yet" until at least one turn has completed
+Judgment and Planner -- reconstructs `WorldState`/`Judgment`/`Planner`
+from the same `debug_json` blob `/debug` already reads, calls
+`build_clarity_brief`/`render_clarity_brief` unchanged, returns both the
+structured fields and a pre-rendered markdown string.
+
+Frontend renders the structured fields directly via `textContent`-based
+DOM construction (never `innerHTML` on request-derived content) rather
+than parsing the markdown string, since the toggle panel needs simple
+section/list styling, not a full markdown renderer -- one more thing this
+throwaway placeholder deliberately doesn't need. Verified live: a
+Playwright drive of the real page confirmed the pre-completion empty
+state renders correctly and that submitting a message (hitting the
+honest-failure path locally, no `OPENROUTER_API_KEY` set) leaves the
+toggle showing the same graceful "nothing to summarize yet" message
+rather than crashing -- exactly the behavior the 404 path is meant to
+produce. Screenshot confirmed visual styling matches the rest of the
+page.

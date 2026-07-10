@@ -192,3 +192,51 @@ def test_list_messages_returns_transcript_in_order(client, monkeypatch):
 def test_unknown_session_returns_404(client):
     res = client.get("/sessions/does-not-exist/messages")
     assert res.status_code == 404
+
+
+def test_clarity_brief_returns_404_before_any_completed_turn(client):
+    session_id = client.post("/sessions").json()["id"]
+    res = client.get(f"/sessions/{session_id}/clarity-brief")
+    assert res.status_code == 404
+
+
+def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
+    """Exercises the Executor's fixed template (src/executor/engine.py)
+    through the live endpoint -- situation/current_direction/decisions
+    come from WorldState/Planner directly, key_insights/remaining_unknowns
+    are Judgment's curated subset, not a raw WorldState dump."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    populated_judgment = dict(_MINIMAL_JUDGMENT)
+    populated_judgment.update(
+        {
+            "primary_problem": "Founder resists the move.",
+            "risks": ["Founder may block the transfer."],
+            "opportunities": ["A new manager could sponsor it."],
+            "open_unknowns": ["What does the user want next?"],
+        }
+    )
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(populated_judgment))
+    populated_planner = dict(_MINIMAL_PLANNER)
+    populated_planner["desired_outcome"] = "user gains clarity on next steps"
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(populated_planner))
+
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    res = client.get(f"/sessions/{session_id}/clarity-brief")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["situation"] == "User wants to move to the Product team."
+    assert body["key_insights"] == [
+        "Founder resists the move.",
+        "Founder may block the transfer.",
+        "A new manager could sponsor it.",
+    ]
+    assert body["current_direction"] == "user gains clarity on next steps"
+    assert body["remaining_unknowns"] == ["What does the user want next?"]
+    assert body["decisions"] == []
+    assert "# Clarity Brief" in body["rendered_markdown"]
