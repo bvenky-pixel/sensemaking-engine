@@ -3878,3 +3878,39 @@ Next step: live re-test of the same 10-turn walkthrough to confirm
 Judgment's decision_resolutions actually moves "Apply externally" off
 `open` under the real model -- same discipline as every other live
 confirmation this project has required before calling a fix closed.
+
+**Live re-test result: still did not fire, but in a THIRD, qualitatively
+different way -- and possibly not a bug at all.** Turn 10's Judgment
+output this time: `has_decision_resolution: False`,
+`decision_resolution_option: ''`, `decision_resolution_status: ''`,
+`decision_resolutions: []`, `active_decisions: ['applying externally']`
+-- a clean, confident `False`, not an invented option (Interpretation's
+failure mode) and not a blank-but-true commitment. `WorldState.decisions`
+stayed `(status=open)`. Run health otherwise clean: 10/10 turns
+succeeded, entity attribute enrichment (turn 8) still intact, no
+wiring/schema errors -- the mechanism itself (schema, prompt, auto-repair,
+`apply_judgment_resolutions`, orchestrator call site) is confirmed
+correctly built and exercised; it simply didn't get triggered on this
+input.
+
+Live re-test count for this exact turn is now five, with four distinct
+outcomes, never a clean success. Re-examining the transcript itself
+raised a real possibility this was never a clean compliance test to
+begin with: turn 10 ("decided to wait until Q3 and see what happens once
+she's in the new role") reads as plausibly about the ORIGINAL internal-
+transfer path (turns 6/8/9), not unambiguously as a call on the "applying
+externally" fallback option raised once, briefly, in turn 7 -- a
+conservative `False` here is a defensible reading of a genuinely
+ambiguous input, not necessarily a miss.
+
+**Per explicit user instruction, stopping here rather than continuing to
+litigate one ambiguous test case.** Status: the Judgment-based mechanism
+(schema + prompt + auto-repair + write-back) is implemented, unit-tested,
+and confirmed wired correctly end-to-end in a live run -- but has not yet
+had a live sample where it actually fires (unlike Has Assumption/Has Risk
+Signal, which both got a clean live confirmation). Logged as an open
+item: if this needs to be revisited, the productive next step is a less
+ambiguous test input (e.g. an explicit "I've decided NOT to apply
+externally" statement) to separate "does the mechanism fire when the
+signal is unambiguous" from "can the model resolve genuinely ambiguous
+phrasing" -- not further iteration on this specific transcript's turn 10.
