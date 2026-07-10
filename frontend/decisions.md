@@ -265,3 +265,34 @@ layout beyond the narrow-screen priority rule, the Foundations token-
 showcase page, any Clarity Brief editing UI (no backend write path
 exists), URL/hash-based routing, and "something noticed across
 Journeys" (still gated on the backend's unimplemented Learning process).
+
+---
+
+**2026-07-11 — Real frontend deployed to `confidantsense.fly.dev`**
+
+`src/api/server.py`'s `_FRONTEND_DIR` already pointed at
+`frontend/app/dist`, but the Dockerfile still assumed the old
+no-build-step placeholder -- it had no stage to actually produce
+`dist/`, which is gitignored and not committed. Added a `node:22-slim`
+build stage (`npm ci && npm run build`) ahead of the existing
+`python:3.11-slim` stage; only the compiled `dist/` output is copied
+into the final image, so the runtime image never carries
+`node_modules`.
+
+Deployed via the existing manual `deploy.yml` GitHub Actions workflow
+(`flyctl deploy --remote-only`) rather than from this environment
+directly -- the sandbox's own network policy blocks outbound requests
+to both `fly.io` and `fly.dev`, so a GitHub-hosted runner with full
+internet access is the only path to a real deploy here. Confirmed from
+the run's own logs, not just a green checkmark: the frontend-build stage
+really ran (`npm ci` installed 128 packages, `vite build` produced the
+identical `dist/index.html` / `assets/index-*.css` / `assets/index-*.js`
+output already verified locally), the final image copied that output in
+(59 MB total), the machine rolled over and reached a healthy state,
+Fly's own smoke checks and machine health checks both passed, and DNS
+for `confidantsense.fly.dev` was verified. Could not additionally curl
+the live URL from this session for the same network-policy reason the
+deploy itself couldn't run here -- treating Fly's own passing health/
+smoke checks as sufficient verification for this entry, consistent with
+this project's practice of trusting the actual tool's own pass/fail
+signal when a redundant check isn't reachable.
