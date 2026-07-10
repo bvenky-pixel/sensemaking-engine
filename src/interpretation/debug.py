@@ -32,6 +32,11 @@ def analyze_interpretation(interp: Interpretation):
         print(f"- bias: {b.bias} (evidence: \"{b.evidence}\", conf={b.confidence})")
 
     print("\n[Phase 3b -- Lifecycle/enrichment signals (v1.1)]")
+    print(
+        f"- has_decision_event: {interp.has_decision_event} | "
+        f"decision_event_option: {interp.decision_event_option!r} | "
+        f"decision_event_type: {interp.decision_event_type!r}"
+    )
     for gu in interp.goal_updates:
         print(f"- goal update: {gu.goal!r} -> {gu.status}")
     for de in interp.decision_events:
@@ -39,7 +44,7 @@ def analyze_interpretation(interp: Interpretation):
     for eau in interp.entity_attribute_updates:
         print(f"- entity attribute update: {eau.entity!r}.{eau.attribute} = {eau.value!r}")
     if not (interp.goal_updates or interp.decision_events or interp.entity_attribute_updates):
-        print("- (none this turn)")
+        print("- (none of the list-type signals this turn)")
 
     print("\n[System Health]")
     if interp.core_question_confidence < 0.3:
