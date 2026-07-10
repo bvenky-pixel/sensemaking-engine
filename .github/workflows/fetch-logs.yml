@@ -1,0 +1,27 @@
+name: Fetch Fly.io logs
+
+# Manual only -- lets us pull recent logs from the deployed Confidant MVP
+# app on demand, without needing direct network access to fly.io from
+# this repo's usual dev/CI environments. Runs on a GitHub-hosted runner
+# (full internet access), same pattern as deploy.yml. Requires the same
+# FLY_API_TOKEN repo secret deploy.yml already documents.
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: "Number of recent log lines to fetch"
+        required: false
+        default: "200"
+
+jobs:
+  fetch-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Fetch recent logs
+        run: flyctl logs -a confidantsense --no-tail | tail -n "${{ github.event.inputs.lines }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
