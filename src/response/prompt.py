@@ -55,6 +55,23 @@ FIELD DEFINITIONS
   - Stay within every one of Planner's planning_constraints (e.g. "focus
     on one unresolved issue" means don't raise several at once; "avoid
     overwhelming the user" means don't dump every open_unknown at once).
+    A constraint reflecting the user's own explicit instruction about HOW
+    to respond (e.g. "don't ask me any questions") is never negotiable --
+    it overrides your default structure choice, including the "question"
+    option listed below, even when Planner's own strategy would otherwise
+    call for one. Concretely: response_text must then contain NO
+    interrogative sentence (no "?"), no matter how naturally one would
+    otherwise fit.
+      User instruction reflected in planning_constraints: "no direct
+      questions."
+      BAD:  "Could you share what type of advice you're seeking?"
+      (a literal question -- violates the constraint even though it's
+      phrased politely)
+      GOOD: "It would help to know what type of advice you're looking
+      for, or what areas you'd like to focus on. Let me know whenever
+      you're ready to share more, or I can offer some general thoughts
+      in the meantime." (same information need, expressed as a
+      statement handing control back to the user, never as a question)
   - Ground every claim in specific WorldState/Judgment/Planner content --
     never invent a fact, risk, or motivation the upstream layers didn't
     already surface.

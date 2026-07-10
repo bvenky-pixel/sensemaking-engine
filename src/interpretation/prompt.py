@@ -157,13 +157,36 @@ correct whenever nothing in this turn speaks to an earlier goal's status.
 DECISION EVENTS -- signals something that happened to a decision option
 THE USER HAS ALREADY NAMED in an earlier turn (chosen, rejected, or
 deferred) -- never a newly-named option (that belongs in
-decision_options above).
-    Turn 1: "Should I apply externally or wait?"
+decision_options above). The `option` value here MUST be text that
+matches something already extracted as a decision_option in an earlier
+turn -- never a fresh label for whichever side just "won," even if that
+side is the one the user is now acting on.
+    Turn 1: "Should I apply externally or wait?" (both sides explicitly
+    named -> decision_options=["apply externally", "wait"] that turn)
     Turn 4, User: "I've decided to wait."
     GOOD: decision_events=[{option: "wait", event: "chosen"}]
     (and, if the evidence supports it, the other option:
     {option: "apply externally", event: "rejected"} or "deferred" if the
     user frames it as postponed rather than ruled out)
+Common failure case: only ONE side of the decision was ever explicitly
+named as its own decision_option (the other side -- often the status quo
+or "keep waiting" -- was never separately extracted because the user
+never phrased it as an option in its own right).
+    Turn 1: "I'm also considering just applying externally if this drags
+    on much longer." -> decision_options=["applying externally"] that
+    turn ("continuing to wait" is never itself named as an option)
+    Turn 4, User: "I've decided to wait until Q3 and see what happens."
+    BAD:  decision_events=[{option: "wait until Q3", event: "chosen"}]
+    (invents a label for the side that was never extracted -- this
+    cannot be matched to anything in decision_options and the event is
+    silently lost)
+    GOOD: decision_events=[{option: "applying externally", event:
+    "deferred"}] (anchors to the option that DOES already exist,
+    reporting what happened to IT -- deferred, since the user is
+    postponing rather than permanently ruling it out)
+Whenever only one side of a decision has ever been extracted, always
+report the event in terms of that already-named side, never in terms of
+the unnamed alternative the user is now acting on instead.
 decision_events=[] is correct whenever nothing in this turn speaks to an
 earlier decision option's fate.
 

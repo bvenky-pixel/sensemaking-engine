@@ -153,14 +153,17 @@ def _merge_content_items(existing: list, new_contents: List[str], model_cls) -> 
 # DecisionEvent.event -> DecisionStatus. "proposed" isn't mapped: a
 # proposed option is what `decision_options` already covers (a fresh
 # extraction), so a "proposed" event on an existing option is a no-op
-# here. "deferred" is also a no-op on status (WorldState's DecisionStatus
-# has no separate "postponed" state, and forcing it into "open" would
-# change nothing) -- included in the Literal for Interpretation's honesty
-# ("this was explicitly deferred, not silently ignored") even though the
-# merge layer doesn't yet have a distinct status to move it to.
+# here. "deferred" now maps to its own real DecisionStatus (added
+# 2026-07-10, see engine/decisions.md) -- the 10-turn WorldState
+# walkthrough surfaced a real "wait and see" resolution that is neither
+# "resolved" (the user hasn't ruled anything out permanently) nor
+# correctly left "open" (the user did just act on it this turn) --
+# closing the gap this dict's own prior comment had already flagged as
+# deliberately incomplete.
 _DECISION_EVENT_TO_STATUS = {
     "chosen": "resolved",
     "rejected": "resolved",
+    "deferred": "deferred",
 }
 
 

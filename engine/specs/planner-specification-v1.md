@@ -265,6 +265,14 @@ Examples:
 
 These constrain the Response Generator rather than the user.
 
+Added 2026-07-10 (see engine/decisions.md): whenever a WorldState Fact or
+Claim reflects the user's own explicit instruction about HOW they want
+to be responded to (e.g. "don't ask me questions," "keep it brief"),
+that instruction MUST be translated into its own literal constraint here
+(e.g. "no direct questions in the response") -- not left implicit in
+conversational_strategy alone, since the Response Generator never sees
+raw WorldState facts, only this list.
+
 ---
 
 desired_outcome

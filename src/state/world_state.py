@@ -65,7 +65,7 @@ from pydantic import BaseModel, Field
 FactStatus = Literal["active", "superseded", "retracted"]
 ClaimStatus = Literal["active", "superseded", "retracted"]
 GoalStatus = Literal["active", "paused", "completed", "abandoned"]
-DecisionStatus = Literal["open", "resolved", "expired"]
+DecisionStatus = Literal["open", "resolved", "deferred", "expired"]
 UnknownStatus = Literal["open", "resolved"]
 EntityStatus = Literal["active", "retracted"]
 

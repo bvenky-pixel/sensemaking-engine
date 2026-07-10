@@ -125,16 +125,28 @@ collapsing the two.
    says "I've decided to wait" → `decision_events=[{option: "wait", event: "chosen"}, {option: "apply externally", event: "rejected"}]`
    (the second entry only if the evidence actually supports treating the
    other option as ruled out, not merely unmentioned).
+   ASYMMETRIC CASE (2026-07-10, see engine/decisions.md): when only ONE
+   side of a decision was ever extracted as its own `decision_option`
+   (the other side — often the status quo — was never separately
+   named), `option` MUST still anchor to the side that already exists,
+   never a fresh label for whichever side just "won." Only "apply
+   externally" ever named → user says "I've decided to wait until Q3" →
+   `decision_events=[{option: "apply externally", event: "deferred"}]`,
+   NOT `{option: "wait until Q3", event: "chosen"}` (the latter cannot be
+   matched to anything in `decision_options` by
+   `src/state/builder.py::_apply_decision_events`'s word-overlap check,
+   so the event is silently dropped — confirmed via the 10-turn
+   WorldState walkthrough before this fix).
 6. **Validation rule:** none at the schema level. Downstream,
    `src/state/builder.py::_apply_decision_events` maps `"chosen"`/`"rejected"`
    to `WorldState.DecisionStatus = "resolved"` (an option no longer being
    actively weighed, whether it was picked or ruled out — matching
-   `Decision`'s own docstring reading of `"resolved"`). `"proposed"` and
-   `"deferred"` are no-ops on status today: `"proposed"` because
-   `decision_options` already covers it, `"deferred"` because
-   `DecisionStatus` has no distinct "postponed" state to move it to (not
-   invented here — a future WorldState round can add one if real usage
-   shows it's needed).
+   `Decision`'s own docstring reading of `"resolved"`). `"proposed"` is a
+   no-op on status (`decision_options` already covers it). `"deferred"`
+   now maps to its own real `DecisionStatus = "deferred"` (added
+   2026-07-10, closing exactly the gap this entry originally flagged as
+   deliberately left for a future round, once real usage — the walkthrough's
+   "wait and see" case — showed it was needed).
 7. **Downstream consumer:** `src/state/builder.py::_apply_decision_events`.
 
 ### `entity_attribute_updates`
@@ -176,7 +188,7 @@ collapsing the two.
 | Field | Decision | Confidence this closes the gap |
 |---|---|---|
 | `goal_updates` | New, additive alongside `goals` | High for the explicit-statement case this was designed for; does not claim to catch inferred/implicit transitions |
-| `decision_events` | New, additive alongside `decision_options` | Same as above; `"deferred"` intentionally a status no-op pending a real WorldState status to move it to |
+| `decision_events` | New, additive alongside `decision_options` | Revisited 2026-07-10: `"deferred"` now maps to a real `DecisionStatus`; `option` anchoring rule added to the prompt after the walkthrough showed the model inventing a fresh label for the winning side when only one side had been extracted |
 | `entity_attribute_updates` | New, additive alongside `entities`; `Entity.attributes` restructured to hold it | High for the explicit-statement case; matching remains text-based, not ID-based, until WorldState gains stable object IDs |
 
 **Status**: These three fields are FROZEN as of this entry, implemented

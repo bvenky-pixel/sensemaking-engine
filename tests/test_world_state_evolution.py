@@ -307,6 +307,26 @@ def test_decision_events_resolve_chosen_and_rejected_options():
     assert by_content["apply externally"] == "resolved"
 
 
+def test_decision_event_deferred_moves_status_off_open():
+    """
+    A "deferred" DecisionEvent (added 2026-07-10, see engine/decisions.md
+    -- the 10-turn WorldState walkthrough surfaced a real "wait and see"
+    case that is neither a permanent resolution nor a true no-op) must
+    move the matching Decision's status to "deferred", not leave it
+    silently stuck at "open" the way it did before this status existed.
+    """
+    state = WorldState()
+    state = update_state(state, make_interp(decision_options=["apply externally"]))
+    state = update_state(
+        state,
+        make_interp(
+            decision_events=[DecisionEvent(option="apply externally", event="deferred")]
+        ),
+    )
+
+    assert state.decisions[0].status == "deferred"
+
+
 # ---------------------------------------------------------------------------
 # Test 5: Entity enrichment -- dedup was already correct; v1.1 (see
 # engine/decisions.md and engine/specs/interpretation-spec-v1.1.md) closes

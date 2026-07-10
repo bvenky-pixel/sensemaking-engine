@@ -3606,3 +3606,73 @@ semantic matching, not a better string-matching trick.
 **Decision: log as a known, documented gap for now. No fix attempted
 this round**, per explicit user instruction -- same disposition as X02's
 instruction-following gap above. Not scheduled.
+
+### 2026-07-10 (later same day): fixes implemented for both parked gaps (X02 instruction-following, decision-lifecycle matching), per explicit user instruction to fix both and re-test together with C01
+
+User asked for ideas only first (no implementation) on both gaps; after
+reviewing options, asked to implement fixes for both and re-test
+together with the still-pending C01 re-test (interrupted mid-run by a
+free-tier OpenRouter failure -- `openrouter/free` returned empty content
+at the Interpretation stage, 0/1 reliability, a known free-tier risk
+already on record; not yet a real C01 result).
+
+**X02 fix (`src/planner/prompt.py` + `src/response/prompt.py`):** root
+cause was that Planner's `planning_constraints` never actually surfaced
+the user's stated "don't ask me questions" instruction as its own literal
+entry (X02's original Planner output only ever had the two generic
+constraints, "preserve user agency" / "avoid overwhelming the user")
+even though Planner correctly saw the fact in WorldState and correctly
+adapted `conversational_strategy` away from asking questions. Response
+Generator's "stay within planning_constraints" rule had nothing concrete
+to enforce against. Two-sided fix, since either alone would be
+incomplete:
+1. `planner/prompt.py`: new MANDATORY rule -- a WorldState Fact/Claim
+   reflecting the user's own explicit instruction about HOW to respond
+   must be translated into its own literal `planning_constraints` entry
+   (e.g. "no direct questions in the response"), not left implicit.
+2. `response/prompt.py`: new rule -- a constraint reflecting the user's
+   own explicit instruction is non-negotiable and overrides the
+   "question" structure option even when Planner's strategy would
+   otherwise call for one; `response_text` must then contain no "?" at
+   all. Worked example added, drawn directly from X02's own failure text.
+
+**Decision-lifecycle fix (`src/interpretation/prompt.py` +
+`src/state/world_state.py` + `src/state/builder.py`):** root cause (from
+the walkthrough diagnosis) was two-layered, so both had to be fixed:
+1. **Anchoring** (`interpretation/prompt.py`): the model correctly
+   detected turn 10 as resolving a decision but named the WINNING side
+   ("wait until Q3") rather than the already-extracted side ("Apply
+   externally") -- the prior worked example's setup (both sides named
+   turn 1) never modeled the common asymmetric case (only one side ever
+   named). Added an explicit "common failure case" worked example, drawn
+   directly from the walkthrough's real failing turn, instructing
+   `option` to always anchor to whichever side already exists in
+   `decision_options`, reporting the OTHER side's fate (deferred/
+   rejected) rather than inventing a label for the side that "won."
+2. **A real status for "deferred"** (`world_state.py`, `builder.py`):
+   even with (1) fixed, the correct event type for "wait and see" is
+   `deferred`, and `_DECISION_EVENT_TO_STATUS` mapped that to a
+   deliberate no-op (per the 2026-07-05 comment already on record:
+   "included... even though the merge layer doesn't yet have a distinct
+   status to move it to"). Without this, (1) alone would still render as
+   "nothing changed" on re-test, indistinguishable from the original
+   silent-drop bug even though the underlying mechanism would be fixed.
+   Added `"deferred"` to `DecisionStatus` (now
+   `Literal["open", "resolved", "deferred", "expired"]`) and mapped
+   `_DECISION_EVENT_TO_STATUS["deferred"] = "deferred"` -- closing
+   exactly the gap that comment had already flagged as deliberately
+   incomplete, now that real usage (the walkthrough) showed it was
+   needed. Small, additive schema change; grepped for exhaustive
+   DecisionStatus matches elsewhere in the codebase and tests -- none
+   found, so no other blast radius.
+
+Updated `engine/specs/interpretation-spec-v1.1.md`'s `decision_events`
+entry and summary table row, and `engine/specs/planner-specification-v1.md`'s
+`planning_constraints` entry, per schema-first discipline. Added
+`test_decision_event_deferred_moves_status_off_open` to
+`tests/test_world_state_evolution.py`, mirroring the existing
+chosen/rejected test's style. 137 tests passing (was 136).
+
+Next step: re-test C01 (still pending, interrupted by the free-tier
+failure), X02, and the decision-lifecycle case together, per user
+instruction to test all three fixes in one go.

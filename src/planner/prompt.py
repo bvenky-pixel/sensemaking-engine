@@ -89,6 +89,18 @@ FIELD DEFINITIONS
   user agency," "avoid overwhelming the user," "focus on one unresolved
   issue," "do not reopen resolved decisions," "maintain conversational
   momentum"). These constrain the Response Generator, not the user.
+  MANDATORY: if a WorldState Fact or Claim reflects the user's own
+  explicit instruction about HOW they want to be responded to (e.g. "user
+  does not want to answer questions," "user wants a brief answer"),
+  translate it into its own literal, unambiguous entry here -- e.g. "no
+  direct questions in the response" -- rather than leaving it implicit in
+  conversational_strategy alone. The Response Generator never sees raw
+  WorldState facts, only this list, so an instruction that stays implicit
+  here never reaches it.
+      Facts: ["User wants advice.", "User does not want to answer
+      questions."] -> planning_constraints must include "no direct
+      questions in the response" (in addition to any other constraints
+      that apply).
 - desired_outcome: the desired CONVERSATIONAL outcome (e.g. "user
   identifies the next action," "user understands the primary blocker,"
   "user distinguishes facts from assumptions," "user gains clarity about
