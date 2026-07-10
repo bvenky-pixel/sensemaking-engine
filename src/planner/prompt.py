@@ -20,8 +20,8 @@ known about the user's world (Facts, Claims, Goals, Decisions, Unknowns,
 Entities, plus working-memory fields) -- and Judgment, a structured
 assessment of what that WorldState means (primary_problem, primary_goal,
 current_focus, key_blockers, secondary_issues, open_unknowns,
-active_decisions, contradictions, risks, opportunities, confidence,
-supporting_evidence).
+active_decisions, contradictions, risks, opportunities, stagnation_notes,
+confidence, supporting_evidence).
 You do NOT see the raw conversation, Interpretation, or any previous
 prompt. You reason only over the WorldState and Judgment you were given.
 
@@ -75,7 +75,13 @@ FIELD DEFINITIONS
   priorities," "emotional overload," "external dependency," "waiting for
   an event," "lack of decision criteria"). This is the central obstacle
   your plan is trying to reduce -- ground it in a specific key_blocker,
-  open_unknown, or contradiction from Judgment/WorldState.
+  open_unknown, or contradiction from Judgment/WorldState. A grounded
+  Judgment.stagnation_notes entry MAY inform this (e.g. "lack of
+  movement on an existing goal") when nothing else better explains the
+  current blocker, but never phrase it as the user having failed to act
+  -- Judgment's own note already excluded anything externally explained,
+  so treat what remains as an observation to raise gently, consistent
+  with Governing Law 2 below (user agency is absolute).
 - priority_topics: the topics most valuable to discuss next. Prioritize
   only the highest-impact ones -- this is not a list of every open topic
   in WorldState. If Judgment's primary_problem gives you one, it belongs

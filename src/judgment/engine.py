@@ -12,6 +12,11 @@ full discussion):
   spec's output for now -- both need a delta against a previous
   WorldState/Judgment, which WorldState v1 (no turn numbers, no retained
   history of transitions) can't supply. See src/judgment/schema.py.
+  UPDATE (2026-07-11): WorldState now has turn_count/provenance;
+  `trajectory` is superseded by `stagnation_notes` (see schema.py and
+  `compute_stagnation_signals` below) rather than brought back as
+  originally sketched -- a single vague enum vs. a concrete, evidence-
+  cited signal.
 - This is NOT a rule engine and NOT a hybrid -- the entire Judgment
   object, including fields that look like plain filters (open_unknowns,
   active_decisions), comes from one LLM call over the full WorldState.
@@ -49,6 +54,62 @@ DISCOVER_TO_DISCERN_THRESHOLD = 0.6
 # on its own -- that needs a future turn's language, not this one.
 DISCERN_MIN_SIGNALS = 1
 
+# Added 2026-07-11, see engine/decisions.md "Judgment trajectory/
+# stagnation assessment" -- first-cut, NOT empirically calibrated (same
+# honest framing as src/state/builder.py's UNKNOWN_RESOLUTION_OVERLAP_THRESHOLD),
+# to be revisited once this runs against real conversations of varying length.
+STAGNATION_TURN_THRESHOLD = 3
+
+
+def compute_stagnation_signals(
+    state: WorldState, threshold: int = STAGNATION_TURN_THRESHOLD
+) -> List[str]:
+    """
+    Deterministic, non-LLM helper (same category as recommend_phase_transition
+    below) -- the turn-gap arithmetic (turn_count - provenance.last_updated)
+    is pure integer math over data already in WorldState, not a judgment
+    call. Computing it in Python rather than asking the model to notice
+    and compute it itself avoids the exact class of unreliability that
+    justified the has_risk_signal/has_decision_resolution boolean-gates
+    elsewhere in this codebase: models don't reliably self-track things
+    they should get right mechanically.
+
+    Scoped to Goals with status="active" and Decisions with status="open"
+    only -- a paused/completed/abandoned Goal or a resolved/deferred/
+    expired Decision isn't neglected, it's already been accounted for
+    (a "deferred" Decision in particular is an already-acknowledged
+    postponement, not an oversight). Items with no provenance (e.g.
+    constructed directly, bypassing update_state) are skipped rather than
+    treated as stagnant by default.
+
+    Returns plain-language fact strings for Judgment to reason over as
+    input -- NOT a conclusion. Judgment decides which of these, if any,
+    is actually significant (see src/judgment/prompt.py); this function
+    only surfaces the raw, mechanically-true candidates.
+    """
+    signals: List[str] = []
+    for goal in state.goals:
+        if goal.status != "active" or goal.provenance is None:
+            continue
+        gap = state.turn_count - goal.provenance.last_updated
+        if gap >= threshold:
+            signals.append(
+                f"Goal {goal.content!r} (status=active) has had no status change for "
+                f"{gap} turns (last updated turn {goal.provenance.last_updated}, now turn "
+                f"{state.turn_count})."
+            )
+    for decision in state.decisions:
+        if decision.status != "open" or decision.provenance is None:
+            continue
+        gap = state.turn_count - decision.provenance.last_updated
+        if gap >= threshold:
+            signals.append(
+                f"Decision {decision.content!r} (status=open) has had no status change for "
+                f"{gap} turns (last updated turn {decision.provenance.last_updated}, now turn "
+                f"{state.turn_count})."
+            )
+    return signals
+
 
 class JudgmentError(Exception):
     """Raised when no configured provider could produce a valid Judgment."""
@@ -76,7 +137,8 @@ def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> J
     is set, so this has no effect on normal runs either way.
     """
     world_state_json = state.model_dump_json(indent=2)
-    system_prompt, messages = build_messages(world_state_json)
+    stagnation_signals = compute_stagnation_signals(state)
+    system_prompt, messages = build_messages(world_state_json, stagnation_signals)
     schema = Judgment.model_json_schema()
     tracker = tracker or default_tracker
 

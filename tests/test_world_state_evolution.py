@@ -380,6 +380,7 @@ def make_judgment(**overrides) -> Judgment:
         has_decision_resolution=False,
         decision_resolution_option="",
         decision_resolution_status="",
+        stagnation_notes=[],
         confidence=0.5,
         supporting_evidence=[],
     )
@@ -405,6 +406,26 @@ def test_judgment_secondary_issues_defaults_empty_and_accepts_grounded_entries()
         secondary_issues=["Strained relationship with their current manager."],
     )
     assert populated.secondary_issues == ["Strained relationship with their current manager."]
+
+
+def test_judgment_stagnation_notes_defaults_empty_and_accepts_grounded_entries():
+    """
+    Trajectory/stagnation v1 (2026-07-11, see engine/decisions.md
+    "Judgment trajectory/stagnation assessment"): same shape as
+    secondary_issues above -- no boolean-gate, plain schema round-trip.
+    The actual turn-gap computation is tested separately in
+    tests/test_judgment_stagnation.py (compute_stagnation_signals); this
+    only confirms the field itself round-trips correctly.
+    """
+    empty = make_judgment()
+    assert empty.stagnation_notes == []
+
+    populated = make_judgment(
+        stagnation_notes=["The goal of moving to the Product team has had no movement in 4 turns."]
+    )
+    assert populated.stagnation_notes == [
+        "The goal of moving to the Product team has had no movement in 4 turns."
+    ]
 
 
 def test_apply_judgment_resolutions_moves_decision_off_open():

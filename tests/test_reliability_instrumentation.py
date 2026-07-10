@@ -61,6 +61,7 @@ _MINIMAL_JUDGMENT = {
     "has_decision_resolution": False,
     "decision_resolution_option": "",
     "decision_resolution_status": "",
+    "stagnation_notes": [],
     "confidence": 0.4,
     "supporting_evidence": [],
 }

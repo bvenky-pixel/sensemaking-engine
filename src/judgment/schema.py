@@ -10,6 +10,17 @@ retained history of state transitions. Add them back once WorldState
 grows the historical signal needed (v1.1/v1.2 provenance work), not by
 guessing at a delta here.
 
+UPDATE (2026-07-11, see engine/decisions.md "Judgment trajectory/
+stagnation assessment"): WorldState now HAS that historical signal
+(turn_count, provenance.first_seen/last_updated -- see
+src/state/world_state.py). `resolved_since_last_turn` remains out of
+scope (no motivating use case). `trajectory` is deliberately NOT brought
+back as originally sketched (a single "Improving/Stable/Deteriorating/
+Uncertain" enum) -- superseded by `stagnation_notes` below, a concrete,
+evidence-cited alternative. See
+engine/specs/judgment-specification-v2.md's Field Definitions for the
+full supersession rationale.
+
 `phase` (Prepare/Discover/Discern/...) is intentionally NOT part of this
 schema at all -- it's kept as a separate, deterministic, non-LLM concern
 in src/judgment/engine.py's `recommend_phase_transition`, explicitly
@@ -102,6 +113,22 @@ class Judgment(BaseModel):
     risk_scan: str
     risks: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
+
+    # v1.6 (added 2026-07-11, see engine/decisions.md "Judgment
+    # trajectory/stagnation assessment"): Judgment's own SYNTHESIS of the
+    # raw "Stagnation Signals" input it's given (computed deterministically
+    # by src/judgment/engine.py::compute_stagnation_signals from
+    # WorldState.turn_count/provenance -- Judgment never computes the
+    # turn-gap arithmetic itself, only reasons about which raw signal
+    # actually matters). A raw signal explained by a stated Fact/Claim
+    # (e.g. an external blocker, an agreed wait) should usually be left
+    # out here, or reframed to acknowledge the explanation -- this is NOT
+    # a restatement of the raw signals list, and empty is the correct,
+    # common answer whenever nothing raw was given or nothing raw is
+    # actually significant. No boolean-gate here, same reasoning as
+    # secondary_issues -- no evidence yet of a transcription-compliance
+    # failure for this brand-new field.
+    stagnation_notes: List[str] = Field(default_factory=list)
 
     confidence: float = Field(ge=0.0, le=1.0)
 

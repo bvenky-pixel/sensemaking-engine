@@ -139,6 +139,31 @@ Judgment(
 - **Risks** — Factors likely to hinder progress.
 - **Opportunities** — Factors likely to accelerate progress.
 - **Trajectory** — Improving, Stable, Deteriorating, or Uncertain.
+  **SUPERSEDED (2026-07-11, see engine/decisions.md "Judgment
+  trajectory/stagnation assessment").** Never implemented (blocked on
+  WorldState having no turn history -- see `src/judgment/schema.py`'s
+  original docstring). Now that WorldState has `turn_count`/`provenance`,
+  this was deliberately NOT built as originally sketched: a single global
+  Improving/Stable/Deteriorating/Uncertain label is exactly the kind of
+  vague, unfounded-sounding output that reads as generic-LLM rather than
+  something only a persistent, turn-numbered WorldState could produce.
+  Replaced by **Stagnation Notes** below -- a concrete, evidence-cited
+  alternative (same "record the supersession, don't silently delete"
+  convention used for Interpretation's `decision_events`).
+- **Stagnation Notes** — (added 2026-07-11, see engine/decisions.md
+  "Judgment trajectory/stagnation assessment") Judgment's synthesis of a
+  mechanically-computed "Stagnation Signals" input (turn_count minus
+  provenance.last_updated for each active Goal/open Decision, computed in
+  Python by `src/judgment/engine.py::compute_stagnation_signals` --
+  deliberately NOT left to the model to notice/compute itself, the same
+  reasoning that justified the Has Risk Signal/Has Decision Resolution
+  boolean-gates: models don't reliably self-track things they should get
+  right mechanically). Judgment decides which raw signal, if any, is
+  actually significant -- a gap already explained by a stated Fact/Claim
+  (an external blocker, an agreed wait) is left out or reframed, never
+  used to imply the user is at fault. No boolean-gate on this field yet
+  -- no evidence of a transcription-compliance failure for a brand-new
+  field; add one later only if real testing shows that failure shape.
 - **Confidence** — Overall confidence in the assessment.
 - **Supporting Evidence** — References to WorldState objects supporting each conclusion.
 
