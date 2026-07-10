@@ -114,6 +114,20 @@ def main() -> int:
     print("Read through the WORLDSTATE output above turn by turn: does it read as an")
     print("increasingly faithful, coherent model of the user's world by turn 10?")
 
+    # WorldState provenance (2026-07-10, see engine/decisions.md
+    # "WorldState provenance -- trajectory prerequisite") -- prints
+    # first_seen/last_updated for every Goal/Decision so a live run
+    # visibly demonstrates turn_count and the first_seen/last_updated
+    # split on a real, multi-turn transcript, not just constructed test
+    # fixtures.
+    print(f"\n{'=' * 70}\nPROVENANCE CHECK (final turn_count={state.turn_count})")
+    for label, items in (("Goals", state.goals), ("Decisions", state.decisions)):
+        print(f"- {label}:")
+        for item in items:
+            p = item.provenance
+            stamp = f"first_seen={p.first_seen}, last_updated={p.last_updated}" if p else "no provenance"
+            print(f"    [{item.status}] {item.content!r} ({stamp})")
+
     if is_tracking_enabled():
         summary = tracker.summary()
         print(f"\n{'=' * 70}\nCONVERSATION USAGE SUMMARY (all {len(TRANSCRIPT)} turns)")
