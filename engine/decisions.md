@@ -3506,3 +3506,47 @@ A04-only re-test against the real pipeline to confirm this holds under
 the actual model's output (not just the mocked reproduction above)
 before considering A04 closed or moving to the other 12 previously-
 affected cases.
+
+### 2026-07-10: A04 confirmed live, then all 12 remaining cases re-tested in parallel -- boolean-gate fix holds 13/13
+
+The A04-only live re-test (`single-turn-smoketest.yml` on `main`,
+commit `7eafc0c`, run 29046521365) confirmed the fix under the real
+model, not just the mocked reproduction: `has_assumption: true`,
+`assumption_check` and `assumptions` both correctly populated in
+Interpretation, and -- the part that was actually broken -- `WorldState`'s
+`assumptions` field now shows the identical text instead of `[]`. It
+propagates all the way to Planner too (`assumptions_to_test` references
+the same belief). This closed out the scope limit from the prior entry.
+
+With A04 confirmed, the user asked to test the remaining 12
+previously-affected cases (C02, C05, R01, R02, R03, D01, E02, E05, A01,
+X01, X02, X05) in one parallel batch rather than one at a time, since
+cost/rate-limits are no longer the binding constraint this round.
+Dispatched all 12 as parallel `workflow_dispatch` runs on `main`
+(commit `7eafc0c`), then split the 12 resulting job logs across 2
+parallel analysis subagents (6 each) to keep the bulk log output out of
+the main context, same pattern as the Run 3 30-test analysis.
+
+**Result: 13/13 (A04 + all 12) confirmed fixed at the WorldState level.**
+Of the 12, 7 actually exercised a `True` boolean this round (assumptions:
+C02, C05, R01, E05, X01, X05; risks: C02, R01, E02, X01, X05) -- every
+one propagated into `WorldState` correctly, matching the raw
+Interpretation/Judgment content exactly. The remaining cases correctly
+stayed empty with no false positives introduced (the boolean-gate
+mechanism isn't manufacturing findings where none exist). Full detail
+(job IDs, per-test tables) is in the two subagent reports from this
+session; not duplicated here per this project's "concise summary, not a
+full log.md narrative" convention for large batch re-tests.
+
+**One unrelated finding surfaced, out of scope for this fix:** on X02
+("I want your advice, but don't ask me any questions"), the Response
+Generator still asks a question in its final output, violating the
+user's explicit stated constraint -- a Response-stage instruction-
+following gap, not an assumption/risk propagation issue. Logged here for
+visibility; not yet scheduled for a fix.
+
+This closes the systemic assumption_check/risk_scan propagation gap
+first surfaced in Run 3 (13/30 tests affected). The boolean-gate design
+(has_assumption/has_risk_signal + auto-repair, plus the
+grounding-filter-ordering fix above) is now the standing mechanism for
+both fields.
