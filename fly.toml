@@ -1,34 +1,33 @@
-# Fly.io app config for the Confidant MVP API server.
+# fly.toml app configuration file generated for confidantsense on 2026-07-10T15:09:27Z
 #
-# `app` below is a PLACEHOLDER -- Fly app names are globally unique, so
-# this will very likely need to change to whatever name you actually
-# reserve when you run `fly apps create`. Update it here to match.
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 # Requires a persistent volume named "confidant_data" mounted at /data
 # (see [[mounts]] below) -- create it once with:
-#   fly volumes create confidant_data --region bom --size 1
+#   fly volumes create confidant_data --region lhr --size 1
 # (1GB is far more than this SQLite-backed MVP needs.) Without this
 # volume, CONFIDANT_DB_PATH (set in the Dockerfile) would still write
 # into the container's own ephemeral filesystem, and session history
 # would be lost on every restart/redeploy -- see src/api/db.py's module
 # docstring.
-app = "confidant-sensemaking"
-primary_region = "bom"
+
+app = 'confidantsense'
+primary_region = 'lhr'
 
 [build]
+
+[[mounts]]
+  source = 'confidant_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
-[[mounts]]
-  source = "confidant_data"
-  destination = "/data"
-
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '512mb'
+  cpu_kind = 'shared'
   cpus = 1
