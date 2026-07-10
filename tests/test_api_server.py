@@ -196,6 +196,30 @@ def test_unknown_session_returns_404(client):
     assert res.status_code == 404
 
 
+def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch):
+    """Backs the real frontend's Home screen (a list of a person's
+    Journeys) -- see frontend/decisions.md "Build the real Confidant
+    frontend". Session B is created after A but never touched again, so
+    sending a message to A (which bumps its updated_at) must move A back
+    to the front of the list."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_a = client.post("/sessions").json()["id"]
+    session_b = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_a}/messages", json={"content": "I want to move teams."})
+
+    summaries = client.get("/sessions").json()
+    ids_in_order = [s["id"] for s in summaries]
+
+    assert ids_in_order[0] == session_a
+    assert session_b in ids_in_order
+    matching = [s for s in summaries if s["id"] == session_a][0]
+    assert matching["surface_complaint"] == "User wants to move to the Product team."
+
+
 def test_clarity_brief_returns_404_before_any_completed_turn(client):
     session_id = client.post("/sessions").json()["id"]
     res = client.get(f"/sessions/{session_id}/clarity-brief")
@@ -218,6 +242,8 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
             "risks": ["Founder may block the transfer."],
             "opportunities": ["A new manager could sponsor it."],
             "open_unknowns": ["What does the user want next?"],
+            "secondary_issues": ["Strained relationship with their current manager."],
+            "stagnation_notes": ["No movement on this goal in 4 turns."],
         }
     )
     monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(populated_judgment))
@@ -242,3 +268,7 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     assert body["remaining_unknowns"] == ["What does the user want next?"]
     assert body["decisions"] == []
     assert "# Clarity Brief" in body["rendered_markdown"]
+    # Passed through directly from Judgment (not part of Executor's own
+    # fixed template) -- see src/api/schema.py's ClarityBriefResponse docstring.
+    assert body["secondary_issues"] == ["Strained relationship with their current manager."]
+    assert body["stagnation_notes"] == ["No movement on this goal in 4 turns."]

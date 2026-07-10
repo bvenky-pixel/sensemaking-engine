@@ -1,0 +1,138 @@
+/* Visual tokens, pulled directly from frontend/specs/product-experience-v1.md
+   (not re-derived -- see frontend/specs/screen-design-v1.md's own
+   instruction to reuse these values as-is). Light values first, dark
+   overrides via prefers-color-scheme. */
+
+:root {
+  --paper: #E9E3D8;
+  --paper-raised: #DFD8C8;
+  --ink: #2A2620;
+  --ink-muted: #6E6656;
+  --accent: #3D4B64;
+  --line: #D2C9B6;
+
+  --serif: 'Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 34px;
+  --space-5: 48px;
+
+  --motion-duration: 260ms;
+  --motion-easing: ease-out;
+
+  --radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1E1A16;
+    --paper-raised: #27221C;
+    --ink: #ECE5D6;
+    --ink-muted: #A89E89;
+    --accent: #93A3BE;
+    --line: #362F26;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.68;
+  /* Long-form reading comfort, not chat-bubble brevity -- roughly
+     55-60 characters per line for body text. */
+  max-width: 60ch;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* "Section voice" -- Confidant's own reading of a situation, never
+   used for emphasis. */
+.voice {
+  font-style: italic;
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+/* Display -- the one large moment, used exactly once. */
+.display {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1.3;
+}
+
+/* UI chrome only -- labels, section eyebrows, timestamps. Never content. */
+.ui-label {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+button,
+.plain-action {
+  font-family: var(--sans);
+  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+textarea,
+input[type='text'] {
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--ink);
+  background: var(--paper);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  width: 100%;
+  padding: var(--space-1) 0;
+}
+
+textarea:focus,
+input[type='text']:focus {
+  outline: none;
+  border-bottom: 1px solid var(--accent);
+}
+
+hr,
+.hairline {
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -43,6 +43,17 @@ class MessageOut(BaseModel):
     created_at: str
 
 
+class SessionSummary(BaseModel):
+    """One row for the real frontend's Home screen (a list of a
+    person's Journeys) -- see frontend/decisions.md "Build the real
+    Confidant frontend". `surface_complaint` is plain language already
+    (WorldState's own working-memory field), not a backend label."""
+
+    id: str
+    surface_complaint: str
+    updated_at: str
+
+
 class ClarityBriefResponse(BaseModel):
     """Unlike Judgment/Planner, a Clarity Brief (src/executor/engine.py) is
     itself the user-facing artifact -- a fixed-template synthesis of a
@@ -57,3 +68,15 @@ class ClarityBriefResponse(BaseModel):
     remaining_unknowns: List[str]
     decisions: List[str]
     rendered_markdown: str
+
+    # Added for the real frontend's "quiet discovery" moment (see
+    # frontend/specs/screen-design-v1.md, frontend/decisions.md "Build
+    # the real Confidant frontend") -- NOT part of Executor's own fixed
+    # Clarity Brief template (src/executor/engine.py::build_clarity_brief
+    # is unchanged), passed through directly from Judgment in
+    # src/api/server.py's endpoint instead. Still real, already-curated
+    # content (Judgment itself holds these fields back unless genuinely
+    # significant -- see judgment-specification-v2.md's Secondary Issues/
+    # Stagnation Notes entries), not raw internal cognition.
+    secondary_issues: List[str] = []
+    stagnation_notes: List[str] = []

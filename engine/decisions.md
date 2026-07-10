@@ -4537,3 +4537,31 @@ Judgment salience (secondary_issues), WorldState provenance (turn_count/
 first_seen/last_updated), and Judgment trajectory/stagnation
 (stagnation_notes). All three reach real, user-visible output, verified
 live, not just unit-tested.
+
+---
+
+**2026-07-11 — Two small API additions for the real Svelte frontend**
+
+Building the v4-aligned frontend (see `frontend/decisions.md` "Build the
+real Confidant frontend") needed two small, additive API changes, made
+here rather than there since they're backend surface, not frontend code:
+
+- `GET /sessions` (`src/api/db.py::list_sessions`, `SessionSummary` in
+  `src/api/schema.py`) -- Home's Journey list had no endpoint to read
+  from; every existing one is scoped to an already-known session id.
+  No schema migration: reads `world_state_json` from the same `sessions`
+  table every other endpoint already reads, extracting
+  `surface_complaint` the same way `/debug` does. Ordered by
+  `updated_at DESC`.
+- `ClarityBriefResponse` gained `secondary_issues`/`stagnation_notes`
+  (`src/api/schema.py`), populated directly from the reconstructed
+  `Judgment` in `get_clarity_brief` (`src/api/server.py`). Executor's own
+  `build_clarity_brief` template is intentionally untouched -- these two
+  fields skip Executor because they're Judgment's, not Executor's, and
+  Executor's fixed template has no field for them by design. Both are
+  already curated by Judgment (populated only when genuinely significant,
+  per their own schema docstrings), so this is not a new leak of raw
+  internal cognition, just a new consumer of already-gated output.
+
+Both covered by existing/extended tests in `tests/test_api_server.py`;
+full suite (166 tests) green after the change.

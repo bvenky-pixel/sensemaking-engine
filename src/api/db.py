@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional
 
-from src.api.schema import MessageOut
+from src.api.schema import MessageOut, SessionSummary
 from src.orchestrator.schema import TurnResult
 from src.state.world_state import WorldState
 
@@ -114,6 +114,31 @@ def session_exists(session_id: str) -> bool:
     with _connect() as conn:
         row = conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
     return row is not None
+
+
+def list_sessions() -> List[SessionSummary]:
+    """
+    Added for the real frontend's Home screen (see
+    frontend/decisions.md "Build the real Confidant frontend") --
+    Information Architecture specifies Home as a list of a person's
+    Journeys, which no endpoint could previously support (every prior
+    one is scoped to a single, already-known session id). No schema
+    migration needed -- `surface_complaint` is extracted from the same
+    `world_state_json` blob every other endpoint already reads.
+    Ordered most-recently-updated first, matching how a calm "recent
+    Journeys" list should read.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, world_state_json, updated_at FROM sessions ORDER BY updated_at DESC"
+        ).fetchall()
+    summaries = []
+    for session_id, world_state_json, updated_at in rows:
+        state = WorldState.model_validate_json(world_state_json)
+        summaries.append(
+            SessionSummary(id=session_id, surface_complaint=state.surface_complaint, updated_at=updated_at)
+        )
+    return summaries
 
 
 def load_state(session_id: str) -> WorldState:

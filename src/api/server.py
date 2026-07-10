@@ -40,6 +40,7 @@ from src.api.schema import (
     MessageOut,
     SendMessageRequest,
     SendMessageResponse,
+    SessionSummary,
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.instrumentation.usage import UsageTracker
@@ -48,7 +49,12 @@ from src.orchestrator.engine import run_turn
 from src.planner.schema import Planner
 from src.state.world_state import WorldState
 
-_FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "mvp"
+# Real frontend (see frontend/decisions.md "Build the real Confidant
+# frontend") -- Svelte + Vite, built via `npm run build` in
+# frontend/app/, mounted from its static output. frontend/mvp/ is kept
+# in the repo as historical record (same treatment frontend/prototype/
+# already got), no longer served.
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "app" / "dist"
 
 
 @asynccontextmanager
@@ -68,6 +74,14 @@ def _require_session(session_id: str) -> None:
 @app.post("/sessions", response_model=CreateSessionResponse)
 def create_session() -> CreateSessionResponse:
     return CreateSessionResponse(id=db.create_session())
+
+
+@app.get("/sessions", response_model=list[SessionSummary])
+def list_sessions() -> list[SessionSummary]:
+    """Backs the real frontend's Home screen (a list of a person's
+    Journeys) -- see frontend/decisions.md "Build the real Confidant
+    frontend"."""
+    return db.list_sessions()
 
 
 @app.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
@@ -125,6 +139,8 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
     return ClarityBriefResponse(
         **brief.model_dump(),
         rendered_markdown=render_clarity_brief(brief),
+        secondary_issues=judgment.secondary_issues,
+        stagnation_notes=judgment.stagnation_notes,
     )
 
 
