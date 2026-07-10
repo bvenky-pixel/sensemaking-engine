@@ -4263,3 +4263,87 @@ empty state rather than crashing.
 This is a small, low-risk integration step, not the differentiator
 itself -- the reasoning-depth design push is the substantive work still
 ahead.
+
+### 2026-07-10 (later still): Judgment salience -- first reasoning-depth v2 increment, implemented and confirmed live
+
+First real implementation step of the reasoning-depth work named in the
+previous entry. Added `secondary_issues: List[str]` to
+`src/judgment/schema.py` (default empty list, no boolean-gate, no
+`model_validator` -- see below) and the corresponding field definition +
+example to `src/judgment/prompt.py` and
+`engine/specs/judgment-specification-v2.md`'s Field Definitions section,
+following this project's established convention for amending that spec
+(confirmed via research: unlike Interpretation, Judgment's spec amends
+in place with dated inline tags, not a separate versioned addendum
+document).
+
+Design grounded in `engine/specs/judgement-v3-design` (a never-frozen,
+never-implemented discussion draft) -- specifically its "salience
+detection" responsibility: Judgment should distinguish a central issue
+from a secondary one instead of only producing flat, unranked lists.
+`primary_problem` already covers "central issue"; "background
+information" needs no field (unsurfaced by definition, nothing to add).
+
+**Deliberately no boolean-gate this round.** `has_risk_signal`/
+`has_decision_resolution` were escalated to that pattern only after real
+batch testing proved a specific detects-but-fails-to-transcribe failure
+mode for those exact fields. Adding a gate here pre-emptively, with zero
+evidence of that failure shape for a brand-new field, would invent
+unvalidated capability -- the same mistake this project has avoided
+everywhere else (Learning's reserved-slot status, Planner's restraint at
+n=1/n=2). Ship plain; escalate later only if live testing reveals the
+same failure shape.
+
+**Wired into Planner, not Response.** Confirmed via research that
+`src/planner/prompt.py::build_messages` already receives the full
+serialized Judgment JSON, so the new field reaches Planner automatically
+-- it just needed the system prompt's Judgment field enumeration updated
+to mention it, plus explicit instruction: `priority_topics` may include
+a grounded `secondary_issues` entry *after* the primary one, never in
+its place, never invented if empty. No Planner schema change, no
+`src/planner/engine.py` change, no Response Generator change at all --
+Response only ever sees Planner's output, so this reaches user-visible
+text without touching that layer.
+
+**Tests:** extended `make_judgment` (`tests/test_world_state_evolution.py`)
+with `secondary_issues=[]` and added
+`test_judgment_secondary_issues_defaults_empty_and_accepts_grounded_entries`;
+updated the `_MINIMAL_JUDGMENT` mock dicts in
+`test_reliability_instrumentation.py`, `test_evaluation_harness.py`, and
+`test_api_server.py` for consistency with prior rounds' practice of
+touching all fixture files together (not strictly required for passing,
+since the field defaults via `Field(default_factory=list)`, but keeps
+mocks representative). 151 tests passing, no regressions.
+
+**Live verification** (`single-turn-smoketest.yml`, `openai/gpt-4o-mini`,
+message deliberately containing both a clear primary problem -- a
+founder resisting a team move -- and a distinct, explicitly-flagged
+secondary concern -- a strained relationship with the current manager):
+
+- Judgment: `primary_problem`: "Founder's resistance is blocking the
+  user's move to the Product team." `secondary_issues`: ["Strained
+  relationship with their current manager."] -- correctly distinguished,
+  not a restatement of the primary problem.
+- Planner: `priority_topics`: ["strategies to address the founder's
+  resistance", "impact of the strained relationship with the current
+  manager"] -- primary listed first, secondary after; `resolution_blocker`
+  stayed anchored to the primary problem, undisplaced.
+- Response (user-facing): "...consider how to address the founder's
+  resistance, as this is currently blocking your move to the Product
+  team... Given the strained relationship with your current manager,
+  this may also play a role in your approach. Identifying potential
+  strategies to navigate the founder's resistance could be crucial for
+  your progress." -- the secondary issue reached actual user-visible
+  text, correctly subordinated to the primary focus, on the very first
+  live attempt.
+
+This is concrete, live evidence that the salience change changes what a
+user actually reads, not just what Judgment privately computes -- the
+standard this whole reasoning-depth effort was started to meet.
+
+**Explicitly out of scope, still ahead:** trajectory/stagnation
+assessment, which needs a WorldState provenance upgrade (turn numbering,
+first_seen/last_updated) this project doesn't have yet -- the second,
+larger step in the sequencing the user chose. Any boolean-gate escalation
+for `secondary_issues` remains unvalidated and un-added until real
+testing shows a need for one.
