@@ -4103,3 +4103,98 @@ either real Fly.io network access this session doesn't have, or
 handling a credential this session shouldn't touch directly -- both are
 the user's own one-time setup steps, walked through interactively rather
 than automated, per their explicit choice.
+
+### 2026-07-10 (later still): Confidant MVP deployed live to Fly.io and verified end-to-end, via the dashboard "Deploy from GitHub" flow rather than the CLI
+
+The user deployed via Fly.io's own web dashboard ("Deploy from GitHub"),
+not the `flyctl`/`deploy.yml` CLI path prepared earlier -- their choice.
+This flow asks for its config directly in the browser (region, machine
+size, env vars, etc.) rather than reading `fly.toml` up front, so this
+session's job for the rest of the walkthrough was keeping `fly.toml` in
+sync with whatever the user actually selected, field by field, since
+this session still can't reach `fly.io` itself (same standing network
+restriction as the prior entry).
+
+**App identity and placement ended up different from this repo's
+placeholder guesses, and that's fine -- Fly's own values are
+authoritative:**
+- `app = "confidant-sensemaking"` (placeholder) -> **`confidantsense`**
+  (the name actually reserved through the dashboard).
+- `primary_region = "iad"` (this session's default suggestion) -> user
+  said Mumbai (`bom`) mid-walkthrough, updated accordingly -- but the
+  region Fly's own launch flow actually generated was **`lhr`
+  (London)**, not `bom`. Rather than silently forcing the file back to
+  `bom` (which could conflict with wherever the app/volume were actually
+  provisioned and break the deploy), this was flagged explicitly and the
+  user chose to keep Fly's actual value.
+- `memory = "512mb"` (this session's original default) -> user said
+  256mb, but again Fly's own generated config said **`512mb`** -- same
+  resolution: user's call, kept Fly's value.
+
+**Merge mechanics:** Fly's dashboard flow opened PR #7 ("Fly.io Launch
+config files") from its own `fly-io[bot]` GitHub App, containing exactly
+the generated `fly.toml` above. GitHub reported a merge conflict against
+this repo's own in-flight `fly.toml` edits; resolved by fetching
+`origin/flyio-new-files` and merging locally (`git merge
+origin/flyio-new-files`), keeping Fly's app/region/memory values verbatim
+per the user's choice, but preserving this repo's own explanatory
+comments (including the volume-creation command, corrected to reference
+`lhr`) and removing a redundant `memory_mb` line the generator had added
+alongside the equivalent `memory` key. Merged to `main` at `db66124`; PR
+#7 closed manually with a comment explaining the out-of-band merge (148
+tests still green, config-only change).
+
+**Pinned the LLM model for the deployed instance:** `OPENROUTER_MODEL`
+isn't a secret, so it went straight into `fly.toml`'s `[env]` block --
+`openai/gpt-4o-mini`, overriding `src/llm/providers.py`'s
+`openrouter/free` default. The free auto-router is fine for local
+dev/smoketests but not reliable enough for something a real person is
+actually going to use live.
+
+**Live debugging, once "up and running" turned out to still be
+failing:** the first real conversation on the deployed app returned the
+`failed_stage: "interpretation"` honest-failure copy every time. Since
+this session can't hit `confidantsense.fly.dev` directly (blocked by the
+same proxy policy as `fly.io` itself), diagnosis had to go through the
+user pasting back `GET /sessions/<id>/debug` output rather than this
+session fetching it directly. That surfaced the real error verbatim:
+`"OPENROUTER_API_KEY (or LLM_API_KEY) is not set"` -- the app's own Fly
+*secret* (a mechanism entirely separate from `fly.toml`'s `[env]` block
+and from any GitHub Actions secret) had never actually been set, despite
+appearing in the dashboard's setup form. Switching the model to
+`gpt-4o-mini` didn't fix it either, for the obvious reason -- wrong
+diagnosis, since the actual fault was upstream of model choice. Once the
+user set the Fly secret directly (dashboard's Secrets tab, not the
+deploy form), the app started working.
+
+**Built a log/debug access path for this session, since direct network
+access to `fly.io` remains blocked:** added
+`.github/workflows/fetch-logs.yml`, a `workflow_dispatch` companion to
+`deploy.yml` using the same `FLY_API_TOKEN` secret and
+`superfly/flyctl-actions/setup-flyctl`, so `flyctl logs` can run from a
+GitHub-hosted runner instead. First dispatch silently "succeeded" with
+empty output -- `flyctl logs -a confidantsense --no-tail | tail -n
+"200"` piped through `tail`, so a `flyctl` auth failure (`FLY_API_TOKEN`
+not yet added as a repo secret at that point) never surfaced as a
+non-zero exit code. Fixed by setting `shell: bash -o pipefail {0}` on
+that step so the real failure propagates. Also added an optional
+`session_id` input that, when set, curls
+`https://confidantsense.fly.dev/sessions/<id>/debug` directly and pretty
+prints it -- this doesn't need `flyctl`/Fly auth at all, since it's just
+the app's own public HTTP endpoint, reachable from any GitHub-hosted
+runner.
+
+**End-to-end verification, via that same log-fetch workflow:** confirmed
+a real conversation on the live deployed app, via its actual `/debug`
+output, not just an HTTP 200 (which the API returns even on a
+pipeline failure, by design -- see the MVP API entry above): `failed_stage:
+null, error: null`, `facts`/`claims` correctly accumulated across
+multiple turns (proving the SQLite/`WorldState` round-trip persists
+state across real, separate HTTP requests, cold-starts included --
+`fly.toml`'s `auto_stop_machines`/`min_machines_running = 0` means the
+machine actually stops and restarts between idle requests, so this is a
+genuine persistence test, not just an in-memory one), Judgment correctly
+flagged a real risk signal from the conversation content, and Response
+produced a coherent, on-topic reply. This is the concrete proof the MVP
+milestone set out for: a real person, using the real deployed app, gets
+the real reasoning pipeline, with real persistence, end to end.
