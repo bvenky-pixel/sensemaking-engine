@@ -5149,3 +5149,99 @@ for a stronger fix (e.g. a more explicit final self-check, mirroring
 Interpretation v2's Final Consistency Review block, rather than folding
 the rule into prose within the field definition) if a Priority 1.1
 follow-up is judged worthwhile before moving to Response.
+
+---
+
+**2026-07-11 — Response v2 Priority 1**
+
+Third and final stage of the pipeline depth-parity work (Interpretation
+-> Planner -> Response). Unlike the other two, Response Generator had
+never had a full "vN" depth round -- only two narrow, single-test-driven
+patches already live in `src/response/prompt.py`: the tentative-phrasing
+rule for `assumptions_to_test` content (added after A03) and the
+non-negotiable "no direct questions" rule (added after X02). This
+round's findings come from grepping all 30 `| Response quality | N |
+... |` scored rows in `experiments/confidant-validation/log.md`, then
+reading `src/response/schema.py`, `src/response/prompt.py`,
+`src/response/engine.py`, `response-generator-specification-v1.md`, and
+`tests/test_response_schema.py` directly.
+
+Response quality scores in the log run notably higher (mostly 6-9) than
+Interpretation/Planner's did before their own rounds -- already a
+comparatively strong stage. Several recurring "defects" visible in the
+log are actually upstream Planner/Judgment gaps that Response is
+correctly just faithfully mirroring (e.g. "mirrors Planner's shallow
+question depth" on E04/A04, "never questions the 'everyone... probably
+right' framing" on X05) -- fixing those at the Response layer would
+violate the spec's own Core Principle ("Faithful Execution... must
+never reinterpret, reprioritize, introduce new reasoning, generate new
+insights"), so they were excluded from scope. Three real, Response-
+owned, evidence-cited defects remained:
+
+1. **Inconsistent pacing/overwhelm discipline when Planner sets "avoid
+   overwhelming the user."** D03 ("I'm considering moving to another
+   country next year.", Response quality 7): "stacking four distinct
+   questions into a single turn is a soft violation of the 'avoid
+   overwhelming the user' constraint." Contrast E02 ("I feel guilty
+   even when I haven't done anything wrong.", Response quality 8,
+   explicitly praised): "asks a single, well-paced question rather than
+   all three of Planner's questions at once -- good restraint." Both
+   turns had the identical Planner constraint set; only one Response
+   honored it. The prior guidance ("'avoid overwhelming the user' means
+   don't dump every open_unknown at once") was scoped narrowly to the
+   word "open_unknown" -- plausibly read as being about the unknowns
+   list specifically, not about how many `questions_to_explore` items
+   to actually voice.
+2. **Missing brief emotional acknowledgment before pivoting straight to
+   fact-finding on emotionally significant content.** E03 ("I don't
+   enjoy anything anymore.", Response quality 6, second-lowest Response
+   score in the run): "the tone reads somewhat clinical/detached... no
+   brief acknowledgment of how difficult persistent anhedonia can be
+   before pivoting straight to fact-finding questions."
+3. **Advice-flavored closing lines drifting outside Planner's actual
+   conversational_strategy.** C02 ("My manager says I'm doing great,
+   but I was passed over for promotion again.", Response quality 7):
+   "closing on a softly advice-flavored note ('could help you navigate
+   your path forward') rather than staying strictly in clarification
+   mode" -- Planner's strategy that turn was exploratory, not
+   advice-giving.
+
+**Real bug found and fixed before implementation, not after.** A
+Plan-agent stress-test pass (same discipline used for the prior two
+rounds) read `src/state/world_state.py` in full and found the original
+draft of fix #2 was wrong: it was worded to trigger off "WorldState's
+`emotional_signals`" -- but WorldState has no such field.
+`emotional_signals` exists only on Interpretation's schema, and
+`src/state/builder.py` never carries it into WorldState. Response never
+sees Interpretation, so a rule pointing at that field would reference
+something Response literally cannot see -- the same category of
+design-time bug caught in Interpretation v2 (word-overlap grounding
+filters silently stripping compliant output) and in Planner v2
+(checking `engine.py` for analogous filtering before assuming a fix
+would land), just manifesting as "points at data the layer doesn't
+receive" this time instead. Reworded before shipping to trigger off
+content Response actually receives: WorldState's `facts`/`claims`/
+`surface_complaint` text or Judgment's `primary_problem`/`current_focus`
+reading as emotionally significant. The stress-test also confirmed
+fixes #1 and #3 don't conflict with the Core Principle (choosing how
+many of Planner's already-authorized questions to voice, and staying
+within Planner's own conversational_strategy register, are both
+Structure/Expression choices the spec already grants Response, not new
+cognition), and flagged a compounding risk worth guarding against
+explicitly: an emotionally-significant turn that's ALSO
+overwhelm-constrained could turn into all-acknowledgment/no-progress if
+fix #2 wasn't bounded -- addressed by capping the acknowledgment at one
+sentence, additive to (not a replacement for) fix #1's question budget.
+
+**Prompt changes** (`src/response/prompt.py`): broadened the "avoid
+overwhelming the user" guidance to explicitly cover
+`questions_to_explore`/`priority_topics`, with a concrete rule of thumb
+(at most one, or at most two closely related, questions per turn under
+this constraint) and a worked contrast example; added emotional-
+acknowledgment sequencing guidance (one sentence, grounded only in
+content Response actually receives, explicitly distinguished from the
+closing-register rule so "validate" doesn't get confused with
+"reassure"); added closing-register discipline (a response's closing
+must stay within Planner's own conversational_strategy, with a worked
+BAD/GOOD example). No schema or engine change -- same prompt-only shape
+as the other two rounds. Full suite: 193 passed.
