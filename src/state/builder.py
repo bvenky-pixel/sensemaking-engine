@@ -382,11 +382,29 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
         new_state.core_question_confidence = interp.core_question_confidence
 
     # --- Phase 3: epistemic tiers, kept separate, never flattened ---
-    new_state.facts = _merge_content_items(state.facts, interp.observed_facts, Fact, turn)
-    new_state.claims = _merge_content_items(state.claims, interp.claims, Claim, turn)
-    new_state.goals = _merge_content_items(state.goals, interp.goals, Goal, turn)
+    #
+    # BUG FIX (found during Phase 1 Learning implementation, see
+    # engine/decisions.md): every _merge_content_items/_merge_entities call
+    # below previously sourced its `existing` argument from `state.X` (the
+    # caller's ORIGINAL, pre-deep-copy lists) instead of `new_state.X` (the
+    # deep copy made at the top of this function specifically so the
+    # caller's state would never be mutated). _merge_content_items's
+    # "existing items are returned unchanged" only copies the LIST, not
+    # each item inside it -- so the Goal/Decision/Entity objects placed
+    # into new_state.goals/decisions/entities were literally the same
+    # objects still referenced by the caller's original `state`. Every
+    # in-place status mutation downstream (_apply_goal_updates,
+    # _apply_decision_events, _merge_entities' attribute refinement) then
+    # silently corrupted the caller's own state object -- invisible until
+    # now because no previous caller ever kept a separate reference to the
+    # pre-turn state to notice. Sourcing from new_state.X (already an
+    # independent deep copy) instead of state.X fixes this without
+    # changing any merge/dedup semantics.
+    new_state.facts = _merge_content_items(new_state.facts, interp.observed_facts, Fact, turn)
+    new_state.claims = _merge_content_items(new_state.claims, interp.claims, Claim, turn)
+    new_state.goals = _merge_content_items(new_state.goals, interp.goals, Goal, turn)
     new_state.goals = _apply_goal_updates(new_state.goals, interp.goal_updates, turn)
-    new_state.decisions = _merge_content_items(state.decisions, interp.decision_options, Decision, turn)
+    new_state.decisions = _merge_content_items(new_state.decisions, interp.decision_options, Decision, turn)
     new_state.decisions = _apply_decision_events(new_state.decisions, interp.decision_events, turn)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
 
@@ -398,7 +416,7 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     new_state.inferences = _merge_unique(state.inferences, kept_inferences)
 
     updated_unknowns, resolved = _reconcile_unknowns(
-        state.unknowns, interp.unknowns, interp.observed_facts + interp.claims, turn
+        new_state.unknowns, interp.unknowns, interp.observed_facts + interp.claims, turn
     )
     new_state.unknowns = updated_unknowns
     if resolved:
@@ -408,7 +426,7 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
 
     new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
     new_state.entities = _merge_entities(
-        state.entities, interp.entities, interp.entity_attribute_updates, turn
+        new_state.entities, interp.entities, interp.entity_attribute_updates, turn
     )
     new_state.clarity_level = interp.clarity_score
 

@@ -67,7 +67,7 @@ _MINIMAL_RESPONSE = {
 }
 
 
-def _minimal_interp(fact: str) -> dict:
+def _minimal_interp(fact: str, goals=None, goal_updates=None) -> dict:
     return {
         "urgency": "low",
         "impact_domains": [],
@@ -77,7 +77,8 @@ def _minimal_interp(fact: str) -> dict:
         "core_question_confidence": 0.0,
         "observed_facts": [fact],
         "claims": [],
-        "goals": [],
+        "goals": goals or [],
+        "goal_updates": goal_updates or [],
         "decision_options": [],
         "has_assumption": False,
         "assumption_check": "No framing-embedded assumption detected.",
@@ -218,6 +219,81 @@ def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch)
     assert session_b in ids_in_order
     matching = [s for s in summaries if s["id"] == session_a][0]
     assert matching["surface_complaint"] == "User wants to move to the Product team."
+
+
+def _goal_update_turns():
+    return [
+        _minimal_interp("User wants to move to the Product team.", goals=["Move to the Product team."]),
+        _minimal_interp(
+            "User's goal is now complete.",
+            goal_updates=[{"goal": "Move to the Product team.", "status": "completed"}],
+        ),
+    ]
+
+
+def test_behavioral_events_not_recorded_when_flag_is_off(client, monkeypatch):
+    """CONFIDANT_RECORD_EVENTS is off by default (see
+    src/instrumentation/events.py::is_events_enabled) -- real behavioral
+    data must not silently accumulate without this explicitly set, per
+    trust-and-privacy-ux-v1.md's Principle 6 (amended for this feature)."""
+    monkeypatch.delenv("CONFIDANT_RECORD_EVENTS", raising=False)
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider", _always_returns(_goal_update_turns())
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    client.post(f"/sessions/{session_id}/messages", json={"content": "It happened!"})
+
+    assert db.get_all_events() == []
+
+
+def test_real_goal_status_change_is_recorded_to_memory_store_when_enabled(client, monkeypatch):
+    """End-to-end, with CONFIDANT_RECORD_EVENTS explicitly on: a Goal
+    created in turn 1, transitioned in turn 2 via a real goal_updates
+    signal, must produce exactly one behavioral_events row -- exercises
+    the full send_message -> run_turn -> diff_behavioral_events ->
+    db.save_events chain (see engine/specs/architecture-roadmap-v1.md
+    Phase 1), not just the pure diff_behavioral_events unit tests."""
+    monkeypatch.setenv("CONFIDANT_RECORD_EVENTS", "1")
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider", _always_returns(_goal_update_turns())
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    client.post(f"/sessions/{session_id}/messages", json={"content": "It happened!"})
+
+    events = db.get_all_events()
+    assert len(events) == 1
+    assert events[0].event_type == "goal_status_changed"
+    assert events[0].old_status == "active"
+    assert events[0].new_status == "completed"
+    assert events[0].session_id == session_id
+
+
+def test_patterns_endpoint_empty_before_learning_has_run(client):
+    assert client.get("/patterns").json() == []
+
+
+def test_patterns_endpoint_reflects_last_computed_batch(client):
+    """GET /patterns serves whatever scripts/run_learning.py last wrote --
+    exercised here at the db layer directly, since the endpoint itself
+    must stay read-only (see engine/specs/architecture-roadmap-v1.md:
+    Learning runs offline, never inside a live request)."""
+    from src.learning.engine import Pattern
+
+    db.replace_learned_patterns(
+        [Pattern(pattern_type="decision_status_changed", detail="3 of your decisions...", evidence_count=3)]
+    )
+
+    body = client.get("/patterns").json()
+    assert len(body) == 1
+    assert body[0]["evidence_count"] == 3
+
+    # Truncate-and-replace, not append -- a second run must not accumulate.
+    db.replace_learned_patterns([])
+    assert client.get("/patterns").json() == []
 
 
 def test_clarity_brief_returns_404_before_any_completed_turn(client):

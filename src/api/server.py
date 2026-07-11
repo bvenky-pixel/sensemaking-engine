@@ -37,6 +37,7 @@ from src.api import db
 from src.api.schema import (
     ClarityBriefResponse,
     CreateSessionResponse,
+    LearnedPatternOut,
     MessageOut,
     SendMessageRequest,
     SendMessageResponse,
@@ -96,10 +97,11 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
 
     state = db.load_state(session_id)
     tracker = UsageTracker()  # per-session, never the shared default -- see module docstring
-    result = run_turn(body.content, state, tracker=tracker)
+    result = run_turn(body.content, state, tracker=tracker, session_id=session_id)
 
     db.append_message(session_id, "user", body.content)
     db.save_turn_result(session_id, result)
+    db.save_events(session_id, result.behavioral_events)
 
     response_text = result.response.response_text if result.response else None
     confidence = result.response.confidence if result.response else None
@@ -142,6 +144,19 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
         secondary_issues=judgment.secondary_issues,
         stagnation_notes=judgment.stagnation_notes,
     )
+
+
+@app.get("/patterns", response_model=list[LearnedPatternOut])
+def get_patterns() -> list[LearnedPatternOut]:
+    """Phase 1 Learning's output (see engine/specs/architecture-roadmap-v1.md).
+    Read-only -- serves whatever scripts/run_learning.py last computed
+    offline; never computes anything live. Empty until that script has
+    been run at least once, and stays empty below its evidence floor --
+    both correct, not an error state. Not yet consumed by the frontend:
+    the exact "something noticed across Journeys" surfacing form is its
+    own, separate, not-yet-done design pass (see
+    frontend/specs/interaction-model-v4.md)."""
+    return db.get_learned_patterns()
 
 
 if _FRONTEND_DIR.exists():

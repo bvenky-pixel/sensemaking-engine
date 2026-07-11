@@ -91,6 +91,52 @@ constrains the frontend to only ever promise deletion behavior the
 underlying system genuinely provides — it must not get ahead of the
 actual guarantee.
 
+### 6. Cross-Conversation Learning Must Be Disclosed, Not Just Accurate
+
+Amendment (2026-07-11), triggered exactly as the Future Considerations
+section below anticipated: `engine/specs/system-architecture-v2-
+specification.md`'s Learning process has its first real implementation
+(`engine/specs/architecture-roadmap-v1.md`'s Phase 1 — an offline,
+evidence-counted Behavioral Pattern System, computed from a new
+`behavioral_events` Memory Store spanning every session). Every
+principle above was written assuming memory is scoped to what a person
+can see and control about their own history *within* a Journey; Learning
+is the first thing in this product that reasons *across* Journeys, so it
+needs its own explicit principle rather than being silently folded under
+Principle 2.
+
+Once any real cross-conversation pattern exists, disclosure is not
+optional polish — it is the same continuous-demonstration standard
+Principle 1 already sets, applied to a genuinely new kind of memory:
+
+- Whatever surfaces a noticed pattern must be traceable to real evidence
+  a person can actually inspect, not just assert confidence in — the
+  same `{statement, evidence, evidence_count}` shape already used
+  elsewhere in this system's reasoning (Judgment's `stagnation_notes`,
+  WorldState's provenance), not a black-box "we noticed something."
+- A person must be able to see, and delete, their own accumulated
+  behavioral history independent of any single Journey — deleting one
+  Journey's messages must not be assumed to also clear what Learning
+  derived from it unless the interface actually guarantees that
+  (Principle 5's "only promise what the system genuinely provides"
+  applies here at least as strongly, since this is new, not-yet-built
+  surface).
+- A noticed pattern must never be presented with more confidence than
+  its evidence count actually earns — visible undercount is safer than
+  invisible overreach.
+
+**What Phase 1 actually ships, checked against this principle honestly:**
+the backend computes patterns and exposes them read-only via
+`GET /patterns`; nothing in the frontend surfaces them to a person yet
+(see `interaction-model-v4.md`'s "something noticed across Journeys,"
+whose exact form is deliberately still its own undone design pass) and
+no deletion path exists for `behavioral_events`/`learned_patterns`
+independent of a whole database wipe. This principle is written now,
+before that frontend surface exists, specifically so the surface is
+designed against a real disclosure standard from its first draft rather
+than needing a second pass to retrofit one — the same reason this
+document exists in the first place (Design Rationale, above).
+
 ---
 
 ## Design Rationale
@@ -141,10 +187,11 @@ place it should be most stable.
   session, returning after a gap, being shown a remembered detail) carry
   the most weight — right now these principles are derived from the
   product's philosophy, not yet from observed user behavior.
-- If Confidant ever introduces any cross-conversation learning at the
-  System Architecture level (see `engine/specs/system-architecture-v2-
-  specification.md`'s Learning process, currently a deliberately
-  unimplemented reserved slot), this document will need a direct
-  amendment addressing what that learning discloses to the user, since
-  today it assumes memory is scoped to what a specific user can see and
-  control about their own history alone.
+- ~~If Confidant ever introduces any cross-conversation learning at the
+  System Architecture level... this document will need a direct
+  amendment...~~ **Addressed 2026-07-11 — see Principle 6, above.** Still
+  genuinely open, not yet addressed by that amendment: the actual
+  frontend disclosure surface (Principle 6 is written ahead of it, on
+  purpose) and a real deletion path for `behavioral_events`/
+  `learned_patterns` independent of a full database wipe. Revisit this
+  bullet again once both exist.

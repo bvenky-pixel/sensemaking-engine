@@ -4565,3 +4565,130 @@ here rather than there since they're backend surface, not frontend code:
 
 Both covered by existing/extended tests in `tests/test_api_server.py`;
 full suite (166 tests) green after the change.
+
+---
+
+**2026-07-11 — Learning Phase 1: Memory Store + Behavioral Pattern System**
+
+`architecture-roadmap-v1.md` (2026-07-11) mapped the founder's uploaded
+12-layer vision against what's actually built and proposed Phase 1:
+give Learning -- a named, deliberately-unimplemented reserved slot since
+System Architecture v2 was first specified -- its first real slice,
+scoped to the Behavioral Pattern System only (mechanical, evidence-
+counted patterns like "N of your decisions have moved to 'deferred'
+status"), because it's a direct generalization of
+`compute_stagnation_signals`, which already shipped. A written plan
+(reviewed by a Plan-agent critique before implementation, per explicit
+request to see a full backend-to-frontend plan before committing) caught
+one real design flaw before it was ever built; implementation then found
+a second, unrelated, real bug already living in the codebase.
+
+**Bug 1 (design-time, caught before implementation): overcounting from
+unconditional status assignment.** The original design threaded an
+`EventRecorder` through `src/state/builder.py`'s mutation functions,
+mirroring `UsageTracker`'s inline-recording pattern. `_apply_goal_updates`,
+`_apply_decision_events`, and `apply_judgment_resolutions` all assign
+`.status` unconditionally whenever a matching update/event/resolution
+appears -- never checking whether the new status differs from the old
+one. Since Interpretation is stateless per turn, a Decision the user is
+*still* deferring can plausibly re-emit the same event turn after turn;
+recording at the mutation line as originally designed would have
+recorded N events for one real transition, silently inflating the
+evidence a `min_evidence` floor is supposed to protect. **Fixed by
+switching the whole design from recorder-threading to diffing**: a new
+pure function, `diff_behavioral_events` (`src/instrumentation/events.py`),
+compares `WorldState` before/after `update_state`/`apply_judgment_resolutions`
+in `src/orchestrator/engine.py::run_turn`, emitting an event only for a
+genuine `old.status != new.status` delta. Zero signature changes needed
+to `builder.py`'s mutation functions.
+
+**Bug 2 (implementation-time, caught by the first end-to-end test):
+`update_state` was silently mutating the caller's original WorldState
+object.** `update_state`'s own comment says `new_state = state.model_copy(deep=True)  # never mutate the caller's state`,
+but every `_merge_content_items`/`_merge_entities` call immediately
+after sourced its `existing` argument from `state.X` (the pre-deep-copy
+original) instead of `new_state.X` (the deep copy) -- `_merge_content_items`
+returns a new *list* but the *items* inside it are the same object
+references as `state.X`, since only the list itself gets rebuilt, not
+each item. `_apply_goal_updates`/`_apply_decision_events`/`_merge_entities`'
+attribute refinement then mutated those shared objects in place,
+corrupting the caller's original `state` silently. This had been dormant
+since the very first version of `update_state` (2026-07-05) because
+every existing caller immediately reassigned `state = update_state(state, interp)`
+and discarded the old reference -- nothing before Phase 1's diff-based
+design ever kept a separate reference to the pre-turn state to notice.
+**Fixed** by sourcing every merge call in `update_state` from `new_state.X`
+instead of `state.X` (five call sites: facts, claims, goals, decisions,
+entities; `_reconcile_unknowns` similarly switched for consistency,
+though Unknowns have no in-place status mutation today). Verified with a
+before/after repro confirming `old.goals[0] is new_state.goals[0]` was
+`True` before the fix and `False` after, and that the caller's original
+object's status field no longer changes. This bug would have affected
+any future code holding a pre/post state reference, not just Learning --
+worth being explicit that this was a real, general correctness fix, not
+something scoped narrowly to this feature.
+
+**What shipped**: `src/instrumentation/events.py` (`BehavioralEvent`,
+`diff_behavioral_events`, `is_events_enabled`); two new SQLite tables in
+`src/api/db.py` (`behavioral_events` -- append-only Memory Store,
+single-user scope, no `user_id` column since no `users` table or auth
+exists anywhere in this codebase; `learned_patterns` -- truncate-and-
+replace semantics on every write, mirroring `sessions.world_state_json`'s
+existing overwrite-on-write precedent, so stale/contradicted patterns
+can never accumulate); `src/learning/engine.py::compute_behavioral_patterns`,
+replacing (not extending) `src/learning/__init__.py`'s former reserved-
+slot stub per that stub's own instruction; `scripts/run_learning.py`
+(offline, never called from a live request -- the literal mechanism for
+"Learning operates asynchronously, never inside a live conversation
+turn"); `GET /patterns` (read-only).
+
+**Governance step, done as part of this round, not after**:
+`trust-and-privacy-ux-v1.md` had a named, pre-committed gate for exactly
+this feature ("If Confidant ever introduces any cross-conversation
+learning... this document will need a direct amendment") -- added
+Principle 6 addressing what cross-conversation learning discloses and
+what control a person has over it, and marked the Future Considerations
+bullet that anticipated this as addressed, while being explicit about
+what's still genuinely open (no frontend disclosure surface yet, no
+deletion path for `behavioral_events`/`learned_patterns` independent of
+a full DB wipe). `CONFIDANT_RECORD_EVENTS` (gating `db.save_events`,
+checked at the persistence boundary rather than inside the pure
+`diff_behavioral_events`) defaults **off** everywhere, including the
+deployed Fly.io environment -- turning it on in production is
+deliberately left as a separate, conscious decision, not silently
+inherited from `CONFIDANT_TRACK_USAGE`'s off-by-default framing (that
+flag is opt-in telemetry with no product dependency; this one is the
+literal substrate Learning depends on, so leaving it off by default in
+production means Phase 1 accumulates nothing from real usage until
+someone deliberately decides otherwise, having weighed it against
+Principle 6).
+
+**Explicitly out of scope this round** (named in `architecture-roadmap-v1.md`,
+reconfirmed here): semantic/LLM-assisted pattern language (mechanical
+event_type/status counting only); feeding Learning's output into a live
+Interpretation/WorldState-seeding step (`GET /patterns` is read-only and
+offline-computed only); the exact frontend surfacing shape for "something
+noticed across Journeys" (`interaction-model-v4.md` requires it read as
+a felt moment, not a dashboard list, and explicitly defers its concrete
+form to its own design pass -- a Plan-agent critique caught an earlier
+draft of this plan proposing a "Noticed" block on Home, which would have
+designed ahead of what the frozen interaction spec actually authorizes);
+cascade-deletion of behavioral/pattern data (no deletion feature exists
+yet to cascade from); multi-user/auth.
+
+**Verification**: `tests/test_instrumentation_events.py` (diff purity,
+the reaffirmation-produces-zero-events regression test for Bug 1,
+content-key matching, multi-change turns), `tests/test_learning.py`
+(replacing the old reserved-slot canary with real `compute_behavioral_patterns`
+coverage -- evidence floor, per-group counting, no invented GoalStatus
+vocabulary), `tests/test_api_server.py` (end-to-end send_message ->
+run_turn -> diff -> save_events chain with the flag both on and off,
+`GET /patterns` empty-then-populated-then-replaced). Full suite: 183
+passed. Live verification: `scripts/run_learning_walkthrough.py` +
+`.github/workflows/learning-walkthrough.yml` (dispatched separately;
+drives four independent real sessions, three deliberately deferring a
+decision each to cross the evidence floor together, one deferring only
+once to help confirm aggregation behaves as expected) -- see follow-up
+entry once that run's actual output is read and assessed honestly,
+per this project's standing practice of not declaring a live check
+passed until its real output has been inspected.

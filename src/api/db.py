@@ -24,6 +24,22 @@ Two tables, intentionally minimal:
 No ORM, no migrations -- a single `CREATE TABLE IF NOT EXISTS` pair run
 at startup, consistent with this being a minimal MVP proof, not a
 production data layer.
+
+Two more tables, added for Phase 1 Learning (see
+engine/specs/architecture-roadmap-v1.md and src/learning/engine.py):
+- `behavioral_events`: the Memory Store -- an append-only log of every
+  BehavioralEvent (src/instrumentation/events.py) detected across every
+  turn, every session. Deliberately spans the whole DB with no user_id
+  column: there is no `users` table or auth anywhere in this codebase
+  today, so this is a stated single-user simplification, not a silent
+  gap -- revisit if/when multi-user support exists.
+- `learned_patterns`: Learning's own output (src/learning/engine.py,
+  computed offline by scripts/run_learning.py, never inside a live
+  request). TRUNCATE-AND-REPLACE semantics on every run, not append --
+  see replace_learned_patterns below -- mirroring `sessions.world_state_json`'s
+  existing overwrite-on-write precedent (save_turn_result), since only
+  the latest computed patterns are ever meaningful; an append-only table
+  here would let stale/contradicted patterns accumulate forever.
 """
 
 from __future__ import annotations
@@ -37,7 +53,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional
 
-from src.api.schema import MessageOut, SessionSummary
+from src.api.schema import LearnedPatternOut, MessageOut, SessionSummary
+from src.instrumentation.events import BehavioralEvent, is_events_enabled
+from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
 from src.state.world_state import WorldState
 
@@ -70,6 +88,25 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS behavioral_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    turn INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    old_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS learned_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    evidence_count INTEGER NOT NULL,
+    computed_at TEXT NOT NULL
 );
 """
 
@@ -187,3 +224,71 @@ def get_messages(session_id: str) -> List[MessageOut]:
             (session_id,),
         ).fetchall()
     return [MessageOut(role=r[0], content=r[1], created_at=r[2]) for r in rows]
+
+
+def save_events(session_id: str, events: List[BehavioralEvent]) -> None:
+    """Appends this turn's behavioral events (usually empty -- most turns
+    change nothing's status) to the Memory Store. Called from
+    src/api/server.py::send_message after run_turn returns, mirroring how
+    save_turn_result is already called there.
+
+    Gated on CONFIDANT_RECORD_EVENTS (off by default, see
+    src/instrumentation/events.py::is_events_enabled) -- this is the
+    persistence boundary where that gate belongs: diff_behavioral_events
+    itself stays a pure, environment-independent function, but whether
+    real behavioral data actually accumulates in the Memory Store is the
+    privacy-relevant decision trust-and-privacy-ux-v1.md's Principle 6
+    (amended for this feature) says must not happen by silent default."""
+    if not events or not is_events_enabled():
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "INSERT INTO behavioral_events "
+            "(session_id, turn, event_type, detail, old_status, new_status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (session_id, e.turn, e.event_type, e.detail, e.old_status, e.new_status, e.timestamp)
+                for e in events
+            ],
+        )
+
+
+def get_all_events() -> List[BehavioralEvent]:
+    """Read-only, used only by scripts/run_learning.py -- the entire
+    Memory Store across every session (single-user scope, see module
+    docstring)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT event_type, session_id, turn, detail, old_status, new_status, created_at "
+            "FROM behavioral_events ORDER BY id ASC"
+        ).fetchall()
+    return [
+        BehavioralEvent(
+            event_type=r[0], session_id=r[1], turn=r[2], detail=r[3],
+            old_status=r[4], new_status=r[5], timestamp=r[6],
+        )
+        for r in rows
+    ]
+
+
+def replace_learned_patterns(patterns: List[Pattern]) -> None:
+    """Truncate-and-replace, not append -- see module docstring's
+    reasoning (mirrors save_turn_result's overwrite-on-write precedent).
+    Called only by scripts/run_learning.py, never from a live request."""
+    now = _now()
+    with _connect() as conn:
+        conn.execute("DELETE FROM learned_patterns")
+        if patterns:
+            conn.executemany(
+                "INSERT INTO learned_patterns (pattern_type, detail, evidence_count, computed_at) "
+                "VALUES (?, ?, ?, ?)",
+                [(p.pattern_type, p.detail, p.evidence_count, now) for p in patterns],
+            )
+
+
+def get_learned_patterns() -> List[LearnedPatternOut]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT pattern_type, detail, evidence_count FROM learned_patterns ORDER BY id ASC"
+        ).fetchall()
+    return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]

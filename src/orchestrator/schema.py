@@ -29,10 +29,11 @@ deliberately no prompt.py in this package for that reason.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from src.instrumentation.events import BehavioralEvent
 from src.interpretation.schema import Interpretation
 from src.judgment.schema import Judgment
 from src.planner.schema import Planner
@@ -52,3 +53,10 @@ class TurnResult(BaseModel):
 
     failed_stage: Optional[FailedStage] = None
     error: Optional[str] = None
+
+    # Phase 1 Learning (see engine/specs/architecture-roadmap-v1.md):
+    # behavioral events detected by diffing WorldState before/after this
+    # turn's mutations (src/instrumentation/events.py). Empty whenever
+    # nothing's status changed, or whenever the turn failed before
+    # update_state ran (Interpretation failure) -- both real, not a bug.
+    behavioral_events: List[BehavioralEvent] = Field(default_factory=list)

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from src.instrumentation.events import diff_behavioral_events
 from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
@@ -55,7 +56,10 @@ from src.state.world_state import WorldState
 
 
 def run_turn(
-    message: str, state: WorldState, tracker: Optional[UsageTracker] = None
+    message: str,
+    state: WorldState,
+    tracker: Optional[UsageTracker] = None,
+    session_id: str = "",
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -74,8 +78,14 @@ def run_turn(
     tracker: optional UsageTracker, passed through to every stage
     unchanged -- Orchestrator doesn't own instrumentation, it just makes
     sure every stage it calls gets the same one.
+
+    session_id: optional, defaults to "" for every existing caller that
+    doesn't pass one (conversation_runner.py, scripts/run_worldstate_walkthrough.py,
+    tests) -- only used to stamp Phase 1 Learning's behavioral_events
+    (see src/instrumentation/events.py), never anything upstream of that.
     """
     tracker = tracker or default_tracker
+    behavioral_events = []
 
     try:
         interp = run_interpretation(message, tracker=tracker)
@@ -86,7 +96,11 @@ def run_turn(
     # Judgment runs -- Judgment only ever sees WorldState, never the raw
     # Interpretation. Once this commits, `state` genuinely has changed,
     # regardless of what happens next.
+    pre_update_state = state
     state = update_state(state, interp)
+    behavioral_events += diff_behavioral_events(
+        pre_update_state, state, session_id=session_id, turn=state.turn_count
+    )
     next_phase = recommend_phase_transition(state)
     if next_phase:
         state.phase = next_phase
@@ -96,6 +110,7 @@ def run_turn(
     except JudgmentError as exc:
         return TurnResult(
             state=state, interpretation=interp, failed_stage="judgment", error=str(exc),
+            behavioral_events=behavioral_events,
         )
 
     # Judgment itself never writes to WorldState (it only ever reads it,
@@ -105,7 +120,11 @@ def run_turn(
     # Planner/Response (and every later turn) see the corrected status
     # instead of it staying silently stuck at "open". See
     # engine/decisions.md "decision lifecycle, round 3".
+    pre_resolution_state = state
     state = apply_judgment_resolutions(state, judgment)
+    behavioral_events += diff_behavioral_events(
+        pre_resolution_state, state, session_id=session_id, turn=state.turn_count
+    )
 
     try:
         plan = run_planner(state, judgment, tracker=tracker)
@@ -113,6 +132,7 @@ def run_turn(
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment,
             failed_stage="planner", error=str(exc),
+            behavioral_events=behavioral_events,
         )
 
     try:
@@ -121,8 +141,10 @@ def run_turn(
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment, planner=plan,
             failed_stage="response", error=str(exc),
+            behavioral_events=behavioral_events,
         )
 
     return TurnResult(
         state=state, interpretation=interp, judgment=judgment, planner=plan, response=response,
+        behavioral_events=behavioral_events,
     )

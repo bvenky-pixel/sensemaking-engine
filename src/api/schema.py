@@ -80,3 +80,18 @@ class ClarityBriefResponse(BaseModel):
     # Stagnation Notes entries), not raw internal cognition.
     secondary_issues: List[str] = []
     stagnation_notes: List[str] = []
+
+
+class LearnedPatternOut(BaseModel):
+    """One row from GET /patterns (see engine/specs/architecture-roadmap-v1.md
+    Phase 1, src/learning/engine.py::Pattern) -- Learning's own,
+    offline-computed, evidence-counted output. Deliberately NOT rendered
+    anywhere in the frontend yet: interaction-model-v4.md requires
+    "something noticed across Journeys" to read as a felt moment, never
+    a dashboard list, and its exact form is its own, not-yet-done design
+    pass (see frontend/decisions.md). This schema exists so the data
+    contract is ready whenever that design lands."""
+
+    pattern_type: str
+    detail: str
+    evidence_count: int

@@ -1,0 +1,39 @@
+name: Learning walkthrough
+
+# Manual only -- each run makes real, billable LLM calls (4 stages x 2
+# turns x 4 sessions = up to 32 calls) to the configured provider, and
+# explicitly sets CONFIDANT_RECORD_EVENTS=1 (off by default -- see
+# src/instrumentation/events.py) since this workflow's entire purpose is
+# to exercise the Memory Store the flag gates.
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default)"
+        required: false
+        default: ""
+
+jobs:
+  walkthrough:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Phase 1 Learning walkthrough
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_RECORD_EVENTS: "1"
+          CONFIDANT_DB_PATH: "learning_walkthrough.db"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_learning_walkthrough.py
