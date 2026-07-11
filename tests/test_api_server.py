@@ -221,6 +221,87 @@ def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch)
     assert matching["surface_complaint"] == "User wants to move to the Product team."
 
 
+def test_sessions_default_unbookmarked(client):
+    session_id = client.post("/sessions").json()["id"]
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["bookmarked"] is False
+
+
+def test_bookmark_toggle_persists_and_filters(client):
+    """Added for the Home redesign (see frontend/decisions.md) -- bookmarking
+    a session must both persist across a fresh GET /sessions call and
+    correctly filter when bookmarked_only=true, without pulling in an
+    unbookmarked session."""
+    session_a = client.post("/sessions").json()["id"]
+    session_b = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_a}/bookmark", json={"bookmarked": True})
+    assert res.status_code == 200
+    assert res.json()["bookmarked"] is True
+
+    all_summaries = client.get("/sessions").json()
+    matching_a = [s for s in all_summaries if s["id"] == session_a][0]
+    matching_b = [s for s in all_summaries if s["id"] == session_b][0]
+    assert matching_a["bookmarked"] is True
+    assert matching_b["bookmarked"] is False
+
+    filtered = client.get("/sessions?bookmarked_only=true").json()
+    filtered_ids = [s["id"] for s in filtered]
+    assert session_a in filtered_ids
+    assert session_b not in filtered_ids
+
+    # Un-bookmarking removes it from the filtered view again.
+    client.post(f"/sessions/{session_a}/bookmark", json={"bookmarked": False})
+    filtered_again = client.get("/sessions?bookmarked_only=true").json()
+    assert session_a not in [s["id"] for s in filtered_again]
+
+
+def test_bookmark_unknown_session_returns_404(client):
+    res = client.post("/sessions/does-not-exist/bookmark", json={"bookmarked": True})
+    assert res.status_code == 404
+
+
+def test_has_stagnation_signal_false_for_fresh_session(client):
+    """A brand-new session (turn_count=0, no goals/decisions) has nothing
+    for compute_stagnation_signals to flag."""
+    session_id = client.post("/sessions").json()["id"]
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["has_stagnation_signal"] is False
+
+
+def test_has_stagnation_signal_true_when_a_decision_is_stale(client, monkeypatch):
+    """Directly exercises db.list_sessions' use of compute_stagnation_signals
+    against a real stored WorldState -- construct one with a stale open
+    Decision (gap >= STAGNATION_TURN_THRESHOLD) and confirm the flag
+    reflects it, mirroring tests/test_judgment_stagnation.py's own
+    Provenance-construction pattern."""
+    from src.api import db as db_module
+    from src.state.world_state import Decision, Provenance, WorldState
+
+    session_id = client.post("/sessions").json()["id"]
+    stale_state = WorldState(
+        turn_count=10,
+        decisions=[
+            Decision(
+                content="Whether to accept the offer",
+                status="open",
+                provenance=Provenance(source="interpretation", first_seen=1, last_updated=1),
+            )
+        ],
+    )
+    with db_module._connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET world_state_json = ? WHERE id = ?",
+            (stale_state.model_dump_json(), session_id),
+        )
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["has_stagnation_signal"] is True
+
+
 def _goal_update_turns():
     return [
         _minimal_interp("User wants to move to the Product team.", goals=["Move to the Product team."]),

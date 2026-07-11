@@ -4697,3 +4697,42 @@ verification rather than reconnect now. Add a follow-up entry once that
 run actually happens and its real output has been read and assessed --
 per this project's standing practice, this feature is not to be treated
 as live-verified until then.
+
+---
+
+**2026-07-11 — Bookmark + stagnation-signal backend additions for the Home redesign**
+
+Small, additive backend work supporting the frontend's final redesign
+increment (Home -- see `frontend/decisions.md`). Two pieces:
+
+- **`sessions.bookmarked`** (`src/api/db.py`): a plain `INTEGER` (0/1)
+  flag, no separate table for a single boolean-per-session. This is the
+  first *additive column on an existing table* this codebase has needed
+  (every prior schema change added a whole new table) -- `_SCHEMA`'s
+  `CREATE TABLE IF NOT EXISTS` covers brand-new databases, but
+  `init_db()` also runs an idempotent `ALTER TABLE sessions ADD COLUMN
+  bookmarked INTEGER NOT NULL DEFAULT 0` wrapped in `try/except
+  sqlite3.OperationalError: pass`, so the already-deployed Fly.io
+  database (and any existing local database) picks up the column
+  without a manual migration step. `db.set_bookmark`/`GET /sessions`'s
+  new `bookmarked_only` query param round out the feature.
+- **`SessionSummary.has_stagnation_signal`**: computed per session in
+  `db.list_sessions` by calling `compute_stagnation_signals` (already a
+  pure function of `WorldState` alone, `src/judgment/engine.py`, no
+  Judgment/LLM call needed) directly against each session's stored
+  state and checking whether it returned anything. Deliberately just a
+  boolean, not the mechanical signal's raw text (which was built as
+  internal LLM input, not user-facing voice) or Judgment's own worded
+  `stagnation_notes` (which only exists on a session whose last turn
+  actually ran Judgment, and would need an extra `debug_json` read per
+  session in `list_sessions` to surface). Matches Learning Phase 1's
+  own "mechanical signal only, richer wording deliberately deferred"
+  precedent -- not a new pattern, a continuation of it.
+
+New tests in `tests/test_api_server.py`: bookmark toggle persists across
+a fresh request and correctly filters via `bookmarked_only`, unbookmarking
+removes a session from the filtered view, unknown-session bookmark
+returns 404, `has_stagnation_signal` false on a fresh session and true
+against a real stored `WorldState` carrying a stale open Decision
+(mirrors `tests/test_judgment_stagnation.py`'s own `Provenance`
+construction pattern). Full suite: 188 passed.

@@ -42,6 +42,7 @@ from src.api.schema import (
     SendMessageRequest,
     SendMessageResponse,
     SessionSummary,
+    SetBookmarkRequest,
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.instrumentation.usage import UsageTracker
@@ -78,11 +79,22 @@ def create_session() -> CreateSessionResponse:
 
 
 @app.get("/sessions", response_model=list[SessionSummary])
-def list_sessions() -> list[SessionSummary]:
+def list_sessions(bookmarked_only: bool = False) -> list[SessionSummary]:
     """Backs the real frontend's Home screen (a list of a person's
     Journeys) -- see frontend/decisions.md "Build the real Confidant
-    frontend"."""
-    return db.list_sessions()
+    frontend". `bookmarked_only` backs Home's All/Bookmarked filter
+    (added for the Home redesign, see frontend/decisions.md)."""
+    return db.list_sessions(bookmarked_only=bookmarked_only)
+
+
+@app.post("/sessions/{session_id}/bookmark", response_model=SetBookmarkRequest)
+def set_bookmark(session_id: str, body: SetBookmarkRequest) -> SetBookmarkRequest:
+    """Added for the Home redesign (see frontend/decisions.md) -- returns
+    the same shape back so the frontend can update optimistically without
+    a second round trip to re-fetch the session list."""
+    _require_session(session_id)
+    db.set_bookmark(session_id, body.bookmarked)
+    return body
 
 
 @app.get("/sessions/{session_id}/messages", response_model=list[MessageOut])

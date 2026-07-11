@@ -17,8 +17,17 @@ export async function createSession() {
   return _json(res);
 }
 
-export async function listSessions() {
-  const res = await fetch('/sessions');
+export async function listSessions(bookmarkedOnly = false) {
+  const res = await fetch(bookmarkedOnly ? '/sessions?bookmarked_only=true' : '/sessions');
+  return _json(res);
+}
+
+export async function setBookmark(sessionId, bookmarked) {
+  const res = await fetch(`/sessions/${sessionId}/bookmark`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bookmarked }),
+  });
   return _json(res);
 }
 

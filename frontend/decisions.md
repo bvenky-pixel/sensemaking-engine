@@ -415,3 +415,65 @@ changes needed (purely visual, matching increment 1's pattern); full
 `pytest` (183) unaffected, confirmed rather than assumed since no
 backend files changed; live Playwright pass in both light and dark mode
 covering the button at rest, enabled, and the scrolled fade.
+
+---
+
+**2026-07-11 — Frontend redesign increment 3 (final): Home**
+
+Closes out the three-increment back-to-front redesign started with
+Understanding, continued with Journey/Composer. The largest of the
+three, since bookmarking and stagnation-signal surfacing didn't exist
+anywhere in the backend yet (see the matching `engine/decisions.md`
+entry for the additive `sessions.bookmarked` column and
+`has_stagnation_signal`).
+
+- **The reserved `.display` moment finally gets used.** Home's existing
+  empty-state copy ("A quiet place to think something through.") moved
+  out of its empty-only conditional and became Home's own persistent,
+  always-shown greeting at 32px serif -- `product-experience-v1.md`'s
+  own words for this token were "the Welcome headline only, the single
+  largest moment of type in the whole product," and Home's greeting is
+  exactly that. Reused existing, already-approved copy rather than
+  writing anything new.
+- **Journey rows became cards** -- the same settled-card recipe
+  established in `Understanding.svelte` (`--paper-raised` + hairline
+  shadow), kept as a local scoped duplicate rather than extracted into
+  a shared class, consistent with how `Understanding.svelte` didn't
+  extract one either.
+- **Bookmarking**: a plain Unicode star (★ filled / ☆ outline,
+  `aria-label`'d, no icon font/SVG dependency) inside each card. Had to
+  be a `<span role="button">`, not a nested `<button>` -- the card
+  itself is a button, and buttons can't nest in valid HTML;
+  `event.stopPropagation()` on the star keeps a bookmark click from
+  also opening the Journey. Verified live, not just via the API:
+  toggling a star, reloading the page fully, and confirming the filled
+  state survived the round trip -- not just that the request succeeded.
+- **All/Bookmarked filter**: a plain-text `.ui-label` toggle pair above
+  the list, calling the new `bookmarked_only` query param.
+- **Stagnation-based "worth returning to"**: one `.voice.aside` line
+  ("There's more to think through here.") inside a card, shown only
+  when the backend's new `has_stagnation_signal` flag is true --
+  deliberately the same muted, unboxed treatment Quiet Discovery already
+  uses in `Understanding.svelte`, not promoted to its own visual weight.
+  Fixed, generic phrasing this round, not Judgment's own worded
+  `stagnation_notes` -- see the matching `engine/decisions.md` entry for
+  why that's a deliberate scope-down, not an oversight.
+
+Verified: `npm run build` and full `npm test` (11) green (no existing
+test file for Home to break); full `pytest` (188, including 7 new
+backend tests for bookmark/stagnation) green. Live Playwright pass with
+three seeded sessions (bookmarked/plain, stagnant/not) in both light and
+dark mode: cards render correctly, the filter actually filters, the
+stagnation aside appears only on the one session that should show it,
+and -- the one behavior that genuinely needed a real browser, not just
+an API check -- the bookmark star's state survives a full page reload.
+
+**Status: the three-increment frontend redesign (Understanding, Journey/
+Composer, Home) is complete.** Everything scoped in this conversation
+under the relaxed guardrail has shipped, tested, and been live-verified
+in both color schemes. Remaining, explicitly deferred items from this
+arc: the exact frontend surfacing shape for Learning's cross-Journey
+patterns (needs its own design pass per `interaction-model-v4.md`),
+richer stagnation wording sourced from Judgment's own `stagnation_notes`
+instead of the fixed phrase, and live verification of the Learning Phase
+1 walkthrough workflow.

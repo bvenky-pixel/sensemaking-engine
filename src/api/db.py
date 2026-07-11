@@ -40,6 +40,16 @@ engine/specs/architecture-roadmap-v1.md and src/learning/engine.py):
   existing overwrite-on-write precedent (save_turn_result), since only
   the latest computed patterns are ever meaningful; an append-only table
   here would let stale/contradicted patterns accumulate forever.
+
+`sessions.bookmarked` (added for the Home redesign, see
+frontend/decisions.md): a plain `INTEGER` (0/1) flag, no separate table
+needed for a single boolean-per-session. `_SCHEMA`'s `CREATE TABLE IF
+NOT EXISTS` already includes it for brand-new databases; `init_db`
+additionally runs an idempotent `ALTER TABLE` for any database created
+before this column existed (the deployed Fly.io database included) --
+the same additive-migration pattern this "no ORM, no migrations"
+codebase already uses implicitly (new tables are additive; this is the
+first additive column on an existing table).
 """
 
 from __future__ import annotations
@@ -55,6 +65,7 @@ from typing import Iterator, List, Optional
 
 from src.api.schema import LearnedPatternOut, MessageOut, SessionSummary
 from src.instrumentation.events import BehavioralEvent, is_events_enabled
+from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
 from src.state.world_state import WorldState
@@ -78,7 +89,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     world_state_json TEXT NOT NULL,
     debug_json TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    bookmarked INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -133,6 +145,13 @@ def init_db(db_path: Optional[Path] = None) -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        # Additive migration for any database created before `bookmarked`
+        # existed (see module docstring) -- a no-op (caught below) for a
+        # brand-new database, since _SCHEMA above already includes it.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
 
 def create_session() -> str:
@@ -153,7 +172,7 @@ def session_exists(session_id: str) -> bool:
     return row is not None
 
 
-def list_sessions() -> List[SessionSummary]:
+def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     """
     Added for the real frontend's Home screen (see
     frontend/decisions.md "Build the real Confidant frontend") --
@@ -164,18 +183,43 @@ def list_sessions() -> List[SessionSummary]:
     `world_state_json` blob every other endpoint already reads.
     Ordered most-recently-updated first, matching how a calm "recent
     Journeys" list should read.
+
+    `bookmarked_only` (added for the Home redesign): filters to
+    `bookmarked = 1` rows. `has_stagnation_signal` (also added then) is
+    computed per session via compute_stagnation_signals (pure function
+    of WorldState alone, src/judgment/engine.py) being non-empty --
+    deliberately just a boolean flag, not the mechanical signal's raw
+    text or Judgment's own worded stagnation_notes (see
+    frontend/decisions.md for why: the raw text is internal, and
+    surfacing Judgment's actual wording would need an extra debug_json
+    read per session for a first pass that doesn't need it yet).
     """
+    query = "SELECT id, world_state_json, updated_at, bookmarked FROM sessions"
+    if bookmarked_only:
+        query += " WHERE bookmarked = 1"
+    query += " ORDER BY updated_at DESC"
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT id, world_state_json, updated_at FROM sessions ORDER BY updated_at DESC"
-        ).fetchall()
+        rows = conn.execute(query).fetchall()
     summaries = []
-    for session_id, world_state_json, updated_at in rows:
+    for session_id, world_state_json, updated_at, bookmarked in rows:
         state = WorldState.model_validate_json(world_state_json)
         summaries.append(
-            SessionSummary(id=session_id, surface_complaint=state.surface_complaint, updated_at=updated_at)
+            SessionSummary(
+                id=session_id,
+                surface_complaint=state.surface_complaint,
+                updated_at=updated_at,
+                bookmarked=bool(bookmarked),
+                has_stagnation_signal=bool(compute_stagnation_signals(state)),
+            )
         )
     return summaries
+
+
+def set_bookmark(session_id: str, bookmarked: bool) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET bookmarked = ? WHERE id = ?", (1 if bookmarked else 0, session_id)
+        )
 
 
 def load_state(session_id: str) -> WorldState:

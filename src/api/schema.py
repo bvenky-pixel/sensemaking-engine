@@ -47,11 +47,25 @@ class SessionSummary(BaseModel):
     """One row for the real frontend's Home screen (a list of a
     person's Journeys) -- see frontend/decisions.md "Build the real
     Confidant frontend". `surface_complaint` is plain language already
-    (WorldState's own working-memory field), not a backend label."""
+    (WorldState's own working-memory field), not a backend label.
+
+    `bookmarked`/`has_stagnation_signal` added for the Home redesign
+    (see frontend/decisions.md) -- `has_stagnation_signal` is
+    deliberately just a boolean (whether compute_stagnation_signals
+    found anything at all), not the mechanical signal text itself or
+    Judgment's own worded stagnation_notes; the frontend renders one
+    fixed, generic phrase when it's true, matching Learning Phase 1's
+    own "mechanical signal only" precedent for a first pass."""
 
     id: str
     surface_complaint: str
     updated_at: str
+    bookmarked: bool = False
+    has_stagnation_signal: bool = False
+
+
+class SetBookmarkRequest(BaseModel):
+    bookmarked: bool
 
 
 class ClarityBriefResponse(BaseModel):
