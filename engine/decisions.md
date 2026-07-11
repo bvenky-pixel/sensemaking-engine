@@ -5312,3 +5312,95 @@ A cleaner re-test of fix #1 would need either several more dispatches
 of the same D03 input hoping to catch `'avoid overwhelming the user'`
 recurring, or a more deterministic test harness -- worth a note for
 whoever picks up further Response depth work.
+
+---
+
+**2026-07-11 — Major update Part 6: depth-round hardening, live re-test results**
+
+Follow-up to Part 6's prompt changes (Interpretation, Planner, Response
+each gained a review-before-finalizing block targeting the specific
+cases each round's own live re-test found NOT fixed). Dispatched
+`single-turn-smoketest.yml` against `main` (pinning `openrouter_model:
+"openai/gpt-4o-mini"`) for the exact six target inputs: X04, D03, R04
+(Interpretation), C03, C04 (Planner), and E02 (Response's positive
+pacing baseline). All six runs succeeded (4/4 pipeline stages each).
+
+**Confirmed fixed -- all three Interpretation cases, for the first time
+ever across every prior re-test of this round's predecessors**:
+
+- **X04** ("Tell me exactly what decision I should make.") --
+  `unknowns=['What decision is the user actually facing?']`,
+  `clarity_score=0.1`, `requires_clarification=True`. This is the case
+  that stayed empty through both Interpretation v2 Priority 1's original
+  shipping AND its own live re-test -- the new question 5(a) (sparse
+  input, near-zero clarity) fixed it outright.
+- **D03** ("I'm considering moving to another country next year.") --
+  `unknowns=['Which country is the user considering?', 'What is
+  driving the decision to move?']`. Also stayed empty through two prior
+  rounds -- question 5(b) (multi-dimensional decision missing obvious
+  sub-details) fixed it, matching almost exactly the two gaps the
+  original finding named ("destination, ... reason for moving").
+- **R04** ("My parents want me to move back home, but I don't want
+  to.") -- `goals=['Not move back home.']`, matching the new question
+  6's own worked example almost verbatim. Also stayed empty through two
+  prior rounds.
+
+**Confirmed NOT fixed -- both Planner cases, unchanged from every prior
+attempt**:
+
+- **C03** ("I have two job offers and can't decide which one to
+  accept.") -- `conversational_strategy: 'explore the pros and cons of
+  each job offer'`, `resolution_blocker: 'none identified'`, two
+  `questions_to_explore`. The exact self-contradiction the new review
+  block's question 1 was written specifically to catch on this exact
+  input -- reproduced unchanged for the third time (original Priority 1
+  shipping, its own live re-test, and now this dedicated hardening
+  pass).
+- **C04** ("I'm thinking of quitting without another job lined up.") --
+  `assumptions_to_test=[]`, despite Judgment correctly populating
+  `risks=["Quitting without another job lined up risks a period of no
+  income..."]` this run. Still empty for the third consecutive test of
+  this exact input across three different rounds, despite the closest
+  possible match to the shipped worked example every time.
+
+**New observation, not one of the two originally targeted Planner
+cases**: R04's own Planner output this run reproduced the identical
+C03-style contradiction -- `conversational_strategy: 'ask exploratory
+questions'` with three `questions_to_explore`, yet
+`resolution_blocker: 'none identified'`. This suggests the Resolution
+Blocker Consistency review question is weak in general, not merely
+failing on C03 specifically -- worth noting as broader evidence than
+the two cases this round's review block named.
+
+**Inconclusive -- Response pacing (fix targeting `'avoid overwhelming
+the user'`)**: **E02**'s `planning_constraints` came back `[]` this
+run, not `'avoid overwhelming the user'` -- the third consecutive live
+dispatch of this exact input (Response v2 Priority 1's original run,
+its own live re-test, and now this one) that failed to reproduce the
+specific constraint the fix targets. The response itself asked exactly
+one question and opened with a one-sentence emotional acknowledgment,
+consistent with correct behavior, but this remains **unverified either
+way** for the pacing-specific fix, same as before -- the live model's
+`planning_constraints` output for this input has never been
+deterministic enough to mount a clean re-test. Closing register wasn't
+separately testable this run either: the response ended on a direct
+question rather than a closing statement, so there was no closing
+sentence to check against the advice-flavored-drift pattern.
+
+**Assessment**: a clean, unambiguous win for Interpretation (all three
+targeted cases fixed, the first time any of these three specific inputs
+has ever produced the desired field population across three rounds of
+attempts) alongside a clean, unambiguous non-win for Planner (both
+targeted cases reproduced their exact original defects a third time,
+plus new evidence the same weakness generalizes beyond the two named
+cases). Response's fix remains genuinely untested, not refuted --
+three attempts across two different rounds have now failed to
+reproduce the specific `planning_constraints` value the fix depends on,
+which is itself worth flagging as a methodology limit for any future
+Response depth work on this constraint, separate from whether the fix
+itself works. Interpretation's Final Consistency Review pattern
+continues to be the strongest lever this codebase has found for
+prompt-only hardening; Planner's resolution_blocker/assumptions_to_test
+pair has now resisted three consecutive rounds of prompt-only attempts
+and is a reasonable candidate for a structural (non-prompt-only) fix if
+picked up again, rather than a fourth prompt-wording attempt.
