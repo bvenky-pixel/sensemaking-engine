@@ -63,6 +63,16 @@ class SessionSummary(BaseModel):
     bookmarked: bool = False
     has_stagnation_signal: bool = False
 
+    # Major update (2026-07-11, see engine/decisions.md): the theme text
+    # of any Insight (src/insight/) this session is evidence for, if any
+    # -- real, LLM-detected theme text, not just a boolean flag, per an
+    # explicit product decision to show the actual content rather than
+    # follow has_stagnation_signal's boolean-only precedent. A session
+    # can be evidence for at most one theme in this field (a documented
+    # simplification -- see src/api/db.py::list_sessions).
+    insight_theme: Optional[str] = None
+    insight_detail: Optional[str] = None
+
 
 class SetBookmarkRequest(BaseModel):
     bookmarked: bool
@@ -109,3 +119,16 @@ class LearnedPatternOut(BaseModel):
     pattern_type: str
     detail: str
     evidence_count: int
+
+
+class InsightOut(BaseModel):
+    """One row from GET /insights (see src/insight/engine.py::Insight,
+    engine/decisions.md "Major update") -- the Insight Engine's own,
+    offline-computed, cross-session output. Unlike LearnedPatternOut,
+    this IS rendered in the frontend (Home.svelte, per an explicit
+    product decision to show real theme text on each evidencing
+    session's card) -- see src/api/db.py::list_sessions."""
+
+    theme: str
+    detail: str
+    evidence_session_ids: List[str]

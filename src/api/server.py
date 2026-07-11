@@ -37,6 +37,7 @@ from src.api import db
 from src.api.schema import (
     ClarityBriefResponse,
     CreateSessionResponse,
+    InsightOut,
     LearnedPatternOut,
     MessageOut,
     SendMessageRequest,
@@ -45,6 +46,7 @@ from src.api.schema import (
     SetBookmarkRequest,
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
+from src.executor.voice import to_second_person
 from src.instrumentation.usage import UsageTracker
 from src.judgment.schema import Judgment
 from src.orchestrator.engine import run_turn
@@ -150,11 +152,18 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
     planner = Planner.model_validate(debug["planner"])
     brief = build_clarity_brief(state, judgment, planner)
 
+    # secondary_issues/stagnation_notes bypass build_clarity_brief's
+    # mapping (they're not part of Executor's documented template -- see
+    # ClarityBriefResponse's own docstring), but they're just as
+    # user-facing as everything build_clarity_brief does cover, so they
+    # need the same voice.py rewrite applied here directly (see
+    # engine/decisions.md "Major update" -- Understanding.svelte renders
+    # both as plain asides, unmodified, same as every other brief field).
     return ClarityBriefResponse(
         **brief.model_dump(),
         rendered_markdown=render_clarity_brief(brief),
-        secondary_issues=judgment.secondary_issues,
-        stagnation_notes=judgment.stagnation_notes,
+        secondary_issues=[to_second_person(s) for s in judgment.secondary_issues],
+        stagnation_notes=[to_second_person(s) for s in judgment.stagnation_notes],
     )
 
 
@@ -169,6 +178,19 @@ def get_patterns() -> list[LearnedPatternOut]:
     own, separate, not-yet-done design pass (see
     frontend/specs/interaction-model-v4.md)."""
     return db.get_learned_patterns()
+
+
+@app.get("/insights", response_model=list[InsightOut])
+def get_insights() -> list[InsightOut]:
+    """The cross-session Insight Engine's output (see src/insight/engine.py,
+    engine/decisions.md "Major update"). Read-only -- serves whatever
+    scripts/run_insight_detection.py last computed offline; never
+    computes anything live. Empty until that script has been run at
+    least once, and stays empty below MIN_EVIDENCE_SESSIONS -- both
+    correct, not an error state. Unlike /patterns, this IS consumed by
+    the frontend (Home.svelte session cards), so its theme text is real,
+    already-grounded content, not raw internal cognition."""
+    return db.get_insights()
 
 
 if _FRONTEND_DIR.exists():

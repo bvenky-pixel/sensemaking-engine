@@ -8,9 +8,24 @@
   import AmbientPresence from '../components/AmbientPresence.svelte';
   import Understanding from '../components/Understanding.svelte';
 
+  // Major update (2026-07-11, see engine/decisions.md): a visible opening
+  // prompt for a brand-new Journey, distinct from Composer's own
+  // placeholder (which vanishes on focus and many people never read).
+  // One is chosen at component creation, not re-randomized on re-render,
+  // so it doesn't change mid-conversation once it's stopped being shown.
+  const OPENING_PROMPTS = [
+    "What's keeping you up at night?",
+    "What's been sitting with you lately?",
+    "What's on your mind that you haven't said out loud yet?",
+    "What's been on repeat in your head this week?",
+    "What feels unresolved right now?",
+  ];
+  const openingPrompt = OPENING_PROMPTS[Math.floor(Math.random() * OPENING_PROMPTS.length)];
+
   let { sessionId, onBack } = $props();
 
   let messages = $state([]);
+  let loaded = $state(false);
   let sending = $state(false);
   let brief = $state(null);
   let deepeningClarityNote = $state('');
@@ -26,6 +41,7 @@
 
   onMount(async () => {
     messages = await getMessages(sessionId);
+    loaded = true;
     await refreshBrief();
   });
 
@@ -56,6 +72,9 @@
   <button type="button" class="back" onclick={onBack}>&larr; Home</button>
 
   <Transcript {messages} />
+  {#if loaded && messages.length === 0}
+    <p class="voice opening-prompt">{openingPrompt}</p>
+  {/if}
   {#if sending}<AmbientPresence />{/if}
   <Composer disabled={sending} onSend={handleSend} />
 
@@ -66,6 +85,11 @@
   .back {
     display: block;
     margin-bottom: var(--space-3);
+  }
+
+  .opening-prompt {
+    color: var(--ink-muted);
+    margin: var(--space-3) 0;
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see

@@ -19,6 +19,14 @@
   // Discovery (secondary_issues/stagnation_notes) stays outside every
   // card on purpose -- v4 requires it read as a passing notice, never
   // promoted to the same weight as settled content.
+  //
+  // Major update (2026-07-11, see engine/decisions.md): brief.key_insights
+  // was already sent by GET /clarity-brief but never rendered here --
+  // the richest content Judgment actually produces (primary_problem +
+  // risks + opportunities) was silently invisible. Given a settled card
+  // treatment, same as situation/current_direction -- this is Judgment's
+  // own assessed reading of what's going on, not still-open like
+  // remaining_unknowns.
   let { brief, deepeningClarityNote } = $props();
 </script>
 
@@ -36,6 +44,17 @@
         {#if brief.current_direction}
           <p class="voice">{brief.current_direction}</p>
         {/if}
+      </section>
+    {/if}
+
+    {#if brief.key_insights?.length}
+      <section class="card card-settled card-secondary" aria-label="What matters here">
+        <p class="ui-label">What matters here</p>
+        <ul>
+          {#each brief.key_insights as insight}
+            <li>{insight}</li>
+          {/each}
+        </ul>
       </section>
     {/if}
 

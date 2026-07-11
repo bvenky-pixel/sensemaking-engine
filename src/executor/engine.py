@@ -39,11 +39,18 @@ silently guessed at call time:
 Sparse-by-default holds here the same way it does throughout the
 Sensemaking Engine: an empty section is a structural consequence of an
 empty upstream field, not a gap Executor tries to fill.
+
+Major update (2026-07-11, see engine/decisions.md): every field below is
+passed through voice.py's `to_second_person` before being placed on
+ClarityBrief. The mapping above is unchanged -- this is a voice rewrite
+applied at the point of assignment, not a new source of content, so it
+doesn't compromise the "fixed, design-time template" claim above.
 """
 
 from __future__ import annotations
 
 from src.executor.schema import ClarityBrief
+from src.executor.voice import to_second_person
 from src.judgment.schema import Judgment
 from src.planner.schema import Planner
 from src.state.world_state import WorldState
@@ -51,11 +58,14 @@ from src.state.world_state import WorldState
 
 def build_clarity_brief(state: WorldState, judgment: Judgment, planner: Planner) -> ClarityBrief:
     return ClarityBrief(
-        situation=state.surface_complaint,
-        key_insights=[judgment.primary_problem, *judgment.risks, *judgment.opportunities],
-        current_direction=planner.desired_outcome,
-        remaining_unknowns=list(judgment.open_unknowns),
-        decisions=[d.content for d in state.decisions],
+        situation=to_second_person(state.surface_complaint),
+        key_insights=[
+            to_second_person(item)
+            for item in [judgment.primary_problem, *judgment.risks, *judgment.opportunities]
+        ],
+        current_direction=to_second_person(planner.desired_outcome),
+        remaining_unknowns=[to_second_person(item) for item in judgment.open_unknowns],
+        decisions=[to_second_person(d.content) for d in state.decisions],
     )
 
 

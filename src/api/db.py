@@ -50,6 +50,17 @@ before this column existed (the deployed Fly.io database included) --
 the same additive-migration pattern this "no ORM, no migrations"
 codebase already uses implicitly (new tables are additive; this is the
 first additive column on an existing table).
+
+Two more tables, added for the cross-session Insight Engine (see
+src/insight/engine.py, engine/decisions.md "Major update"):
+- `insights`: Insight Engine's own output (computed offline by
+  scripts/run_insight_detection.py, never inside a live request).
+  TRUNCATE-AND-REPLACE, same precedent as `learned_patterns`.
+- `insight_sessions`: a join table, not a JSON column on `insights` --
+  `list_sessions` below needs a cheap reverse lookup per session ("does
+  this session evidence any insight"), and every other many-to-many-
+  shaped table in this codebase (`behavioral_events`, `messages`)
+  already keys on `session_id` directly rather than as a JSON blob.
 """
 
 from __future__ import annotations
@@ -61,9 +72,10 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Tuple
 
-from src.api.schema import LearnedPatternOut, MessageOut, SessionSummary
+from src.api.schema import InsightOut, LearnedPatternOut, MessageOut, SessionSummary
+from src.insight.schema import MAX_SESSIONS_FOR_INSIGHT, Insight
 from src.instrumentation.events import BehavioralEvent, is_events_enabled
 from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
@@ -119,6 +131,20 @@ CREATE TABLE IF NOT EXISTS learned_patterns (
     detail TEXT NOT NULL,
     evidence_count INTEGER NOT NULL,
     computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    theme TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS insight_sessions (
+    insight_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    FOREIGN KEY (insight_id) REFERENCES insights(id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 """
 
@@ -193,6 +219,15 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     frontend/decisions.md for why: the raw text is internal, and
     surfacing Judgment's actual wording would need an extra debug_json
     read per session for a first pass that doesn't need it yet).
+
+    `insight_theme`/`insight_detail` (major update, see engine/decisions.md):
+    unlike has_stagnation_signal, this deliberately deviates from the
+    boolean-only precedent and surfaces real Insight Engine theme text --
+    an explicit product decision, not an oversight. A separate query
+    builds a session_id -> (theme, detail) map (picking the
+    most-recently-computed insight if a session ever evidences more than
+    one -- a documented simplification, not a silent one) rather than a
+    SQL JOIN + GROUP BY, matching this file's "no ORM" simplicity.
     """
     query = "SELECT id, world_state_json, updated_at, bookmarked FROM sessions"
     if bookmarked_only:
@@ -200,9 +235,19 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     query += " ORDER BY updated_at DESC"
     with _connect() as conn:
         rows = conn.execute(query).fetchall()
+        insight_rows = conn.execute(
+            "SELECT insight_sessions.session_id, insights.theme, insights.detail "
+            "FROM insight_sessions JOIN insights ON insights.id = insight_sessions.insight_id "
+            "ORDER BY insights.id ASC"
+        ).fetchall()
+    # Later rows win on conflict (ORDER BY insights.id ASC, dict overwrite) --
+    # "most-recently-computed insight" per the docstring above.
+    session_insight = {session_id: (theme, detail) for session_id, theme, detail in insight_rows}
+
     summaries = []
     for session_id, world_state_json, updated_at, bookmarked in rows:
         state = WorldState.model_validate_json(world_state_json)
+        theme, detail = session_insight.get(session_id, (None, None))
         summaries.append(
             SessionSummary(
                 id=session_id,
@@ -210,6 +255,8 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
                 updated_at=updated_at,
                 bookmarked=bool(bookmarked),
                 has_stagnation_signal=bool(compute_stagnation_signals(state)),
+                insight_theme=theme,
+                insight_detail=detail,
             )
         )
     return summaries
@@ -336,3 +383,68 @@ def get_learned_patterns() -> List[LearnedPatternOut]:
             "SELECT pattern_type, detail, evidence_count FROM learned_patterns ORDER BY id ASC"
         ).fetchall()
     return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]
+
+
+def get_session_texts_for_insights() -> List[Tuple[str, str, str]]:
+    """Read-only, used only by scripts/run_insight_detection.py. Same
+    guard as src/api/server.py's get_clarity_brief endpoint -- only
+    sessions whose debug_json actually has a completed `judgment` (a
+    session with no completed turn has nothing to extract a
+    surface_complaint/primary_problem pair from). Capped at
+    MAX_SESSIONS_FOR_INSIGHT most-recently-updated sessions, same cost/
+    latency reasoning as src/insight/schema.py's docstring."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, world_state_json, debug_json FROM sessions "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (MAX_SESSIONS_FOR_INSIGHT,),
+        ).fetchall()
+    texts: List[Tuple[str, str, str]] = []
+    for session_id, world_state_json, debug_json in rows:
+        if not debug_json:
+            continue
+        debug = json.loads(debug_json)
+        judgment = debug.get("judgment")
+        if not judgment:
+            continue
+        state = WorldState.model_validate_json(world_state_json)
+        texts.append((session_id, state.surface_complaint, judgment["primary_problem"]))
+    return texts
+
+
+def replace_insights(insights: List[Insight]) -> None:
+    """Truncate-and-replace both tables, not append -- see module
+    docstring's reasoning (mirrors replace_learned_patterns' precedent).
+    Called only by scripts/run_insight_detection.py, never from a live
+    request."""
+    now = _now()
+    with _connect() as conn:
+        conn.execute("DELETE FROM insight_sessions")
+        conn.execute("DELETE FROM insights")
+        for insight in insights:
+            cursor = conn.execute(
+                "INSERT INTO insights (theme, detail, computed_at) VALUES (?, ?, ?)",
+                (insight.theme, insight.detail, now),
+            )
+            insight_id = cursor.lastrowid
+            conn.executemany(
+                "INSERT INTO insight_sessions (insight_id, session_id) VALUES (?, ?)",
+                [(insight_id, sid) for sid in insight.evidence_session_ids],
+            )
+
+
+def get_insights() -> List[InsightOut]:
+    with _connect() as conn:
+        insight_rows = conn.execute(
+            "SELECT id, theme, detail FROM insights ORDER BY id ASC"
+        ).fetchall()
+        evidence_rows = conn.execute(
+            "SELECT insight_id, session_id FROM insight_sessions"
+        ).fetchall()
+    evidence_by_insight: dict = {}
+    for insight_id, session_id in evidence_rows:
+        evidence_by_insight.setdefault(insight_id, []).append(session_id)
+    return [
+        InsightOut(theme=theme, detail=detail, evidence_session_ids=evidence_by_insight.get(insight_id, []))
+        for insight_id, theme, detail in insight_rows
+    ]

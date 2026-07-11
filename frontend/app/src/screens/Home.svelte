@@ -95,6 +95,9 @@
             {#if session.has_stagnation_signal}
               <p class="voice aside">There's more to think through here.</p>
             {/if}
+            {#if session.insight_detail}
+              <p class="voice aside insight-aside">This has come up before, too. {session.insight_detail}</p>
+            {/if}
           </button>
         </li>
       {/each}
@@ -171,6 +174,15 @@
 
   .aside {
     margin: var(--space-1) 0 0;
+  }
+
+  /* Distinct from the stagnation aside above -- a quiet noticing across
+     Journeys, not a flag about this one Journey (see engine/decisions.md
+     "Major update"). Same aside rhythm, accent-colored rather than
+     ink-muted, no "Insight:" label per interaction-model-v4.md's
+     felt-difference rule. */
+  .insight-aside {
+    color: var(--accent);
   }
 
   .start {

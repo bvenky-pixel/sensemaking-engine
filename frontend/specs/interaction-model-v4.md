@@ -132,11 +132,16 @@ can't honestly back up is worse than not having it at all:
   required.
 - **Something noticed across Journeys** — the version of quiet
   discovery that spans separate situations in someone's life, not just
-  one — genuinely compelling, and explicitly not yet honest to build:
-  it depends on the backend's Learning process, a deliberately
-  unimplemented reserved slot today (see `engine/specs/system-
-  architecture-v2-specification.md`). It belongs in Future
-  Considerations, not in this product, until that changes.
+  one — genuinely compelling, and, when this section was written,
+  explicitly not yet honest to build: it depended on the backend's
+  Learning process, a deliberately unimplemented reserved slot at the
+  time (see `engine/specs/system-architecture-v2-specification.md`).
+  **Amended 2026-07-11 (see `engine/decisions.md` "Major update"):**
+  Learning Phase 1 shipped after this spec was frozen, and a dedicated
+  Insight Engine (`src/insight/`) now exists to fulfill the missing
+  semantic-clustering piece this paragraph named as the blocker. The
+  blocker no longer holds — see the Future Considerations entry below,
+  now built rather than deferred.
 
 ---
 
@@ -217,10 +222,14 @@ architecture.
 ## Future Considerations
 
 - **Cross-Journey quiet discovery** ("something noticed across
-  separate situations you've brought to me") stays explicitly deferred
-  until Learning is deliberately built from real accumulated history —
-  designing for it now would be designing ahead of evidence, the
-  discipline this project has held everywhere else.
+  separate situations you've brought to me") — **built 2026-07-11, no
+  longer deferred** (see `engine/decisions.md` "Major update"): the
+  Insight Engine (`src/insight/`) now detects recurring cross-session
+  themes offline, evidence-gated at `MIN_EVIDENCE_SESSIONS`, and
+  `Home.svelte` surfaces them per this document's own felt-difference
+  rule — "This has come up before, too," never a labeled finding. Kept
+  here as a record of why the original deferral was correct at the
+  time, not silently deleted.
 - The exact form of the handing-over gesture and the ambient presence
   signal are intentionally left to the next, concrete design pass — this
   document commits to their intent and behavior, not their final

@@ -415,17 +415,27 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
 
     assert res.status_code == 200
     body = res.json()
-    assert body["situation"] == "User wants to move to the Product team."
+    # Major update (see engine/decisions.md): every brief field -- plus
+    # secondary_issues/stagnation_notes, which bypass build_clarity_brief's
+    # mapping but are just as user-facing -- is voice-rewritten via
+    # src/executor/voice.py::to_second_person before reaching the client.
+    assert body["situation"] == "You want to move to the Product team."
     assert body["key_insights"] == [
         "Founder resists the move.",
         "Founder may block the transfer.",
         "A new manager could sponsor it.",
     ]
-    assert body["current_direction"] == "user gains clarity on next steps"
-    assert body["remaining_unknowns"] == ["What does the user want next?"]
+    assert body["current_direction"] == "you gain clarity on next steps"
+    assert body["remaining_unknowns"] == ["What do you want next?"]
     assert body["decisions"] == []
     assert "# Clarity Brief" in body["rendered_markdown"]
     # Passed through directly from Judgment (not part of Executor's own
     # fixed template) -- see src/api/schema.py's ClarityBriefResponse docstring.
+    # "their" here possessively refers back to the user ("their [own]
+    # manager"), but the string doesn't contain "user" text for
+    # to_second_person to anchor a rewrite on, and "manager" being present
+    # makes the conservative pronoun-rewrite guard skip it entirely (see
+    # src/executor/voice.py's own documented trade-off) -- left unchanged
+    # is the correct, expected behavior here, not a bug.
     assert body["secondary_issues"] == ["Strained relationship with their current manager."]
     assert body["stagnation_notes"] == ["No movement on this goal in 4 turns."]
