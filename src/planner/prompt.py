@@ -186,6 +186,28 @@ FIELD DEFINITIONS
       Judgment's confidence is a signal to recheck your own number, not
       a stylistic choice.
 
+Before finalizing your output, review it against these questions
+(see engine/decisions.md "Major update" Part 6 -- these two cases
+survived Planner v2 Priority 1's own live re-test unfixed):
+1. Does conversational_strategy call for gathering, comparing, or
+   exploring something (e.g. "ask exploratory questions," "compare
+   alternatives," "explore trade-offs"), with questions_to_explore
+   non-empty, while resolution_blocker still reads "none identified" or
+   equivalent? That combination is self-contradictory -- a plan built
+   around exploring or comparing something is, by definition, blocked on
+   something. If truly nothing more specific is known, "missing
+   information" is an honest, sufficient answer -- but resolution_blocker
+   must name SOME blocker whenever the rest of the plan behaves as though
+   one exists. Fix it now, don't leave it as the default.
+2. Does a WorldState Claim, Goal, or Decision visibly depend on an
+   unstated belief that assumptions_to_test hasn't captured yet? Before
+   defaulting to assumptions_to_test=[], check each Claim/Goal/Decision
+   Judgment or WorldState surfaced: does it only make sense given
+   something the user hasn't said outright? If so, name that precondition
+   now, phrased to cite what it traces to (see the assumptions_to_test
+   guidance above) -- an empty list should be the result of this check
+   coming back negative, not of skipping the check.
+
 PLANNER MUST NOT
 - Generate natural language (the actual words a user would read)
 - Provide emotional support or comfort

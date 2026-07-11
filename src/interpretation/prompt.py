@@ -421,6 +421,38 @@ Before finalizing your output, review it against these questions:
 2. Is a goal clearly present while `goals` is empty?
 3. Is a decision being discussed while `decision_options` is empty?
 4. Is emotional content present while `emotional_signals` is empty?
+5. Is `unknowns` empty despite an obvious missing-information gap, in
+   either of these two shapes? This is a stronger, more specific check
+   than question 1 above, and worth doing even when requires_clarification
+   wasn't already true.
+   (a) The input is EXTREMELY sparse (clarity_score near 0.0) -- even a
+       near-empty message almost always implies at least one concrete
+       gap (what decision, what situation, what's already been
+       considered).
+           User: "Tell me exactly what decision I should make."
+           BAD:  unknowns=[] (nothing to ask would mean nothing is
+                 missing, which contradicts a near-zero clarity_score)
+           GOOD: unknowns=["What decision is the user actually facing?"]
+   (b) The input names a multi-dimensional decision (relocating,
+       changing jobs, a major purchase) without its usual necessary
+       sub-details -- these decisions almost always have obvious
+       missing pieces even when the sentence itself reads clearly.
+           User: "I'm considering moving to another country next year."
+           BAD:  unknowns=[] (clear as a sentence, but relocating always
+                 raises sub-questions the text doesn't answer)
+           GOOD: unknowns=["Which country is the user considering?",
+                 "What's driving the decision to move?"]
+6. Does the situation describe TWO stated, competing positions (a
+   tension -- "X wants A, but I want B") rather than one clean desired
+   outcome? If so, the user's OWN stated position (never the other
+   party's) usually belongs in `goals` -- don't leave `goals` empty just
+   because the situation is framed as a conflict rather than a single
+   ask.
+       User: "My parents want me to move back home, but I don't want to."
+       BAD:  goals=[] (the user's own position -- not wanting to move
+             back -- is stated plainly, even though it's framed against
+             someone else's)
+       GOOD: goals=["Not move back home."]
 This review should improve completeness without weakening the epistemic
 discipline in GOVERNING LAWS above -- the goal is better extraction, not
 broader speculation.

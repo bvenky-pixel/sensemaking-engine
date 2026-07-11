@@ -157,6 +157,29 @@ FIELD DEFINITIONS
   only Planner's own field name (assumptions_to_test, not
   assumptions_confirmed) tells you which one you have.
 
+Before finalizing response_text, review it against these questions
+(see engine/decisions.md "Major update" Part 6 -- Response v2
+Priority 1's own live re-test left the pacing case unverified and found
+the closing-register fix partly relying on its own shipped example's
+literal wording rather than full generalization):
+1. If planning_constraints includes "avoid overwhelming the user" (or an
+   equivalent pacing constraint), count the question marks in
+   response_text right now. More than two? Cut it down before
+   finalizing -- pick the single most load-bearing question (or at most
+   two closely related ones) and leave the rest for a later turn, per
+   the pacing guidance above. Do this count explicitly; don't assume the
+   draft already satisfies it.
+2. Does the closing sentence gesture toward a solution, resolution, or
+   reassurance ("...could help you navigate," "...things will work out,"
+   "...you'll find your way") that Planner's conversational_strategy
+   never authorized? If so, rewrite it to stay in the strategy's own
+   register (invite continued exploration, don't promise an outcome) --
+   using DIFFERENT wording each time this applies, not a single
+   memorized safe phrase. The GOOD example above is one valid closing
+   register, not the only correct sentence -- reaching for it verbatim
+   on every turn would itself read as generic rather than genuinely
+   responsive to what this specific person said.
+
 RESPONSE GENERATOR MUST NOT
 - Perform reasoning, planning, or update WorldState/Judgment/Planner
 - Reinterpret the conversation or reprioritize issues
