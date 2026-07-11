@@ -4684,11 +4684,16 @@ coverage -- evidence floor, per-group counting, no invented GoalStatus
 vocabulary), `tests/test_api_server.py` (end-to-end send_message ->
 run_turn -> diff -> save_events chain with the flag both on and off,
 `GET /patterns` empty-then-populated-then-replaced). Full suite: 183
-passed. Live verification: `scripts/run_learning_walkthrough.py` +
-`.github/workflows/learning-walkthrough.yml` (dispatched separately;
-drives four independent real sessions, three deliberately deferring a
-decision each to cross the evidence floor together, one deferring only
-once to help confirm aggregation behaves as expected) -- see follow-up
-entry once that run's actual output is read and assessed honestly,
-per this project's standing practice of not declaring a live check
-passed until its real output has been inspected.
+passed. **Live verification NOT yet run**: `scripts/run_learning_walkthrough.py`
++ `.github/workflows/learning-walkthrough.yml` exist and were confirmed
+locally to run end-to-end without crashing (exercised against a live
+run with no `OPENROUTER_API_KEY` set, correctly hitting the honest-
+failure path on every turn and exiting non-zero on its own check) --
+but the actual workflow_dispatch run against a real LLM provider has
+not been triggered. This session's GitHub connector needed
+re-authorization to dispatch Actions runs (push/read access still
+worked); asked the user how to proceed and they chose to defer live
+verification rather than reconnect now. Add a follow-up entry once that
+run actually happens and its real output has been read and assessed --
+per this project's standing practice, this feature is not to be treated
+as live-verified until then.
