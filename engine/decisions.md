@@ -5315,6 +5315,149 @@ whoever picks up further Response depth work.
 
 ---
 
+**2026-07-11 — Major update, Parts 1-5**
+
+Follow-up to live-app feedback after deploying the three depth-parity
+rounds above: "the app refers to me as user rather than you," the
+uncertainty display "seems a little unstructured," a request for a
+visible opening prompt, and a request that bookmarks become
+system-generated emergent themes rather than manual-only. Mid-design,
+scope was explicitly expanded from a patch to a major update, and real
+SSE streaming was explicitly approved despite a real conflict with the
+frozen `motion-and-latency-philosophy-v1.md` (resolved via that
+document's own named amendment trigger, not overridden).
+
+**Part 1 -- voice fix.** Root-caused, not assumed: the "user" vs "you"
+bug was never in Response Generator (already correct, second person).
+`src/executor/engine.py::build_clarity_brief` copies WorldState/
+Judgment/Planner fields verbatim -- internal cognitive artifacts,
+deliberately third-person by design -- into the Understanding panel's
+user-facing fields, and Executor is explicitly a fixed, no-LLM-call
+template that never re-voices anything. New `src/executor/voice.py`:
+`to_second_person()`, a deterministic regex rewrite (no LLM call),
+applied to every Clarity Brief field plus `secondary_issues`/
+`stagnation_notes` (which bypass `build_clarity_brief`'s mapping
+entirely and needed the same treatment applied directly in
+`src/api/server.py`). Handles possessives, verb agreement for a
+maintained inflection table plus a generic fallback for unlisted verbs,
+question inversion ("Has the user...?" -> "Have you...?"), and
+conservatively suppresses `they`/`their`/`them` rewriting whenever a
+third-party noun (manager, partner, etc.) is present in the same
+string, to avoid misattributing another person's pronoun to the user --
+a documented, accepted under-rewrite trade-off. 13 new tests using real
+sentences pulled from this session's own live pipeline runs.
+
+**Part 2 -- Understanding.svelte renders `key_insights`.** The API
+already sent Judgment's `primary_problem`/`risks`/`opportunities` as
+`key_insights`; the frontend never rendered it. New "What matters here"
+card, same settled-card recipe as the existing layout.
+
+**Part 3 -- opening prompt.** `Journey.svelte` shows one of five curated
+prompts (e.g. "What's keeping you up at night?") above the Composer on
+a brand-new Journey, chosen once at component creation, replacing the
+placeholder-only default.
+
+**Part 4 -- cross-session Insight Engine.** New `src/insight/` package
+(`schema.py`, `prompt.py`, `engine.py`) mirroring Learning Phase 1's
+offline/truncate-and-replace/evidence-floor pattern, extended with a
+real LLM call for genuine semantic clustering across a person's
+separate sessions -- the exact capability Learning Phase 1's own
+docstring named as needing infrastructure that didn't exist yet.
+`MIN_EVIDENCE_SESSIONS=2`, `MAX_SESSIONS_FOR_INSIGHT=30` (both stated as
+honest, uncalibrated first guesses). Prompt discipline mirrors
+Judgment's grounding laws plus one addition: a theme must describe a
+recurring pattern in situations described, never a trait or diagnosis
+of the person (BAD: "Perfectionism"; GOOD: "Decisions paused pending
+more certainty," citing specific sessions). Engine-level grounding
+enforcement (`_enforce_grounding`) filters the model's own
+`evidence_session_ids` down to ids actually sent and drops any Insight
+whose surviving evidence falls below the floor -- never trusts the
+model's own ids uncritically, mirroring Interpretation's code-level
+grounding filters. New `insights`/`insight_sessions` tables (join table,
+not a JSON column, for a cheap reverse lookup in `list_sessions`), new
+`db.py` functions (`get_session_texts_for_insights`, `replace_insights`,
+`get_insights`), new `scripts/run_insight_detection.py` (offline only,
+never called from `server.py` -- same "Learning never computes inside a
+live turn" boundary), new `GET /insights` endpoint, and `Home.svelte`
+surfacing ("This has come up before, too." + the theme's detail text,
+visually distinct from the bookmark star and stagnation aside, per
+`interaction-model-v4.md`'s felt-difference rule). Manually verified
+end-to-end against a seeded temp database using the real
+`scripts/run_insight_detection.py` script (not just the underlying
+functions): a positive recurring-theme case correctly detected and
+grounded, hallucinated evidence ids correctly filtered, and a
+single-session sparse case correctly short-circuited to "no themes met
+the evidence floor" without spending an LLM call.
+**`frontend/specs/interaction-model-v4.md` amended**, not silently
+overridden: its "Something noticed across Journeys" section explicitly
+deferred this exact feature pending Learning infrastructure that has
+since shipped -- the amendment records why the original deferral was
+correct at the time and points to this Insight Engine as fulfilling it.
+
+**Part 5 -- real SSE streaming + honest, re-timed Ambient Presence.**
+`src/orchestrator/engine.py::run_turn` gains an optional
+`on_stage_complete` callback, invoked after each of the four stages
+succeeds; default `None` is a true no-op for every existing caller. New
+`GET /sessions/{id}/stream` (Server-Sent Events, not WebSocket --
+one-directional push is all that's needed) correlates with the existing
+`POST /sessions/{id}/messages` via an in-process `asyncio.Queue` keyed
+by session id; the POST contract itself is unchanged. Payload is
+deliberately minimal (`{"stage": "<id>"}` only, no `elapsed_ms`, no
+ordinal/total) since a total stage count can't be honestly known
+upfront. `AmbientPresence.svelte`'s breathing dot keeps its exact visual
+shape but is now JS-driven: each real stage-complete event gives the
+*current* breath phase a small, bounded (~10-20%), decaying extension,
+never a discrete visible pulse (rejected: four learnable pulses would be
+a step-counter even unlabeled). `Journey.svelte` opens the stream
+synchronously in `handleSend`, in the same call as the POST -- not
+inside `AmbientPresence` itself, which only mounts on a later microtask
+than the POST fetch is already dispatched, which would risk missing the
+"interpretation" stage's event on every turn.
+**Two real bugs caught and fixed before shipping, both by the new
+concurrent-stream-plus-POST test hanging on first attempt, not by
+inspection**: (1) the first draft used a `queue.Queue()`-backed sync
+generator, which leaks a non-daemon threadpool worker thread forever on
+any abandoned/disconnected stream, since a blocking `queue.get()` inside
+a thread cannot be cancelled by asyncio cancellation -- rewritten as an
+async generator over `asyncio.Queue`, which supports real cancellation
+on client disconnect. (2) Starlette's `TestClient` does not reliably
+serve two genuinely concurrent requests from separate Python threads (a
+portal-serialization property of the test harness itself, confirmed
+directly) -- the new test runs a real `uvicorn` server in a background
+thread against a loopback socket instead, exercising the actual
+cross-thread `call_soon_threadsafe` handoff the way the deployed app
+really sees it.
+**`frontend/specs/motion-and-latency-philosophy-v1.md` amended**: its
+own Future Considerations section named "streaming partial output
+becoming possible" as its own amendment trigger -- this fulfills that
+condition rather than overriding the document's still-binding Guiding
+Principles (no percentage, no stage labels, motion explains rather than
+decorates).
+
+**Verification**: 215 backend tests passing (up from 193 before this
+round), frontend build and 13 vitest tests passing throughout. Live
+verification against the deployed Fly.io app specifically (Understanding
+panel voice/`key_insights` rendering, opening prompt, `GET /insights` +
+Home surfacing, and the SSE stream's real behavior against Fly.io's edge
+proxy/keepalive-timeout) was **not performed from this session** -- this
+sandboxed environment's outbound network policy blocks direct requests
+to `confidantsense.fly.dev` (confirmed: a direct `curl` to the deployed
+app is rejected by the environment's proxy gateway with a 403 policy
+denial, not a transient failure). What WAS verified: the full pytest
+suite including a real-server SSE test, the frontend build/test suite,
+a manual scripted run of the actual Insight Engine script end-to-end,
+and (see the Part 6 entry below) six live pipeline dispatches via
+`single-turn-smoketest.yml` against `openai/gpt-4o-mini` through
+GitHub Actions specifically (which the environment CAN reach). The
+actual browser-facing verification of Parts 1-3 and 5's UI surfaces
+against the live deployment is a real gap in this round's verification,
+stated honestly rather than silently assumed -- worth a manual check by
+whoever next has direct access to the deployed app.
+
+Commits: `f80054a` (Parts 1-4), `34933ef` (Part 5).
+
+---
+
 **2026-07-11 — Major update Part 6: depth-round hardening, live re-test results**
 
 Follow-up to Part 6's prompt changes (Interpretation, Planner, Response
