@@ -146,6 +146,18 @@ snappier-feeling interface.
   document will need a direct amendment — today it assumes a turn
   either hasn't started responding or has fully finished, with nothing
   meaningful in between to show progressively.
+  **Amended 2026-07-11 (see `engine/decisions.md` "Major update" Part
+  5):** this condition is now fulfilled — `GET /sessions/{id}/stream`
+  reports one real event per completed pipeline stage. The amendment
+  this section anticipated was deliberately narrow: AmbientPresence's
+  breathing dot stays visually identical in shape (no stage labels, no
+  percentage, no discrete per-stage pulse — Principles 2–5 above are
+  unchanged), and each real stage-complete event only gives the
+  *current* breath phase a small, bounded, decaying extension. The
+  document's assumption of "nothing meaningful to show progressively"
+  no longer holds architecturally, but its restraint about *what* gets
+  shown does — this exercises the trigger this section named without
+  loosening the principles themselves.
 - This document doesn't address motion for celebratory or milestone
   moments (e.g., acknowledging a decision the person has reached) — if
   such moments are ever designed, they should be treated as a deliberate,
