@@ -5245,3 +5245,70 @@ closing-register rule so "validate" doesn't get confused with
 must stay within Planner's own conversational_strategy, with a worked
 BAD/GOOD example). No schema or engine change -- same prompt-only shape
 as the other two rounds. Full suite: 193 passed.
+
+---
+
+**2026-07-11 — Response v2 Priority 1: live re-test results**
+
+Follow-up to the entry above. Dispatched `single-turn-smoketest.yml`
+against `main` (pinning `openrouter_model: "openai/gpt-4o-mini"`) for
+D03, E02, E03, and C02 -- the four cases the round's evidence was built
+on -- using the identical input text recorded in
+`experiments/confidant-validation/log.md`. All runs succeeded.
+
+**Confirmed fix -- emotional-acknowledgment sequencing (fix #2)**: clean
+and direct on its target case. **E03** ("I don't enjoy anything
+anymore.") originally: "the tone reads somewhat clinical/detached... no
+brief acknowledgment." Now opens with "It sounds like this lack of
+enjoyment is quite significant for you" before pivoting to questions --
+exactly the missing beat. **C02** and **E02** both also opened with a
+brief validating line this run, with no regression on E02 (already the
+run's positive baseline). **D03**, the lowest-emotional-stakes input of
+the four, correctly skipped the acknowledgment and went straight to
+topic exploration -- the guidance is firing selectively, not
+indiscriminately prepending a stock empathy line to every response.
+
+**Confirmed fix, with an honest caveat -- closing-register discipline
+(fix #3)**: all four responses avoided advice-flavored closings.
+**C02** specifically -- the exact case flagged for "could help you
+navigate your path forward" -- now closes with "Whenever you're ready,
+I'm here to explore this further with you," a direct fix on its
+original defect. The caveat: that closing line, or a near-identical
+variant, appeared in 3 of the 4 responses (D03, E03, C02 -- all
+essentially verbatim matches to the shipped prompt's own GOOD example;
+only E02 used different wording, "Whenever you're ready, we can dive
+into that together"). That's real evidence the model is avoiding the
+bad pattern, but the near-verbatim repetition across unrelated inputs
+is also evidence it's leaning on the literal example text rather than
+generating a genuinely varied, case-appropriate closing each time --
+worth being honest that this result is somewhat weaker than it looks at
+first glance, not a clean demonstration of generalized understanding.
+
+**Inconclusive -- pacing/overwhelm discipline (fix #1)**: only **E02**
+reproduced the exact Planner constraint the fix targets
+(`planning_constraints` included `'avoid overwhelming the user'`) --
+and correctly asked only one of Planner's three questions, consistent
+with the desired behavior (this was already the run's positive
+baseline before the round, so it confirms no regression rather than
+demonstrating a new fix). **D03** and **E03** and **C02** all got
+`planning_constraints: ['no direct questions in the response']` from
+Planner this run instead of `'avoid overwhelming the user'` -- a
+different constraint than the one originally flagged, so none of them
+is a clean re-test of the original D03 defect (four questions stacked
+under an explicit overwhelm constraint). This is the same shape as the
+Interpretation v2 round's A03 result: the live model's output varied
+enough between runs that the specific defect never got cleanly
+reproduced to re-test against, so this fix remains **unverified either
+way** rather than confirmed or refuted -- a real gap in this
+verification pass, not a negative result.
+
+**Assessment**: two of the three fixes (emotional acknowledgment,
+closing-register) show direct, on-target evidence of working, though
+the closing-register result should be read cautiously given the
+verbatim-example-repetition finding. The pacing fix couldn't be
+verified either way this round because the specific Planner constraint
+it targets didn't reproduce in any of the four live re-test dispatches.
+A cleaner re-test of fix #1 would need either several more dispatches
+of the same D03 input hoping to catch `'avoid overwhelming the user'`
+recurring, or a more deterministic test harness -- worth a note for
+whoever picks up further Response depth work.
