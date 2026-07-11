@@ -4847,3 +4847,105 @@ already logged there as Interpretation-dimension failures (C01, R04,
 D01, D03, D04, X04, R02) and the results have been read and honestly
 assessed -- per this project's standing practice, this round is not to
 be treated as live-verified until that happens.
+
+---
+
+**2026-07-11 — Interpretation v2 Priority 1: live re-test results**
+
+Follow-up to the entry above. Dispatched `single-turn-smoketest.yml`
+seven times against `main` (commit `219d76f`), pinning
+`openrouter_model: "openai/gpt-4o-mini"` to match
+`experiments/confidant-validation/log.md`'s own methodology exactly,
+using the identical input text already recorded there for C01, R04,
+D01, D03, D04, X04, and R02. All seven runs succeeded (4/4 pipeline
+stages each). Comparing the new Interpretation output directly against
+each test's previously-logged findings:
+
+**Confirmed fixes** (the specific field previously logged as empty is
+now populated, on the identical input):
+
+- **R02** ("My friend hasn't replied in three days...") -- originally:
+  *"`assumptions=[]` is a real miss for a test whose Primary Capability
+  is literally 'Assumption detection'... the assumption does get caught
+  later, at Planner [not at Interpretation]."* Now: `has_assumption=True`,
+  `assumptions=["The phrase 'they're angry with me' implies the user
+  believes their friend's silence indicates anger."]` -- captured at
+  Interpretation's own dedicated field for the first time on this input.
+  (This is also the exact scenario the shipped prompt's reworded
+  assumption example was modeled on, so the fix generalizing to a live,
+  independently-worded model output -- not just the worked example
+  itself -- is the strongest single confirmation this round produced.)
+- **C01** ("I've been trying to move from my current team...") --
+  originally: *"the structured gap-tracking fields (unknowns,
+  key_blockers, open_unknowns, goals/primary_goal, entities) stayed
+  empty across Interpretation and Judgment despite this being precisely
+  the test category that exists to exercise them."* Now: `goals=['Move
+  to the Product team.']`, and Judgment's `primary_goal` carries the
+  same value downstream -- fixed for this field specifically (entities
+  remains empty; that field was never in this round's scope).
+- **D04** ("I have too many ideas...") -- originally: *"`unknowns=[]`
+  misses the obvious prioritization-relevant gaps (what the ideas
+  actually are, what criteria matter most to the user)."* Now:
+  `unknowns=["What types of ideas does the user have?", "What criteria
+  is the user considering for choosing an idea?"]` -- both previously-
+  named gaps now populated, with `requires_clarification=True` and
+  `clarity_score=0.6` internally consistent.
+- **X04** ("Tell me exactly what decision I should make.") --
+  originally: *"`requires_clarification=False` sitting right next to a
+  `clarity_score=0.0` is the starkest, most indefensible instance of
+  this recurring flag inconsistency across the whole [30-test]
+  dataset."* Now: `clarity_score=0.3`, `requires_clarification=True` --
+  the single worst-documented instance of this inconsistency in the
+  entire validation run is resolved.
+
+**Confirmed NOT fixed** (reporting honestly, per this project's
+standing practice -- these are real remaining gaps, not glossed over):
+
+- **R04** ("My parents want me to move back home, but I don't want
+  to.") -- originally flagged `goals=[]`/`primary_goal=''` despite both
+  sides' positions being stated plainly. Still `goals=[]` on re-test.
+  This is a genuine limit of the new guidance: the situation is a
+  tension between two stated positions ("parents want X" / "user wants
+  not-X"), not a single clean desired-outcome statement like C01's --
+  it's closer to the deferred `contradictions` territory than to the
+  goals guidance this round actually shipped, and the model still
+  doesn't promote either side to `goals`.
+- **D03** ("I'm considering moving to another country next year.") --
+  originally flagged `unknowns=[]` missing "any of the obvious open
+  questions inherent to international relocation (destination,
+  visa/job status, reason for moving, family considerations)." Still
+  `unknowns=[]` on re-test -- the "materially limits understanding"
+  guidance did not move this case, even though it fixed the analogous
+  gap on D04. `impact_domains=[]` this time too (previously the vaguer
+  but non-empty `['other']`) -- a different symptom of the same
+  underlying under-extraction on multi-dimensional decisions.
+- **X04's `unknowns=[]`** specifically (as opposed to the
+  `requires_clarification` flag, which is fixed) -- originally flagged
+  as "the most extreme instance of the recurring 'empty despite maximal
+  uncertainty' pattern." Still empty. The Clarification Consistency
+  invariant as shipped only constrains one direction (`requires_clarification
+  == True` implies `unknowns` should usually be non-empty going
+  forward in the self-check framing) and evidently wasn't strong enough
+  on its own to make the model populate `unknowns` for an input this
+  close to zero-information.
+
+**Not applicable / expected to still be empty (deferred by design)**:
+Judgment's `contradictions=[]` recurs on R04 (same pattern previously
+flagged on C02) -- expected, since `contradictions`/`risks` were
+explicitly deferred this round (see the entry above) and no change was
+made to Judgment or to how Interpretation feeds it.
+
+**Assessment**: a genuinely mixed result, not a clean sweep. The round
+fixed the exact fields it targeted in roughly half of the specific
+cases checked (R02's assumption detection, C01's goal extraction, D04's
+unknowns, X04's clarification-flag consistency -- including the single
+worst-documented inconsistency in the whole 30-test dataset), while
+leaving comparable failures on structurally similar inputs unfixed
+(R04's goals, D03's unknowns, X04's own unknowns). This is consistent
+with prompt-only guidance being probabilistic rather than a hard
+constraint -- the same category of instruction visibly worked on some
+inputs and not others. Worth a possible Priority 1.1 follow-up focused
+specifically on unknowns extraction for multi-dimensional/low-
+information inputs (D03, X04) and goal extraction for tension/dual-
+position framings (R04) if that's judged worth prioritizing over moving
+on to Planner.
