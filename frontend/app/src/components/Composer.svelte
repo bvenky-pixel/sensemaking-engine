@@ -24,7 +24,7 @@
     rows="3"
   ></textarea>
   <div class="actions">
-    <button type="button" disabled={disabled || !content.trim()} onclick={share}>
+    <button type="button" class="share" disabled={disabled || !content.trim()} onclick={share}>
       Share this
     </button>
   </div>
@@ -39,5 +39,17 @@
     display: flex;
     justify-content: flex-end;
     margin-top: var(--space-1);
+  }
+
+  /* Real visual weight for "handing the page over" -- v4's most
+     protected interaction deserves more presence than a plain text
+     link the same weight as "Settings". Reuses --radius (the one
+     corner value already used for the raised surface elsewhere)
+     rather than introducing a new pill shape. */
+  .share {
+    background: var(--accent);
+    color: var(--paper);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius);
   }
 </style>

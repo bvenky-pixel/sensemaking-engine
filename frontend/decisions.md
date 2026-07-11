@@ -374,3 +374,44 @@ Playwright screenshots in both light and dark mode confirm the three
 kinds are now genuinely distinguishable at a glance, and the "still
 uncertain" card reads correctly as less settled than the other two in
 both color schemes.
+
+---
+
+**2026-07-11 — Frontend redesign increment 2: Composer weight + scroll-edge fade**
+
+Second increment under the relaxed guardrail, sequenced back-to-front
+(Understanding done, this covers the rest of the Journey screen; Home is
+still its own later increment). Two changes, both `Composer.svelte`/
+`Journey.svelte` only -- no prop, behavior, or backend changes.
+
+**Composer's "Share this"** previously inherited `tokens.css`'s global
+`button` rule verbatim -- no background, no padding, same visual weight
+as "Settings" or "← Home". v4 calls "handing the page over" its most
+protected interaction; a plain text link undersold that. Added a `share`
+class scoped to this one button (`--accent` fill, `--paper` text,
+`var(--radius)` corner -- the same corner value already used for the
+raised surface elsewhere, deliberately not a new pill shape, so this
+doesn't introduce an unrelated shape vocabulary). Bare-Enter-never-submits
+and the disabled-until-non-empty logic are both untouched.
+
+**Scroll-edge fade**, the harder of the two: the whole app turned out to
+have no fixed-height inner scroll panes anywhere -- Journey is one
+continuously scrolling flow, `tokens.css`'s `body` has no `overflow`
+rule. A `mask-image` on `.transcript` directly would only have baked a
+static fade into the first/last message, not a live "dissolves as it
+scrolls past" effect, and restructuring Journey into fixed scroll panes
+(transcript bounded, Composer pinned) was judged too big a layout change
+for this increment. Used a `position: sticky; top: 0` gradient overlay
+instead (`pointer-events: none`, background reading `var(--paper)`
+directly so light/dark both work with zero extra values) -- real content
+genuinely scrolls underneath a fixed-position fade this way, with no
+layout restructuring at all. Confirmed live rather than assumed: a
+Playwright screenshot scrolled partway down a real seeded transcript
+shows the top line of the previous message actually dissolving into the
+background, not just present-but-dim.
+
+Verified: `npm run build` and full `npm test` (11) green, no test
+changes needed (purely visual, matching increment 1's pattern); full
+`pytest` (183) unaffected, confirmed rather than assumed since no
+backend files changed; live Playwright pass in both light and dark mode
+covering the button at rest, enabled, and the scrolled fade.

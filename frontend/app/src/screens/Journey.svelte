@@ -51,6 +51,8 @@
 </script>
 
 <div class="journey">
+  <div class="scroll-fade" aria-hidden="true"></div>
+
   <button type="button" class="back" onclick={onBack}>&larr; Home</button>
 
   <Transcript {messages} />
@@ -64,5 +66,23 @@
   .back {
     display: block;
     margin-bottom: var(--space-3);
+  }
+
+  /* Scroll-edge fade (Apple Journal form lesson, not function -- see
+     frontend/decisions.md): content dissolves near the top of the
+     viewport as the page scrolls, rather than hard-clipping. The whole
+     app is one continuously scrolling flow (no fixed inner scroll
+     panes), so this is a sticky, pointer-events-none overlay riding the
+     viewport's top edge -- real content genuinely scrolls underneath
+     it, not a static per-element mask. Matches --paper exactly so it's
+     correct in both light and dark automatically, no separate values. */
+  .scroll-fade {
+    position: sticky;
+    top: 0;
+    height: var(--space-4);
+    margin-bottom: calc(-1 * var(--space-4));
+    background: linear-gradient(to bottom, var(--paper) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 1;
   }
 </style>
