@@ -4978,7 +4978,7 @@ this round):
    occurrences)**: C04 ("quitting without a backup job will cause
    financial instability" never named, despite `impact_domains` itself
    flagging `financial`), R03 (colleague-interruptions-as-deliberate
-   never named), E02 (catastrophizing-about-failure never named), D04,
+   never named), D02 (catastrophizing-about-failure never named), D04,
    and several more -- all repeatedly contrasted in the log against R02
    (the one test where Planner correctly named "friend must be angry"
    as an assumption to test). The old guidance only pointed to
@@ -4993,7 +4993,7 @@ this round):
    is non-empty -- "if truly nothing were blocking resolution, there
    would be no reason to ask three exploratory questions."
 3. **`resolution_blocker` phrased as a literal question instead of a
-   blocker statement** (E02): `'What specific aspects of failure is the
+   blocker statement** (D02): `'What specific aspects of failure is the
    user afraid of?'`.
 4. **One-sided/asymmetric `questions_to_explore`** (R01, D01; positive
    counter-example R04): R01's questions all explored the *partner's*
@@ -5052,6 +5052,6 @@ are untouched) -- same prompt-only shape as Interpretation v2 Priority 1.
 unit-test the way Interpretation's grounding filters needed; Planner
 remains a single end-to-end LLM call, same as before). Live re-test
 verification against the same seven Planner-flagged log.md cases
-(C04, C03, E01, E02, E04, R01, D01) to follow in a separate commit,
+(C04, C03, E01, D02, E04, R01, D01) to follow in a separate commit,
 pinning `openrouter_model: "openai/gpt-4o-mini"` per this project's
 standing methodology.
