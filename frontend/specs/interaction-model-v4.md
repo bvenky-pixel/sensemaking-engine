@@ -154,16 +154,36 @@ is what makes the vocabulary invisible.
 
 ---
 
-## Two Permanent Guardrails
+## One Permanent Guardrail, One Relaxed
 
-**Novelty is not the goal. Clarity is.** Confidant should never be
-unusual to distinguish itself from other AI products. Every unfamiliar
-interaction has to earn its place by making the thinking experience
-better — a person should always know exactly how to begin, with zero
-instruction. Where this document introduces something genuinely new
-(the handing-over gesture, ambient presence), it does so because Shared
-Thinking required it, never because familiarity felt insufficiently
-distinctive.
+**Novelty is not the goal. Clarity is. — RELAXED 2026-07-11.** Originally:
+Confidant should never be unusual to distinguish itself from other AI
+products; every unfamiliar interaction has to earn its place by making
+the thinking experience better, never because familiarity felt
+insufficiently distinctive. Deliberately relaxed, not repealed: the
+first real build against this guardrail (`screen-design-v1.md`'s
+Svelte implementation) was judged uninspiring by the person actually
+using it — plain list rows, one undifferentiated raised block for every
+kind of understanding, an unused `.display` typographic moment. The
+guardrail's original either/or (a choice must be justified by Shared
+Thinking OR it's mere distinctiveness-seeking) was itself producing a
+worse thinking experience than a more visually considered one would,
+which the guardrail's own stated purpose — "making the thinking
+experience better" — argues against maintaining literally. Distinctiveness
+is now an acceptable design goal in its own right, not only a permitted
+side effect of serving Shared Thinking, starting with the frontend
+redesign this amendment accompanies (Understanding region cards,
+`screen-design-v1.md`'s successor work).
+
+**What did NOT change**: `frontend-philosophy-v1.md`'s separate "Things
+Confidant Should Never Become" list (daily streaks, gamification/badges,
+social features, AI gimmicks) was never part of this guardrail and stays
+fully in force — this relaxation is about visual/interaction
+distinctiveness, not about the engagement-optimization principle that
+list exists to block. The Ten-Year Test, below, is also unchanged and
+still applies to anything added under the relaxed guardrail: a novel
+interaction still has to be one that would hold up in ten years, not
+just look interesting today.
 
 **The Ten-Year Test.** For any interaction this document commits to,
 ask: would it still feel correct if Confidant existed ten years from

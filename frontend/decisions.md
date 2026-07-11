@@ -296,3 +296,81 @@ deploy itself couldn't run here -- treating Fly's own passing health/
 smoke checks as sufficient verification for this entry, consistent with
 this project's practice of trusting the actual tool's own pass/fail
 signal when a redundant check isn't reachable.
+
+---
+
+**2026-07-11 — `interaction-model-v4.md`'s "Novelty is not the goal" guardrail relaxed**
+
+Following feedback that the real build (once actually used, not just
+described) reads as uninspiring -- plain list rows, one undifferentiated
+raised block for every kind of understanding regardless of whether it
+was settled or still open, an unused `.display` typographic moment --
+the user explicitly authorized relaxing v4's "novelty is not the goal"
+guardrail: distinctiveness is now an acceptable design goal in its own
+right, not only a permitted side effect of serving Shared Thinking.
+Recorded directly in `interaction-model-v4.md` itself (see that
+document's "One Permanent Guardrail, One Relaxed" section) rather than
+left as an implicit understanding from this conversation -- the same
+discipline already applied when Judgment's `Trajectory` field was marked
+SUPERSEDED instead of silently reinterpreted. What did NOT change:
+`frontend-philosophy-v1.md`'s "Things Confidant Should Never Become"
+list (streaks, gamification, social features, AI gimmicks) was never
+part of this guardrail and stays fully in force; the user explicitly
+pushed back on streaks specifically when this came up. The Ten-Year Test
+also stays unchanged and still applies to anything built under the
+relaxed guardrail.
+
+Apple Journal was the agreed form reference for what "more considered"
+actually means here -- not its function (journaling suggestions,
+streaks, wearable-derived prompts), which was separately discussed and
+explicitly excluded except where independently scoped (bookmarking,
+filtering, a stagnation-based "worth returning to" surface -- all queued
+for the Home increment, not yet built). The lesson taken from Journal's
+form: entries render as distinct cards on softly-colored backgrounds,
+not plain list rows -- translated for Confidant into distinct *kinds* of
+content getting distinct surfaces, not literal per-entry color variation
+(which would have been a different, not-yet-authorized departure from
+"every Journey card looks the same").
+
+---
+
+**2026-07-11 — Frontend redesign increment 1: Understanding region cards**
+
+First concrete build under the relaxed guardrail above, sequenced
+back-to-front as agreed (Understanding first, then Journey/Composer,
+then Home). `Understanding.svelte` previously rendered every field --
+situation, current_direction, remaining_unknowns, decisions,
+secondary_issues, stagnation_notes -- as consecutive `<p>`/`<ul>` inside
+one undifferentiated `--paper-raised` block, distinguished only by an
+uppercase label. Restructured into three visually distinct surfaces by
+*kind*, plus the asides staying exactly as they were:
+
+- **"Where things stand"** (situation + current_direction): a card,
+  `--paper-raised` background + the existing hairline shadow -- the
+  settled, anchored surface.
+- **"Still uncertain"** (remaining_unknowns): a card with the base
+  `--paper` background and only a hairline border, no shadow --
+  deliberately less visually anchored than the settled cards, matching
+  that this content is open, not resolved. No new color tokens needed --
+  reuses the existing paper/paper-raised distinction rather than
+  inventing a third tint.
+- **"In play"** (decisions): a card, same settled treatment as "Where
+  things stand" but visually secondary (smaller top margin).
+- **Quiet Discovery** (secondary_issues/stagnation_notes): unchanged --
+  stays outside every card, unbordered `.voice.aside` text. Deliberate,
+  not an oversight: v4 requires this read as a passing notice, never
+  promoted to the same visual weight as settled content.
+
+No new components, no prop changes, no backend changes -- purely a
+markup/CSS restructuring within the existing component. Verified:
+`npm run build` succeeded; the existing `Understanding.test.js` suite
+(philosophy-conformance -- vocabulary, empty-state, deepening-clarity
+callout) passed completely unmodified, confirming the redesign didn't
+change any rendered content, only its visual structure; full `npm test`
+(11 tests) green. Live-verified with a real `uvicorn` server and a
+seeded session carrying a populated Clarity Brief (situation, an open
+unknown, a decision, and both aside types all present at once) --
+Playwright screenshots in both light and dark mode confirm the three
+kinds are now genuinely distinguishable at a glance, and the "still
+uncertain" card reads correctly as less settled than the other two in
+both color schemes.
