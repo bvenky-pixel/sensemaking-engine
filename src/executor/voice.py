@@ -64,11 +64,18 @@ _AUX_PLUS_USER = re.compile(
 )
 
 # Fallback for a verb after "user" not in _VERB_INFLECTIONS above (e.g.
-# "gains", "expects") -- naive "strip the trailing s" English
-# third-person-singular rule. Runs only on whatever _USER_PLUS_VERB left
-# unmatched, so the explicit map above always takes priority for the
+# "gains", "identifies", "watches"). Runs only on whatever _USER_PLUS_VERB
+# left unmatched, so the explicit map above always takes priority for the
 # irregular forms (is/was/has/does) it exists specifically to handle.
 _USER_PLUS_UNKNOWN_VERB = re.compile(r"\b(?:the\s+)?[Uu]ser\s+(\w+s)\b")
+
+# A small number of verbs already ending in "ie" (die/lie/tie) form their
+# third-person-singular by adding a plain "s" ("dies"/"lies"/"ties"), which
+# is spelled identically to the far more common "consonant+y -> ies"
+# pattern below ("tries"/"denies") -- these three must be special-cased
+# before that suffix rule runs, or "dies"/"lies"/"ties" would be wrongly
+# rewritten to "dy"/"ly"/"ty".
+_IE_VERBS = {"dies": "die", "lies": "lie", "ties": "tie", "vies": "vie"}
 
 _BARE_USER = re.compile(r"\b(?:the\s+)?[Uu]ser\b")
 _THEY = re.compile(r"\b[Tt]hey\b")
@@ -82,6 +89,38 @@ def _cased(original: str, lower: str) -> str:
     if original[:1].isupper():
         return lower[:1].upper() + lower[1:]
     return lower
+
+
+def _third_person_to_base(verb: str) -> str:
+    """
+    Reverses regular English third-person-singular conjugation, for a
+    verb after "user" not covered by _VERB_INFLECTIONS' explicit map.
+    Naively stripping one trailing "s" (the original, buggy version of
+    this function) is only correct for the plain "add s" case
+    ("gains" -> "gain") -- it silently misspells the two other regular
+    patterns English actually uses:
+      - a sibilant-ending base takes "es", not "s" ("watch" -> "watches",
+        "wish" -> "wishes", "discuss" -> "discusses", "miss" -> "misses",
+        "fix" -> "fixes", "buzz" -> "buzzes") -- stripping only the final
+        "s" leaves a stray trailing "e" ("watche", "discusse").
+      - a consonant-plus-y base changes y -> ies ("try" -> "tries",
+        "identify" -> "identifies", "deny" -> "denies", "rely" ->
+        "relies") -- stripping the final "s" leaves "trie"/"identifie".
+    Both of these are exactly the shape of verb Judgment/Planner's own
+    natural-language fields regularly produce (e.g. Planner's own shipped
+    desired_outcome example, "user identifies the next action") -- see
+    engine/decisions.md "Major update" for the live regression this fixed.
+    """
+    lower = verb.lower()
+    if lower in _IE_VERBS:
+        return _IE_VERBS[lower]
+    if lower.endswith("ies"):
+        return verb[:-3] + "y"
+    if lower.endswith(("sses", "shes", "ches", "xes", "zzes", "oes")):
+        return verb[:-2]
+    if lower.endswith("s"):
+        return verb[:-1]
+    return verb
 
 
 def to_second_person(text: str) -> str:
@@ -101,7 +140,7 @@ def to_second_person(text: str) -> str:
 
     def _unknown_verb_repl(match: "re.Match[str]") -> str:
         verb = match.group(1)
-        stripped = verb[:-1] if verb.endswith("s") else verb
+        stripped = _third_person_to_base(verb)
         return f"{_cased(match.group(0), 'you')} {stripped}"
 
     text = _USER_POSSESSIVE.sub(lambda m: _cased(m.group(0), "your"), text)

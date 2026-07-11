@@ -5547,3 +5547,46 @@ prompt-only hardening; Planner's resolution_blocker/assumptions_to_test
 pair has now resisted three consecutive rounds of prompt-only attempts
 and is a reasonable candidate for a structural (non-prompt-only) fix if
 picked up again, rather than a fourth prompt-wording attempt.
+
+---
+
+**2026-07-11 — Voice fix: live regression, misspelled verbs**
+
+User-reported bug on the deployed app: "grammar and spelling mistakes in
+the outputs now." Root-caused directly, not guessed at: `src/executor/
+voice.py`'s `to_second_person` (Part 1 of the Major update above) has a
+fallback rule for any verb after "user" not in its explicit
+`_VERB_INFLECTIONS` map -- naively strip one trailing "s". That's only
+correct for the plain "add s" pattern ("gains" -> "gain"). It silently
+misspelled the two other regular English third-person-singular patterns:
+
+- a sibilant-ending base takes "es", not "s" ("watch" -> "watches",
+  "discuss" -> "discusses", "miss" -> "misses") -- stripping only the
+  final "s" leaves a stray trailing "e": "You watche", "You discusse",
+  "You misse".
+- a consonant-plus-y base changes y -> ies ("try" -> "tries",
+  "identify" -> "identifies", "deny" -> "denies") -- stripping the final
+  "s" leaves "You trie", "You identifie", "You denie".
+
+This is exactly the shape of verb Judgment/Planner's own natural-language
+fields regularly produce -- Planner's own shipped `desired_outcome`
+worked example literally uses "user identifies the next action," so this
+fired on real, common phrasing, not an edge case. The existing test
+(`test_unlisted_verb_falls_back_to_stripping_trailing_s`) happened to
+pick "gains," the one verb shape that doesn't expose the bug, so it
+shipped undetected through this session's own testing and the live
+deploy.
+
+**Fix**: replaced the naive strip with `_third_person_to_base`, three
+real reversal rules in order -- an exact-match table for the three
+verbs (`dies`/`lies`/`ties`/`vies`) whose "ie + s" spelling collides with
+the "y -> ies" pattern, a suffix check for sibilant-plus-es endings
+(`sses`/`shes`/`ches`/`xes`/`zzes`/`oes`), a suffix check for `ies`, and
+the original bare-"s" strip as the final fallback for the common case.
+5 new regression tests in `tests/test_executor_voice.py` covering each
+pattern plus the `dies`/`ties` ambiguity, using the exact previously-
+misspelled outputs as the assertions. Full suite: 220 passed (up from
+215).
+
+Deployed via `deploy.yml` immediately after -- this fix reached the same
+`confidantsense.fly.dev` sessions the bug was reported on.

@@ -120,3 +120,56 @@ def test_third_party_marker_suppresses_their_and_them_globally_in_string():
     text = "User assumes the co-founder doesn't trust them."
     result = to_second_person(text)
     assert result == "You assume the co-founder doesn't trust them."
+
+
+# Regression tests for a live bug (see engine/decisions.md "Major
+# update"): the original fallback for a verb not in _VERB_INFLECTIONS
+# naively stripped one trailing "s", which is only correct for the plain
+# "add s" pattern ("gains" -> "gain") -- it silently misspelled the two
+# other regular English third-person-singular patterns, both of which are
+# exactly the shape of verb Judgment/Planner naturally produce.
+
+
+def test_sibilant_ending_verb_takes_es_not_s():
+    # "watch" takes "es" (sibilant-ending base), not a bare "s" --
+    # stripping only the final "s" produced the misspelling "watche".
+    assert (
+        to_second_person("User watches for signs of progress.")
+        == "You watch for signs of progress."
+    )
+
+
+def test_double_s_ending_verb_takes_es_not_s():
+    assert (
+        to_second_person("User discusses the issue with a friend.")
+        == "You discuss the issue with a friend."
+    )
+    assert to_second_person("User misses the deadline.") == "You miss the deadline."
+
+
+def test_consonant_plus_y_verb_reverses_ies_to_y():
+    # Planner's own shipped desired_outcome worked example literally uses
+    # this exact verb ("user identifies the next action") -- the original
+    # bug misspelled it as "You identifie the next action."
+    assert (
+        to_second_person("User identifies the next action.")
+        == "You identify the next action."
+    )
+    assert to_second_person("User denies any involvement.") == "You deny any involvement."
+
+
+def test_ie_ending_verb_is_not_mistaken_for_the_y_pattern():
+    # "ties"/"dies" are spelled identically to the "y -> ies" pattern
+    # above but must resolve to "tie"/"die", not "ty"/"dy".
+    assert (
+        to_second_person("User ties the outcome to external validation.")
+        == "You tie the outcome to external validation."
+    )
+    assert to_second_person("User dies of embarrassment.") == "You die of embarrassment."
+
+
+def test_oes_ending_verb_takes_es_not_s():
+    assert (
+        to_second_person("User goes back and forth on the decision.")
+        == "You go back and forth on the decision."
+    )
