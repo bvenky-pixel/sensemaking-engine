@@ -53,3 +53,25 @@ export async function getClarityBrief(sessionId) {
   if (res.status === 404) return null;
   return _json(res);
 }
+
+// Major update (2026-07-11, see engine/decisions.md): one Server-Sent
+// Event per pipeline stage that finishes during this session's next
+// sendMessage call (see src/api/server.py's GET /sessions/{id}/stream).
+// EventSource is the browser's own SSE client -- it already ignores `:
+// keepalive` comment lines per the SSE spec, no parsing needed here for
+// those. Returns a plain close function rather than the EventSource
+// itself, matching this file's own "thin fetch wrapper" pattern: callers
+// (AmbientPresence.svelte) never need the underlying object.
+export function openStageStream(sessionId, onStage) {
+  const source = new EventSource(`/sessions/${sessionId}/stream`);
+  source.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.stage) onStage(data.stage);
+    } catch {
+      // Malformed/unexpected payload -- never let a stream event break
+      // the actual conversation turn, which doesn't depend on this.
+    }
+  };
+  return () => source.close();
+}

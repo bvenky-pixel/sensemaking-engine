@@ -42,7 +42,7 @@ reports what happened, never judging what any stage's output means.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from src.instrumentation.events import diff_behavioral_events
 from src.instrumentation.usage import UsageTracker, default_tracker
@@ -60,6 +60,7 @@ def run_turn(
     state: WorldState,
     tracker: Optional[UsageTracker] = None,
     session_id: str = "",
+    on_stage_complete: Optional[Callable[[str], None]] = None,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -83,14 +84,28 @@ def run_turn(
     doesn't pass one (conversation_runner.py, scripts/run_worldstate_walkthrough.py,
     tests) -- only used to stamp Phase 1 Learning's behavioral_events
     (see src/instrumentation/events.py), never anything upstream of that.
+
+    on_stage_complete: optional callback invoked once, synchronously,
+    immediately after each stage's try/except block succeeds, with that
+    stage's internal id ("interpretation"/"judgment"/"planner"/
+    "response"). Default None is a true no-op -- every existing caller
+    is unaffected. Added for real-time streaming (see src/api/server.py's
+    GET /sessions/{id}/stream, engine/decisions.md "Major update") --
+    a callback, not a generator, so this function's `result = run_turn(...)`
+    contract stays unchanged for every other caller.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
+
+    def _notify(stage: str) -> None:
+        if on_stage_complete is not None:
+            on_stage_complete(stage)
 
     try:
         interp = run_interpretation(message, tracker=tracker)
     except InterpretationError as exc:
         return TurnResult(state=state, failed_stage="interpretation", error=str(exc))
+    _notify("interpretation")
 
     # WorldState must be updated with this turn's Interpretation BEFORE
     # Judgment runs -- Judgment only ever sees WorldState, never the raw
@@ -112,6 +127,7 @@ def run_turn(
             state=state, interpretation=interp, failed_stage="judgment", error=str(exc),
             behavioral_events=behavioral_events,
         )
+    _notify("judgment")
 
     # Judgment itself never writes to WorldState (it only ever reads it,
     # per its own design principles) -- this is the one deliberate
@@ -134,6 +150,7 @@ def run_turn(
             failed_stage="planner", error=str(exc),
             behavioral_events=behavioral_events,
         )
+    _notify("planner")
 
     try:
         response = run_response_generator(state, judgment, plan, tracker=tracker)
@@ -143,6 +160,7 @@ def run_turn(
             failed_stage="response", error=str(exc),
             behavioral_events=behavioral_events,
         )
+    _notify("response")
 
     return TurnResult(
         state=state, interpretation=interp, judgment=judgment, planner=plan, response=response,

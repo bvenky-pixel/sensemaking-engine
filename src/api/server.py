@@ -26,11 +26,14 @@ terminal -- it is not linked from the placeholder frontend's main flow.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api import db
@@ -69,6 +72,29 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Confidant MVP API", lifespan=_lifespan)
 
+# Correlates GET /sessions/{id}/stream (below) with the POST
+# /sessions/{id}/messages that's actually running the turn -- see
+# engine/decisions.md "Major update" Part 5. In-process only, consistent
+# with this module's own documented scope ("no multi-tenant isolation
+# beyond per-session rows"); a session is only ever open in one browser
+# tab against one server process today. Populated when a stream client
+# connects, drained and removed by that same request's generator when
+# the stream ends -- send_message only ever pushes into a queue that
+# already exists, never creates one itself.
+#
+# asyncio.Queue + the event loop that owns it, NOT queue.Queue: a plain
+# queue.Queue().get() blocking inside a threadpool-run sync generator
+# cannot be cancelled when a client disconnects (a real blocking OS-level
+# call ignores asyncio cancellation, which only works at await points) --
+# an early first draft of this leaked one non-daemon threadpool worker
+# thread, stuck retrying forever, per every abandoned/disconnected
+# stream (caught by this file's own new test hanging the test process on
+# a failure path -- a real production reliability bug, not just a test
+# artifact, since a Fly.io deployment runs indefinitely). send_message
+# runs as a plain `def` in a worker thread, not on the event loop, so it
+# must push via loop.call_soon_threadsafe rather than put_nowait directly.
+_stage_queues: dict[str, Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
+
 
 def _require_session(session_id: str) -> None:
     if not db.session_exists(session_id):
@@ -105,13 +131,78 @@ def list_messages(session_id: str) -> list[MessageOut]:
     return db.get_messages(session_id)
 
 
+@app.get("/sessions/{session_id}/stream")
+async def stream_stages(session_id: str) -> StreamingResponse:
+    """Server-Sent Events -- one `{"stage": "<internal_id>"}` event per
+    pipeline stage that finishes during the turn this session's next
+    POST /messages runs (see src/orchestrator/engine.py's on_stage_complete,
+    engine/decisions.md "Major update" Part 5). Payload is deliberately
+    minimal -- no elapsed_ms, no ordinal/total -- a total stage count
+    can't be known upfront (a turn can fail after 1 stage or complete
+    after 4), and anything enabling "n of estimated total" would be a
+    latent progress bar (see frontend/specs/motion-and-latency-philosophy-v1.md).
+    A `: keepalive` comment every ~10s of silence keeps the connection
+    alive through the Fly.io edge proxy's idle timeout without meaning
+    anything itself -- SSE comments are invisible to EventSource
+    listeners. The frontend is expected to open this BEFORE POSTing; a
+    POST with no open stream still runs the turn correctly, it's just
+    silent (on_stage_complete's callback is a no-op when nothing is
+    listening).
+
+    async def + asyncio.Queue, not a sync generator over queue.Queue --
+    see _stage_queues' own docstring for why the sync version was a
+    real thread-leak bug, not just a style choice."""
+    _require_session(session_id)
+    stage_queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    entry = (stage_queue, loop)
+    _stage_queues[session_id] = entry
+
+    async def _events() -> AsyncIterator[str]:
+        try:
+            while True:
+                try:
+                    stage = await asyncio.wait_for(stage_queue.get(), timeout=10)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if stage is None:  # sentinel from send_message: turn finished
+                    break
+                yield f"data: {json.dumps({'stage': stage})}\n\n"
+        finally:
+            # Only remove if it's still this connection's own queue --
+            # a second stream open (e.g. a page reload) may already have
+            # replaced it. Also runs on client disconnect (asyncio
+            # cancels this generator at its next await point, unlike the
+            # blocking-thread version this replaced).
+            if _stage_queues.get(session_id) == entry:
+                del _stage_queues[session_id]
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
+
+
 @app.post("/sessions/{session_id}/messages", response_model=SendMessageResponse)
 def send_message(session_id: str, body: SendMessageRequest) -> SendMessageResponse:
     _require_session(session_id)
 
     state = db.load_state(session_id)
     tracker = UsageTracker()  # per-session, never the shared default -- see module docstring
-    result = run_turn(body.content, state, tracker=tracker, session_id=session_id)
+    stream_entry = _stage_queues.get(session_id)
+
+    # Runs as a plain `def` route, i.e. in a worker thread, not on the
+    # event loop that owns stage_queue -- asyncio.Queue isn't
+    # thread-safe, so this must hand off via call_soon_threadsafe rather
+    # than calling put_nowait directly from this thread.
+    def _push(stage: Optional[str]) -> None:
+        if stream_entry is not None:
+            stage_queue, loop = stream_entry
+            loop.call_soon_threadsafe(stage_queue.put_nowait, stage)
+
+    result = run_turn(
+        body.content, state, tracker=tracker, session_id=session_id,
+        on_stage_complete=_push,
+    )
+    _push(None)  # sentinel: closes the GET /stream connection above
 
     db.append_message(session_id, "user", body.content)
     db.save_turn_result(session_id, result)

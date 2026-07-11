@@ -18,10 +18,15 @@ ever appear).
 from __future__ import annotations
 
 import json
+import socket
 import tempfile
+import threading
+import time
 from pathlib import Path
 
+import httpx
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 
 from src.api import db, server
@@ -439,3 +444,83 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     # is the correct, expected behavior here, not a bug.
     assert body["secondary_issues"] == ["Strained relationship with their current manager."]
     assert body["stagnation_notes"] == ["No movement on this goal in 4 turns."]
+
+
+def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeypatch, tmp_path):
+    """GET /sessions/{id}/stream, opened before the POST, must receive one
+    SSE event per pipeline stage as run_turn's on_stage_complete callback
+    fires (see src/orchestrator/engine.py, engine/decisions.md "Major
+    update" Part 5) -- and the module's in-process queue must be cleaned
+    up once the stream closes. Every OTHER test in this file never opens
+    a stream, so their passing already confirms on_stage_complete=None
+    (the default for every caller that doesn't stream) changes nothing
+    about a normal POST /messages -- this test is the one exercising the
+    callback actually firing.
+
+    Deliberately NOT built on the `client` fixture's in-process TestClient:
+    TestClient's single blocking portal serializes requests dispatched
+    from separate Python threads (confirmed directly -- a concurrent GET
+    only actually connects once a second request wakes the same portal),
+    so a genuinely concurrent GET+POST needs a real live server. Runs
+    uvicorn in a background thread against a real loopback socket instead
+    -- this is what actually exercises asyncio.Queue's cross-thread
+    call_soon_threadsafe handoff (see server.py's send_message) the way
+    the deployed app really will."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "stream_test.db")
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT))
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
+    monkeypatch.setattr("src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE))
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    config = uvicorn.Config(server.app, host="127.0.0.1", port=port, log_level="warning")
+    live_server = uvicorn.Server(config)
+    server_thread = threading.Thread(target=live_server.run, daemon=True)
+    server_thread.start()
+    deadline = time.monotonic() + 5
+    while not live_server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert live_server.started, "uvicorn never started"
+
+    try:
+        base = f"http://127.0.0.1:{port}"
+        session_id = httpx.post(f"{base}/sessions").json()["id"]
+
+        received: list[str] = []
+        connected = threading.Event()
+
+        def _listen():
+            with httpx.stream("GET", f"{base}/sessions/{session_id}/stream", timeout=10) as response:
+                connected.set()
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        received.append(json.loads(line[len("data: "):])["stage"])
+                    if len(received) >= 4:
+                        break
+
+        listener = threading.Thread(target=_listen, daemon=True)
+        listener.start()
+        assert connected.wait(timeout=2), "stream never connected"
+
+        res = httpx.post(
+            f"{base}/sessions/{session_id}/messages", json={"content": "I want to move teams."}, timeout=10
+        )
+        assert res.status_code == 200
+
+        listener.join(timeout=5)
+        assert not listener.is_alive()
+        assert received == ["interpretation", "judgment", "planner", "response"]
+        # Same process, same imported server module -- uvicorn.Server was
+        # constructed directly from server.app, not an import-string
+        # subprocess, so server._stage_queues here really is the dict the
+        # stream generator's finally block cleaned up.
+        assert session_id not in server._stage_queues
+    finally:
+        live_server.should_exit = True
+        server_thread.join(timeout=5)

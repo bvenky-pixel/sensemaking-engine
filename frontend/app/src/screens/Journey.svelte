@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getMessages, sendMessage, getClarityBrief } from '../lib/api.js';
+  import { getMessages, sendMessage, getClarityBrief, openStageStream } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
   import Transcript from '../components/Transcript.svelte';
@@ -29,6 +29,11 @@
   let sending = $state(false);
   let brief = $state(null);
   let deepeningClarityNote = $state('');
+  // Incremented once per real backend stage-completion event during a
+  // turn (see AmbientPresence.svelte, engine/decisions.md "Major
+  // update" Part 5) -- a plain counter, not the stage names themselves,
+  // is all the presentational component needs.
+  let pulseCount = $state(0);
 
   async function refreshBrief() {
     const previous = brief;
@@ -48,6 +53,14 @@
   async function handleSend(content) {
     messages = [...messages, { role: 'user', content, created_at: '' }];
     sending = true;
+    // Opened synchronously, in the same call as the POST below -- see
+    // AmbientPresence.svelte's own docstring for why this can't live
+    // inside that component (Svelte's re-render happens on a later
+    // microtask than this function's own next line, which would risk
+    // missing the "interpretation" stage's event on every turn).
+    const closeStream = openStageStream(sessionId, () => {
+      pulseCount += 1;
+    });
     try {
       const result = await sendMessage(sessionId, content);
       const text = result.response_text || honestFailureMessage(result.failed_stage);
@@ -62,6 +75,7 @@
       ];
     } finally {
       sending = false;
+      closeStream();
     }
   }
 </script>
@@ -75,7 +89,7 @@
   {#if loaded && messages.length === 0}
     <p class="voice opening-prompt">{openingPrompt}</p>
   {/if}
-  {#if sending}<AmbientPresence />{/if}
+  {#if sending}<AmbientPresence {pulseCount} />{/if}
   <Composer disabled={sending} onSend={handleSend} />
 
   <Understanding {brief} {deepeningClarityNote} />
