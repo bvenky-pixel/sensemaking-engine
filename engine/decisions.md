@@ -4736,3 +4736,114 @@ returns 404, `has_stagnation_signal` false on a fresh session and true
 against a real stored `WorldState` carrying a stale open Decision
 (mirrors `tests/test_judgment_stagnation.py`'s own `Provenance`
 construction pattern). Full suite: 188 passed.
+
+---
+
+**2026-07-11 — Interpretation v2 Priority 1**
+
+A depth-parity audit across the pipeline (three parallel research agents
+against Interpretation/Planner/Response, compared to Judgment's three
+completed depth rounds) found Interpretation already had a fully-designed,
+never-implemented v2 proposal sitting in `engine/specs/`:
+`interpretation-v2-proposal.md` (602 lines) + `interpretation-prompts-v2-notes`
+(448 lines of concrete drafted prompt text), both "DISCUSSION DRAFT, NOT
+IMPLEMENTED" until this round. Grounded in the 30-test live validation
+run (`experiments/confidant-validation/log.md`): Interpretation's primary
+failure mode is *omission*, not hallucination -- `goals`/`unknowns`/
+`assumptions` frequently empty despite clear evidence in the transcript,
+plus a recurring `clarity_score`/`requires_clarification` inconsistency.
+
+**Scope reconciled against current code, not implemented as originally
+written.** The proposal's Priority 2 (decision events/goal updates/entity
+attribute updates) had already shipped separately as v1.1 after this
+proposal was drafted. Its Priority 1 also bundled two new fields,
+`contradictions`/`risks` -- **deliberately deferred this round, not
+implemented**:
+
+- The frozen `interpretation-spec-v1.1.md` had already declined a
+  `contradictions` field on Interpretation, on the stated grounds that
+  Judgment's own `contradictions` field already owns "detect a
+  conflict" (Judgment also already has a boolean-gated `risks` triad).
+  Git history confirms the v2 proposal genuinely predates that decision
+  (proposal last touched 2026-07-08; v1.1's declined-overlap paragraph
+  committed 2026-07-10) -- staleness, not an oversight in either
+  document.
+- Traced the actual pipeline to check whether an Interpretation-only,
+  non-persisted version would still be useful anyway: it wouldn't.
+  `run_judgment` (`src/judgment/engine.py`) builds its prompt purely
+  from `state.model_dump_json()` (WorldState) -- Judgment never reads
+  raw Interpretation output at all, and WorldState has no
+  `contradictions`/`risks` tier today. An Interpretation-level field
+  with nowhere to persist to would be inert debug output with zero
+  functional consequence, not a smaller safe version of the feature. A
+  real design pass (does this need its own WorldState tier; how does it
+  relate to Judgment's already-boolean-gated `risks` field) has to
+  happen first -- not bolted on this round.
+
+This round implements Priority 1's other four items in
+`src/interpretation/prompt.py`: tightened `goals`/`unknowns`/
+`assumptions`/`decision_options` guidance, three new consistency
+invariants (Goal/Decision/Clarification), and a Final Consistency
+Review self-check block -- **prompt-only, no schema or engine field
+changes**.
+
+**Real risk found and fixed before implementation, not after.** A
+Plan-agent validation pass (dispatched specifically to stress-test this
+design before writing any code) confirmed and extended a risk found by
+hand-computing word-overlap against the proposal's own worked examples:
+`src/interpretation/engine.py`'s existing word-overlap-based grounding
+filters (`_is_goal_grounded` at `_GOAL_OVERLAP_THRESHOLD = 0.4`,
+`_is_assumption_grounded` at `_ASSUMPTION_OVERLAP_THRESHOLD = 0.45`)
+would have silently stripped several of the proposal's own examples
+right back out of the model's output, even if the LLM correctly
+followed the new prompt guidance -- the exact same failure shape as the
+already-documented A04 `assumption_check` saga (this file, 2026-07-09).
+Concretely: 1 of 3 goal examples ("Improve relationship conflict.")
+scored 0.0 overlap; all 3 drafted assumption examples scored 0.0-0.2
+against the 0.45 threshold, none contained a recognized causal
+connector so the whole string got checked rather than a clause, and
+there was no existing rescue path for a freshly-generated assumption
+written directly into `assumptions` (the existing auto-repair only
+relocates `assumption_check` text into `assumptions`; it does nothing
+for content the model writes directly).
+
+Fix, verified by hand-computing overlap for each candidate before
+writing any prompt text, then confirmed by direct code execution:
+
+1. Extended `_CAUSAL_CONNECTOR` to also recognize implication verbs
+   (`implies`, `indicates`, `reflects`, `suggests`) as clause-isolation
+   anchors -- reusing the exact mechanism the A04 fix already
+   validated, not a threshold recalibration; the 0.45/0.4 thresholds
+   themselves are untouched.
+2. Reworded the specific examples that still didn't clear the threshold
+   even with the connector extension (word-form mismatches like "anger"
+   vs. the user's own "angry" that no connector fix alone could close):
+   - Goal: "Improve relationship conflict." -> "Stop having the same
+     recurring argument with their partner."
+   - Assumption: "Lack of response indicates anger." -> "Silence
+     implies the friend is angry."
+   - Assumption: "Promotion outcome reflects personal value." -> "The
+     promotion outcome reflects how much my manager values me."
+   - Assumption: "...implies lack of trust." -> "Disagreement implies
+     the co-founder doesn't trust me."
+
+**Verification**: new `tests/test_interpretation_grounding.py` --
+Interpretation's grounding filters had zero direct unit tests before
+this (only ever exercised indirectly via live LLM runs); brings them up
+to the same "pure functions get direct tests" standard used elsewhere
+(e.g. `compute_stagnation_signals`, `diff_behavioral_events`). Confirms
+each reworded example now passes its filter, that the *original*
+unmodified proposal wording would NOT have passed (documents the actual
+bug, not just the fix), that the original fabrication-catching test
+case from the 5-run dataset that calibrated the thresholds still
+correctly fails (no regression), and that the pre-existing genuinely-
+grounded causal-connector case still passes. Full suite: 193 passed.
+
+Live re-test verification against `experiments/confidant-validation/log.md`
+follow-up entry to come once `single-turn-smoketest.yml` has actually
+been dispatched (pinning `openrouter_model: "openai/gpt-4o-mini"`,
+matching that log's own methodology) against the specific inputs
+already logged there as Interpretation-dimension failures (C01, R04,
+D01, D03, D04, X04, R02) and the results have been read and honestly
+assessed -- per this project's standing practice, this round is not to
+be treated as live-verified until that happens.

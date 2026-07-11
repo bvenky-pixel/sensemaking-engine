@@ -1,6 +1,21 @@
 # Interpretation Prompt v2 Notes
 
-**Status:** DISCUSSION DRAFT
+**Status:** Goals/Unknowns/Assumptions/Decision Options sections and the
+Clarification/Goal/Decision Consistency checks IMPLEMENTED 2026-07-11,
+in `src/interpretation/prompt.py` (see engine/decisions.md
+"Interpretation v2 Priority 1"). The Contradictions/Risks sections below
+remain a discussion draft, not implemented -- see
+interpretation-v2-proposal.md's amended header for why. The examples
+actually shipped differ from the ones drafted below in this document for
+GOALS ("Improve relationship conflict") and ASSUMPTIONS (all three
+implication examples): hand-computed word-overlap against
+src/interpretation/engine.py's grounding filters found the originals
+would have been silently stripped after the model correctly followed
+this guidance (0.0-0.2 overlap against the relevant thresholds) -- the
+shipped prompt uses reworded versions that keep more of the user's own
+words while preserving the same teaching point; `_CAUSAL_CONNECTOR` was
+also extended to recognize implication verbs. See
+tests/test_interpretation_grounding.py for the verified examples.
 
 This document describes targeted modifications to the Interpretation Engine prompt following benchmark evaluation and WorldState testing.
 

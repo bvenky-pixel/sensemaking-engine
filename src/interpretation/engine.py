@@ -77,8 +77,22 @@ _GOAL_OVERLAP_THRESHOLD = 0.4
 # 0.67-0.71 down to 0.00-0.43, cleanly separable at 0.45.
 _ASSUMPTION_OVERLAP_THRESHOLD = 0.45
 _CAUSAL_CONNECTOR = re.compile(
-    r"\b(because|since|due to|as he|as she|as they)\b", flags=re.IGNORECASE
+    r"\b(because|since|due to|as he|as she|as they|"
+    r"implies|indicates|reflects|suggests)\b",
+    flags=re.IGNORECASE,
 )
+# v2 (2026-07-11, see engine/decisions.md "Interpretation v2 Priority 1"):
+# extended with implication verbs (implies/indicates/reflects/suggests)
+# for the same reason the original connectors were chosen -- v2's own
+# assumption guidance encourages phrasing like "X implies Y", and without
+# this extension that entire sentence gets whole-string-checked against
+# _ASSUMPTION_OVERLAP_THRESHOLD (0.45), which a genuinely inferential
+# implication statement will rarely clear (verified by hand-computing
+# overlap against all three of v2's own worked examples before this
+# change: 0.0, 0.2, 0.2 -- all three would have been silently stripped,
+# the exact failure shape as the A04 assumption_check saga). This is a
+# scope extension of an already-validated clause-isolation mechanism, not
+# a threshold recalibration -- the 0.45 threshold itself is untouched.
 
 # v0.9: entities never had a grounding filter at all -- only possessive-
 # stripping. A test run showed fabricated entities ("career coach,"

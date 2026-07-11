@@ -1,6 +1,23 @@
 # Interpretation v2 — Design Proposal
 
-**Status:** DISCUSSION DRAFT (NOT FROZEN, NOT IMPLEMENTED)
+**Status:** Priority 1 IMPLEMENTED 2026-07-11 (see engine/decisions.md
+"Interpretation v2 Priority 1" and src/interpretation/prompt.py) --
+except `contradictions`/`risks`, deliberately deferred: this document
+predates a decision made two days after its own last edit
+(`interpretation-spec-v1.1.md`, frozen 2026-07-09, declined a
+`contradictions` field on Interpretation because Judgment's own
+`contradictions` field already owns "detect a conflict" -- Judgment also
+already has a boolean-gated `risks` field). Tracing the pipeline
+confirmed Judgment never reads raw Interpretation output at all (only
+WorldState), and WorldState has no `contradictions`/`risks` tier today --
+so an Interpretation-only version of these fields would be functionally
+inert until a real architecture question is resolved (does this need its
+own WorldState tier; how does it relate to Judgment's existing fields).
+That design pass hasn't happened; these two fields remain a discussion
+draft, not implemented, pending it. Priority 2 (Decision Events/Goal
+Updates/Entity Attribute Updates) was already implemented separately, as
+v1.1, before this round. Priority 3 (state-aware architecture) remains
+open.
 
 This document proposes the next iteration of Confidant's Interpretation Engine following evaluation of:
 

@@ -8,6 +8,15 @@ See engine/decisions.md 2026-07-02 "v0.9 Interpretation Specification
 frozen" for why this was done schema-first rather than as another round
 of prompt patching.
 
+v2 Priority 1 (2026-07-11, see engine/decisions.md "Interpretation v2
+Priority 1" and engine/specs/interpretation-prompts-v2-notes): tightened
+GOALS/UNKNOWNS/ASSUMPTIONS/DECISION OPTIONS guidance and added Goal/
+Decision/Clarification Consistency checks, implementing Priority 1 of
+engine/specs/interpretation-v2-proposal.md -- minus that proposal's
+`contradictions`/`risks` fields, deliberately deferred (see that
+document's amended header for why). No schema change this round --
+prompt-only, same category as the 2026-07-09 Tier 1 round.
+
 `build_messages` returns a (system, messages) tuple, kept separate from
 the message list even though call_openrouter joins them into a single
 system-role message -- keeping them distinct means this drops in cleanly
@@ -129,6 +138,13 @@ phrasing as the evidence allows -- don't generalize a concrete goal into
 an abstract one ("change jobs" becoming "escape the toxic environment"
 is a drift away from evidence, not a summary of it). Never add a second,
 generic "fallback" goal just to have more than one item.
+A goal does not require an explicit phrase like "I want," "I need," or
+"my goal is" -- a desired outcome can be strongly implied by what the
+user describes, and should be captured when it is.
+    User: "I've been trying to move into product management."
+    GOOD: "Move into product management."
+    User: "My partner says we keep having the same argument."
+    GOOD: "Stop having the same recurring argument with their partner."
 
 DECISION OPTIONS -- STRICTLY EXTRACTIVE. List ONLY the choices the user
 explicitly named, as close to their own words as possible. Do not
@@ -140,6 +156,10 @@ sound reasonable.
           internal roles", "Seek HR mediation"] -- none of these specific
           alternatives were named; if the user's second option is vague,
           keep it vague in the output too.
+If the user is clearly comparing alternatives, decision_options should
+rarely be empty -- staying strictly extractive is about not inventing
+options beyond what was said, not about leaving the field empty when
+real ones were.
 
 GOAL UPDATES -- signals a lifecycle change on a goal THE USER HAS
 ALREADY STATED IN AN EARLIER TURN, never a freshly-stated goal (that
@@ -283,10 +303,21 @@ question, not just in a claim about someone else:
     if they're relying on it. This is exactly the kind of implicit
     framing assumption the sparse-by-default rule below is NOT meant to
     suppress.)
-In most turns the honest answer is assumptions=[]. That's correct, not a
-gap -- but "sparse by default" means resist the urge to manufacture
-assumptions that AREN'T there, not that a genuine one embedded in the
-user's own framing should be passed over for the sake of staying empty.
+An assumption also connects an observation to a conclusion -- when the
+user draws a conclusion from something that happened, the unstated
+belief linking the two is the assumption, even without an "I think" or
+similar framing:
+    User: "My friend hasn't replied in three days. I think they're angry."
+    GOOD: "Silence implies the friend is angry."
+    User: "I wasn't promoted. My manager must not value me."
+    GOOD: "The promotion outcome reflects how much my manager values me."
+    User: "My co-founder disagreed with me. He clearly doesn't trust me."
+    GOOD: "Disagreement implies the co-founder doesn't trust me."
+Many conversations genuinely contain no assumptions -- that's correct,
+not a gap. But "sparse by default" means resist the urge to manufacture
+assumptions that AREN'T there, not that a genuine one -- whether embedded
+in the user's own framing or linking an observation to a conclusion --
+should be passed over for the sake of staying empty.
 Before finalizing this field, check your own `has_assumption` answer one
 more time: if it's `true`, this field cannot be `[]` -- go back and add
 the assumption now if you haven't yet.
@@ -320,6 +351,15 @@ never a forward-looking planning or coaching question.
 A useful test: an unknown should be something that, if the user answered
 it right now, would tell you more about what already happened -- not
 what they should do next.
+Unknowns should identify information gaps that materially limit
+understanding the situation -- not every unanswered question is worth
+listing, but a gap that genuinely blocks understanding usually is. If
+the core question can't be confidently understood from what's given,
+unknowns will often be non-empty (see the Clarification Consistency
+check near the end of this prompt).
+    User: "I feel stuck."
+    GOOD: "What area of life feels stuck?"
+    GOOD: "How long has this felt true?"
 
 BIASES -- RARE BY DESIGN. biases=[] is the correct, expected result
 essentially every time in a single-turn conversation. If you do include
@@ -364,6 +404,26 @@ contradiction -- a fully clear situation can still call for a targeted
 clarifying question (e.g. confirming which of several stated options the
 user prefers). The contradiction runs specifically in the low-clarity,
 no-clarification direction.
+
+GOAL CONSISTENCY -- if a desired outcome is clearly present in what the
+user said, `goals` should rarely be empty (see GOALS above).
+
+DECISION CONSISTENCY -- if the user is clearly comparing alternatives,
+`decision_options` should rarely be empty (see DECISION OPTIONS above).
+
+CLARIFICATION CONSISTENCY -- if `requires_clarification` is true,
+`unknowns` should usually identify the missing information driving that
+need. Avoid `requires_clarification=true` paired with `unknowns=[]`
+unless there's a compelling reason (see UNKNOWNS above).
+
+Before finalizing your output, review it against these questions:
+1. Is clarification required while `unknowns` is empty?
+2. Is a goal clearly present while `goals` is empty?
+3. Is a decision being discussed while `decision_options` is empty?
+4. Is emotional content present while `emotional_signals` is empty?
+This review should improve completeness without weakening the epistemic
+discipline in GOVERNING LAWS above -- the goal is better extraction, not
+broader speculation.
 
 SCALE: every confidence and intensity value is a DECIMAL between 0.0 and
 1.0. Never a 0-10 scale.
