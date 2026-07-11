@@ -4949,3 +4949,109 @@ specifically on unknowns extraction for multi-dimensional/low-
 information inputs (D03, X04) and goal extraction for tension/dual-
 position framings (R04) if that's judged worth prioritizing over moving
 on to Planner.
+
+---
+
+**2026-07-11 — Planner v2 Priority 1**
+
+Second stage of the pipeline depth-parity work (Interpretation ->
+Planner -> Response, per the audit two entries above). Unlike
+Interpretation, Planner had no pre-existing v2 design document -- it has
+never had a depth round since `planner-specification-v1.md` was frozen
+(the only prior prompt change was the 2026-07-10 "no direct questions"
+constraint addition). This round's findings come directly from grepping
+`experiments/confidant-validation/log.md` (the same 30-test live
+validation run) for Planner-specific recurring defects, then reading
+`src/planner/schema.py`, `src/planner/prompt.py`, `src/planner/engine.py`,
+`planner-specification-v1.md`, and `tests/test_planner_schema.py`
+directly.
+
+Five recurring, evidence-cited defects, all addressed prompt-only (no
+schema or engine changes -- confirmed `src/planner/engine.py` does zero
+deterministic post-processing of Planner's output, unlike
+Interpretation's word-overlap grounding filters, so there was no
+analogous "engine silently strips compliant output" risk to check for
+this round):
+
+1. **`assumptions_to_test=[]` chronic under-population -- the single
+   most repeated Planner defect in the whole 30-test run (12 separate
+   occurrences)**: C04 ("quitting without a backup job will cause
+   financial instability" never named, despite `impact_domains` itself
+   flagging `financial`), R03 (colleague-interruptions-as-deliberate
+   never named), E02 (catastrophizing-about-failure never named), D04,
+   and several more -- all repeatedly contrasted in the log against R02
+   (the one test where Planner correctly named "friend must be angry"
+   as an assumption to test). The old guidance only pointed to
+   "Judgment's grounded content (risks/contradictions) or WorldState's
+   own assumptions/inferences" as sources, with no instruction for how
+   to derive one when upstream stages hadn't already named it -- which
+   was most of the flagged cases.
+2. **`resolution_blocker: 'none identified'` self-contradiction**
+   (at least C03, E01, E04): Planner claiming no blocker exists in the
+   same output where `conversational_strategy` is "compare
+   alternatives" or "ask exploratory questions" and `questions_to_explore`
+   is non-empty -- "if truly nothing were blocking resolution, there
+   would be no reason to ask three exploratory questions."
+3. **`resolution_blocker` phrased as a literal question instead of a
+   blocker statement** (E02): `'What specific aspects of failure is the
+   user afraid of?'`.
+4. **One-sided/asymmetric `questions_to_explore`** (R01, D01; positive
+   counter-example R04): R01's questions all explored the *partner's*
+   perspective, never inviting the user to examine their own
+   "overreacting" framing -- even though Planner's own
+   `assumptions_to_test` had already flagged that framing as worth
+   verifying in the same output. D01 asked about the MBA's career
+   impact but never an equivalent question about the house side.
+5. **Confidence discontinuity from Judgment** (clearest instance of
+   this defect class in the run, D01): Judgment held 0.5, Planner/
+   Response jumped to 0.7 "with no new information introduced to
+   justify the 0.2 increase." The old confidence guidance never
+   anchored Planner's value relative to Judgment's own (available in
+   the input).
+
+**Design risk checked before implementation, not after** (Plan-agent
+stress-test, same discipline as Interpretation v2's grounding-filter
+check): the natural fix for (1) -- letting Planner name a brand-new
+assumption when nothing upstream already flagged one -- risks directly
+colliding with Governing Law 5 ("never introduce a fact, risk, blocker,
+or interpretation that isn't actually present") and the "Invent facts"
+prohibition. The spec itself already licenses this more than the old
+prompt implemented (`planner-specification-v1.md`'s `assumptions_to_test`
+field says "derived from Judgment assumptions or **inferred reasoning**"
+-- broader than the old prompt's narrower sourcing), so broadening
+wasn't a spec violation, but it still needed careful framing to avoid
+reading as license to speculate. Resolved by framing a newly-named
+assumption strictly as **surfacing an unstated precondition a specific
+existing WorldState Claim/Goal/Decision already logically depends on**
+-- not a new belief about the user -- and requiring the phrasing to cite
+what it's derived from. Separately, the Plan agent confirmed
+`src/planner/engine.py` does no word-overlap or other deterministic
+filtering (only JSON parse + Pydantic validation), so there's no risk of
+an engine-level filter silently stripping newly-compliant output the
+way Interpretation's did -- and checked the Resolution Blocker
+Consistency invariant (2) for false-positive risk (forcing a fabricated
+blocker onto a genuinely blocker-free exploratory turn): all three
+flagged `'none identified'` cases in the log pair the contradiction with
+a genuinely real, evidenced gap, and the invariant explicitly allows
+"missing information" as a sufficient, honest answer, so it doesn't
+force more specificity than the evidence supports.
+
+**Prompt changes** (`src/planner/prompt.py`, folded directly into the
+relevant field definitions rather than a separate consistency section,
+since each rule belongs to exactly one field): `assumptions_to_test`
+rewritten with the precondition-framing above plus two worked examples;
+`resolution_blocker` gained both the phrasing-discipline rule (noun
+phrase, never a literal question) and the Resolution-Blocker-Consistency
+invariant; `questions_to_explore` gained the two-or-more-sides balance
+guidance; `confidence` gained the anchor-to-Judgment guidance. No schema
+change (`src/planner/schema.py` and the frozen spec's Outputs section
+are untouched) -- same prompt-only shape as Interpretation v2 Priority 1.
+
+**Verification**: full suite 193 passed (unchanged, since only
+`src/planner/prompt.py` changed -- no new deterministic function to
+unit-test the way Interpretation's grounding filters needed; Planner
+remains a single end-to-end LLM call, same as before). Live re-test
+verification against the same seven Planner-flagged log.md cases
+(C04, C03, E01, E02, E04, R01, D01) to follow in a separate commit,
+pinning `openrouter_model: "openai/gpt-4o-mini"` per this project's
+standing methodology.
