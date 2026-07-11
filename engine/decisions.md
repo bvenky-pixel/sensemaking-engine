@@ -5050,8 +5050,102 @@ are untouched) -- same prompt-only shape as Interpretation v2 Priority 1.
 **Verification**: full suite 193 passed (unchanged, since only
 `src/planner/prompt.py` changed -- no new deterministic function to
 unit-test the way Interpretation's grounding filters needed; Planner
-remains a single end-to-end LLM call, same as before). Live re-test
-verification against the same seven Planner-flagged log.md cases
-(C04, C03, E01, D02, E04, R01, D01) to follow in a separate commit,
-pinning `openrouter_model: "openai/gpt-4o-mini"` per this project's
-standing methodology.
+remains a single end-to-end LLM call, same as before).
+
+---
+
+**2026-07-11 — Planner v2 Priority 1: live re-test results**
+
+Follow-up to the entry above. Dispatched `single-turn-smoketest.yml`
+against `main` (pinning `openrouter_model: "openai/gpt-4o-mini"`, same
+methodology as every other live re-test this session) for the seven
+Planner-flagged cases (C04, C03, E01, D02, E04, R01, D01), using the
+identical input text already recorded in `experiments/confidant-validation/log.md`.
+C04 and R01 each got dispatched twice by accident (a bookkeeping slip,
+not intentional) -- both extra runs are reported below since seeing the
+same input produce a different result on a second run is itself
+informative about how reliable a prompt-only fix actually is. All runs
+succeeded (4/4 pipeline stages each).
+
+**Confirmed fixes**:
+
+- **D02** ("I want to start a company, but I'm afraid of failing.") --
+  originally missed naming the catastrophizing-about-failure assumption
+  (`assumptions_to_test=[]`) and phrased `resolution_blocker` as a
+  literal question (`'What specific aspects of failure is the user
+  afraid of?'`). Now: `assumptions_to_test=["Assumes the user believes
+  failure is a likely outcome of starting a company."]` (populated) and
+  `resolution_blocker='fear of failing'` (a proper noun phrase, not a
+  question). Both defects fixed on the same input.
+- **D01** ("I can afford either a house or an MBA, but not both.") --
+  originally flagged for asymmetric `questions_to_explore` (probed the
+  MBA's career impact but never an equivalent question about the
+  house). Now: `['What are the long-term benefits of each option?',
+  'What are the potential drawbacks of each choice?']` -- generic
+  "each option"/"each choice" framing that covers both sides rather
+  than naming one. Also no confidence discontinuity this run (Judgment
+  0.8, Planner 0.8, matching -- versus the original's flagged 0.5 -> 0.7
+  jump), though Judgment's own confidence was already higher this run,
+  so this is a weaker signal than the assumptions/balance fixes.
+- **R01** ("My partner says I never listen, but I think they're
+  overreacting.") -- originally flagged because `questions_to_explore`
+  only ever explored the *partner's* perspective, never inviting the
+  user to examine their own "overreacting" framing, despite
+  `assumptions_to_test` already flagging it. First live run:
+  `questions_to_explore` included "How does the user perceive their own
+  listening habits?" alongside the partner-focused questions -- directly
+  addresses the original gap. Second (duplicate) run phrased it
+  differently but stayed self-reflective rather than partner-only
+  (`'What specific behaviors does the user think may have led to this
+  perception?'`). Neither run reproduced the original one-sided pattern.
+- **E01** ("I've been feeling burnt out for months.") -- originally
+  flagged for the `resolution_blocker: 'none identified'`
+  self-contradiction. Now: `resolution_blocker='unresolved uncertainty'`,
+  consistent with its own exploratory `conversational_strategy` and
+  non-empty `questions_to_explore`.
+
+**Confirmed NOT fixed**:
+
+- **C03** ("I have two job offers and can't decide which one to
+  accept.") -- this was the test the Resolution Blocker Consistency
+  invariant was written to fix (`resolution_blocker: 'none identified'`
+  directly contradicting `conversational_strategy: 'compare
+  alternatives'` and three exploratory questions). Live re-test
+  reproduced the *exact same* defect, unchanged: `conversational_strategy:
+  'compare alternatives'`, `resolution_blocker: 'none identified'`,
+  two `questions_to_explore`. No improvement on the case the invariant
+  was built for.
+- **C04** ("I'm thinking of quitting without another job lined up.") --
+  originally the most severe Planner finding in the run ("risk
+  assessment capability essentially absent... `assumptions_to_test=[]`").
+  `assumptions_to_test` stayed empty in *both* live runs, despite this
+  being nearly the exact scenario the new prompt's own worked example
+  was modeled on almost verbatim (shipped example: "User is considering
+  quitting without another job lined up." -> "Assumes leaving without a
+  backup income source is manageable"; live input: "I'm thinking of
+  quitting without another job lined up.") -- the closest possible match
+  between a worked example and a live input, and it still didn't
+  generalize. `resolution_blocker` was inconsistent across the two runs
+  on the identical input: the first reproduced `'none identified'`
+  unchanged, the second correctly said `'unresolved uncertainty'` --
+  same input, different outcome, underscoring that this is a
+  probabilistic nudge, not a hard constraint. Judgment's own
+  `risks` field was populated correctly in both runs, but that's
+  Judgment/Interpretation's prior depth work, not this round's Planner
+  change.
+
+**Assessment**: another genuinely mixed result, consistent with
+Interpretation v2's finding that prompt-only guidance is probabilistic.
+The assumptions_to_test precondition-framing and the balance guidance
+each produced a clean, direct fix on the case most clearly matching
+their own worked examples (D02, D01, R01) and the resolution_blocker
+phrasing rule fixed its one target case (D02) outright. But the
+Resolution Blocker Consistency invariant -- the fix aimed most directly
+at the single most-repeated self-contradiction pattern in the log --
+failed to fix the exact case it was written for (C03) even once, and
+`assumptions_to_test` still failed on C04 despite an almost word-for-word
+match to its own shipped example. Both are worth flagging as candidates
+for a stronger fix (e.g. a more explicit final self-check, mirroring
+Interpretation v2's Final Consistency Review block, rather than folding
+the rule into prose within the field definition) if a Priority 1.1
+follow-up is judged worthwhile before moving to Response.
