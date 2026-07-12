@@ -131,6 +131,82 @@ FIELD DEFINITIONS
   A conflict sitting in plain sight in supporting_evidence-worthy content
   is the single most commonly missed case -- do not skip this check just
   because nothing seemed contradictory at first read.
+- has_knowledge_correction: MANDATORY. Answer this FIRST, before writing
+  knowledge_correction_target, knowledge_correction_kind,
+  knowledge_correction_corrected_content, or knowledge_corrections: does
+  the contradictions check you just did (or a closer look at
+  WorldState.facts/WorldState.claims) reveal that one specific ACTIVE
+  Fact or Claim is now stale -- either directly contradicted by a later
+  one, or a near-duplicate/reworded restatement of another Fact or Claim
+  already in WorldState? Just true or false. False is the common,
+  correct answer most turns -- most Facts/Claims are neither contradicted
+  nor duplicated.
+- knowledge_correction_target / knowledge_correction_kind /
+  knowledge_correction_corrected_content: MANDATORY if
+  has_knowledge_correction is true. Quote the EXACT text of the
+  WorldState.facts or WorldState.claims entry that is now stale -- you
+  can see it verbatim in WorldState, so copy it directly, never
+  paraphrase or invent a fresh label for it.
+  Critical anchoring rule: knowledge_correction_target MUST be text that
+  already exists, verbatim, as a Fact or Claim in the WorldState you were
+  given -- never a fresh summary of "what's really true," and never text
+  drawn from supporting_evidence or your own reasoning that doesn't
+  itself appear in WorldState.facts/WorldState.claims.
+  knowledge_correction_kind is "retracted" (the target is no longer
+  true, and nothing else in WorldState already states the correct
+  version -- there is nothing to point to) or "superseded" (the target is
+  outdated or a reworded duplicate of a clearer statement -- the correct/
+  consolidated version belongs in knowledge_correction_corrected_content).
+  knowledge_correction_corrected_content is REQUIRED (non-empty) when
+  knowledge_correction_kind is "superseded" -- the actual replacement
+  text that becomes a new, active Fact/Claim. Leave it "" for "retracted"
+  (nothing to replace it with) and whenever has_knowledge_correction is
+  false.
+      Facts: ["Manager says user is doing great.", "User was passed over
+      for the promotion."] -> has_knowledge_correction: true,
+      knowledge_correction_target: "Manager says user is doing great.",
+      knowledge_correction_kind: "retracted",
+      knowledge_correction_corrected_content: "" (the actual outcome
+      already exists as its own separate Fact -- there's nothing new to
+      write, just retract the stale one)
+      Facts: ["User wants to move to the Product team.", "User wants to
+      move into the Product team.", "User is trying to move to the
+      Product team."] -> has_knowledge_correction: true,
+      knowledge_correction_target: "User wants to move into the Product
+      team.", knowledge_correction_kind: "superseded",
+      knowledge_correction_corrected_content: "User wants to move to the
+      Product team." (consolidating the reworded duplicate into the
+      clearest existing phrasing -- a second knowledge_corrections entry
+      handles the third reworded Fact the same way, pointing at the SAME
+      corrected_content so only one consolidated Fact results, not two)
+  BAD: knowledge_correction_target: "User's transfer status" (not
+  verbatim text from WorldState -- invents a label instead of quoting the
+  real Fact/Claim being corrected)
+  BAD: knowledge_correction_kind: "superseded",
+  knowledge_correction_corrected_content: "" (a superseded correction
+  with no replacement text contradicts what "superseded" means -- supply
+  real replacement text, or use "retracted" instead)
+- knowledge_corrections: the structured list, built from the fields
+  above. If has_knowledge_correction is true, this list MUST contain an
+  entry for knowledge_correction_target/knowledge_correction_kind/
+  knowledge_correction_corrected_content -- same direct-contradiction-
+  with-your-own-answer rule as decision_resolutions above. If more than
+  one Fact/Claim needs correcting this turn (e.g. two separately-reworded
+  duplicates of the same underlying statement), include one entry per
+  stale item -- the scalar fields above only need to capture the first/
+  primary one.
+  knowledge_corrections=[] (with has_knowledge_correction=false) is
+  correct whenever every Fact/Claim in WorldState is still the best
+  current statement of what it describes.
+  This is NOT the same check as contradictions above: contradictions is a
+  passive note for a downstream reader; knowledge_corrections is an
+  ACTIVE decision that changes WorldState itself (the target's status
+  actually changes, and a "superseded" correction creates a new Fact/
+  Claim). Only act here when you're actually confident which side is
+  stale -- when a real conflict exists but it's unclear which side should
+  be corrected (or both are still true on their own, e.g. two claims from
+  different points in time that don't actually rule each other out),
+  leave has_knowledge_correction false and rely on contradictions alone.
 - has_risk_signal: MANDATORY. Answer this FIRST, before writing
   risk_scan or risks: does any Fact, Claim, or Unknown imply a plausible
   negative consequence for the primary goal that hasn't been stated
@@ -222,10 +298,10 @@ FIELD DEFINITIONS
 OBSERVATIONS VS ASSESSMENTS
 open_unknowns and active_decisions are closer to observations (a
 filtered summary of what's in WorldState). primary_problem, contradictions,
-risks, opportunities, and confidence are assessments -- the first layer
-of reasoning built on those observations. Both kinds of field still must
-be grounded in WorldState; assessments simply require you to synthesize
-across multiple pieces of it.
+knowledge_corrections, risks, opportunities, and confidence are
+assessments -- the first layer of reasoning built on those observations.
+Both kinds of field still must be grounded in WorldState; assessments
+simply require you to synthesize across multiple pieces of it.
 
 JUDGMENT MUST NOT
 - Coach

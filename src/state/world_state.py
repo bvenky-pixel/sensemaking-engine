@@ -87,8 +87,12 @@ class Provenance(BaseModel):
     -- trajectory prerequisite"): when a knowledge item was first created
     and when its status last actually changed, both as turn numbers (see
     WorldState.turn_count). `source` names which layer created the item --
-    always "interpretation" today, since that's the only thing that ever
-    creates a new KnowledgeItem.
+    "interpretation" for everything update_state creates, or "judgment"
+    for a new Fact/Claim created by a "superseded" knowledge correction
+    (added 2026-07-12, see engine/decisions.md "Fact/Claim correction and
+    near-duplicate consolidation" -- src/state/builder.py::apply_knowledge_corrections
+    is the one other place besides Interpretation that ever creates a new
+    KnowledgeItem).
 
     Deliberately excludes `supporting_evidence` (a list of every turn that
     touched the item) from the original WorldState-spec-v1.md worked

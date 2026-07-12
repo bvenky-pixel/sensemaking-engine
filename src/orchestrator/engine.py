@@ -51,7 +51,7 @@ from src.judgment.engine import JudgmentError, recommend_phase_transition, run_j
 from src.orchestrator.schema import TurnResult
 from src.planner.engine import PlannerError, run_planner
 from src.response.engine import ResponseGeneratorError, run_response_generator
-from src.state.builder import apply_judgment_resolutions, update_state
+from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
 from src.understanding.engine import build_tier1_statements
 
@@ -151,6 +151,17 @@ def run_turn(
     state = apply_judgment_resolutions(state, judgment)
     behavioral_events += diff_behavioral_events(
         pre_resolution_state, state, session_id=session_id, turn=state.turn_count
+    )
+
+    # Same "Judgment never writes to WorldState except through this one
+    # exception" pattern as apply_judgment_resolutions just above, for
+    # the two knowledge tiers (Fact/Claim) that never had a correction
+    # pathway at all -- see engine/decisions.md "Fact/Claim correction
+    # and near-duplicate consolidation".
+    pre_correction_state = state
+    state = apply_knowledge_corrections(state, judgment)
+    behavioral_events += diff_behavioral_events(
+        pre_correction_state, state, session_id=session_id, turn=state.turn_count
     )
 
     try:

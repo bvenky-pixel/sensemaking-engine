@@ -24,9 +24,10 @@ from src.interpretation.schema import (
     Inference,
     Interpretation,
 )
-from src.judgment.schema import DecisionResolution, Judgment
-from src.state.builder import apply_judgment_resolutions, update_state
+from src.judgment.schema import DecisionResolution, Judgment, KnowledgeCorrection
+from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
+from src.understanding.engine import build_tier1_statements
 
 
 def make_interp(**overrides) -> Interpretation:
@@ -109,14 +110,21 @@ def test_contradiction_is_not_detected_known_gap():
     ORIGINALLY HOPED FOR: the first fact gets marked `superseded`, the
     second is `active`, history is preserved.
 
-    ACTUAL, CONFIRMED BEHAVIOR: _merge_content_items in src/state/builder.py
-    only dedups by exact string match. Two textually-different facts are
-    both appended as `active` -- nothing ever sets FactStatus.superseded, an
-    enum value that exists in src/state/world_state.py but is unused by any
-    code path today. This test documents that gap concretely rather than
-    asserting the originally-hoped-for (currently unimplemented) behavior.
-    Proposed fix discussed separately, not implemented here without
-    confirmation.
+    ACTUAL, CONFIRMED BEHAVIOR (for update_state alone -- see below):
+    _merge_content_items in src/state/builder.py only dedups by exact
+    string match. Two textually-different facts are both appended as
+    `active` -- nothing in update_state ever sets FactStatus.superseded.
+    This test documents that gap concretely for update_state, and its
+    assertions remain true and unchanged after 2026-07-12's Fact/Claim
+    correction round: the gap is now closable one layer up. See
+    apply_knowledge_corrections in src/state/builder.py and
+    Judgment.knowledge_corrections in src/judgment/schema.py
+    (engine/decisions.md "Fact/Claim correction and near-duplicate
+    consolidation") -- that mechanism is called separately, from
+    run_turn after run_judgment, never from inside update_state itself,
+    so update_state's own behavior in isolation is exactly as documented
+    here. See test_apply_knowledge_corrections_retracts_matching_fact
+    below for the now-available fix, exercised end to end.
     """
     state = WorldState()
     state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))
@@ -373,6 +381,10 @@ def make_judgment(**overrides) -> Judgment:
         open_unknowns=[],
         active_decisions=[],
         contradictions=[],
+        has_knowledge_correction=False,
+        knowledge_correction_target="",
+        knowledge_correction_kind="",
+        knowledge_correction_corrected_content="",
         has_risk_signal=False,
         risk_scan="No risk-worthy signal identified.",
         risks=[],
@@ -505,6 +517,381 @@ def test_apply_judgment_resolutions_no_match_leaves_decisions_unchanged():
     new_state = apply_judgment_resolutions(state, judgment)
 
     assert new_state.decisions[0].status == "open"
+
+
+# ---------------------------------------------------------------------------
+# Fact/Claim correction and near-duplicate consolidation (2026-07-12, see
+# engine/decisions.md "Fact/Claim correction and near-duplicate
+# consolidation"). apply_knowledge_corrections closes the gap
+# test_contradiction_is_not_detected_known_gap documents above, one layer
+# up from update_state -- see that test's docstring for why its own
+# assertions still hold unchanged.
+# ---------------------------------------------------------------------------
+def test_has_knowledge_correction_auto_repairs_for_retracted():
+    """Same boolean-gate auto-repair pattern as has_decision_resolution --
+    "retracted" needs no corrected_content to repair."""
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="retracted",
+        knowledge_correction_corrected_content="",
+    )
+    assert judgment.knowledge_corrections == [
+        KnowledgeCorrection(target="Boss denied the transfer.", kind="retracted", corrected_content="")
+    ]
+
+
+def test_has_knowledge_correction_auto_repairs_for_superseded_with_content():
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User wants to move into the Product team.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User wants to move to the Product team.",
+    )
+    assert judgment.knowledge_corrections == [
+        KnowledgeCorrection(
+            target="User wants to move into the Product team.",
+            kind="superseded",
+            corrected_content="User wants to move to the Product team.",
+        )
+    ]
+
+
+def test_has_knowledge_correction_does_not_repair_superseded_with_blank_corrected_content():
+    """A "superseded" correction with no replacement text can't be
+    mechanically repaired -- the repair intentionally does NOT fabricate
+    corrected_content, same discipline as every _apply_* function in
+    src/state/builder.py never fabricating content."""
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="",
+    )
+    assert judgment.knowledge_corrections == []
+
+
+def test_has_knowledge_correction_false_leaves_knowledge_corrections_empty():
+    judgment = make_judgment(
+        has_knowledge_correction=False,
+        knowledge_correction_target="",
+        knowledge_correction_kind="",
+        knowledge_correction_corrected_content="",
+    )
+    assert judgment.knowledge_corrections == []
+
+
+def test_apply_knowledge_corrections_retracts_matching_fact():
+    """The Boss denied/approved fixture, now actually correctable: the
+    stale fact is retracted, the untargeted sibling is untouched, nothing
+    new is fabricated."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        observed_facts=["Boss denied the transfer.", "Boss approved the transfer."]
+    ))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="retracted",
+        knowledge_corrections=[KnowledgeCorrection(target="Boss denied the transfer.", kind="retracted")],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    denied = next(f for f in new_state.facts if f.content == "Boss denied the transfer.")
+    approved = next(f for f in new_state.facts if f.content == "Boss approved the transfer.")
+    assert denied.status == "retracted"
+    assert approved.status == "active"
+    assert len(new_state.facts) == 2  # nothing fabricated
+
+
+def test_apply_knowledge_corrections_supersedes_and_creates_one_consolidated_fact():
+    """Two near-duplicate facts, both corrections pointing at the SAME
+    corrected_content -> both superseded, exactly ONE new active fact
+    created, not two -- the within-call anti-duplication guard."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=[
+        "User wants to move to the Product team.",
+        "User wants to move into the Product team.",
+    ]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User wants to move to the Product team.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User wants to transfer to the Product team.",
+        knowledge_corrections=[
+            KnowledgeCorrection(
+                target="User wants to move to the Product team.", kind="superseded",
+                corrected_content="User wants to transfer to the Product team.",
+            ),
+            KnowledgeCorrection(
+                target="User wants to move into the Product team.", kind="superseded",
+                corrected_content="User wants to transfer to the Product team.",
+            ),
+        ],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    active = [f for f in new_state.facts if f.status == "active"]
+    superseded = [f for f in new_state.facts if f.status == "superseded"]
+    assert len(new_state.facts) == 3  # 2 superseded originals + exactly 1 new consolidated fact
+    assert len(superseded) == 2
+    assert len(active) == 1
+    assert active[0].content == "User wants to transfer to the Product team."
+
+
+def test_apply_knowledge_corrections_no_duplicate_when_corrected_content_matches_an_existing_active_fact():
+    """Superseding a near-duplicate into text that's already an active
+    Fact must not create a redundant third item -- the pre-existing
+    active fact IS the consolidated result."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=[
+        "User wants to move to the Product team.",
+        "User wants to move into the Product team.",
+    ]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User wants to move into the Product team.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User wants to move to the Product team.",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="User wants to move into the Product team.", kind="superseded",
+            corrected_content="User wants to move to the Product team.",
+        )],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert len(new_state.facts) == 2  # no third fact created
+    active = [f for f in new_state.facts if f.status == "active"]
+    assert len(active) == 1
+    assert active[0].content == "User wants to move to the Product team."
+
+
+def test_apply_knowledge_corrections_no_match_leaves_facts_unchanged():
+    """A target with no sufficient overlap with anything -> dropped
+    silently, same "no match -> dropped, never fabricated" discipline as
+    _apply_goal_updates/_apply_decision_events/apply_judgment_resolutions."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Completely unrelated fact."]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Something not present at all.",
+        knowledge_correction_kind="retracted",
+        knowledge_corrections=[KnowledgeCorrection(target="Something not present at all.", kind="retracted")],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert new_state.facts[0].status == "active"
+    assert len(new_state.facts) == 1
+
+
+def test_apply_knowledge_corrections_does_not_rematch_already_corrected_item():
+    """Chain-prevention guard: Judgment is stateless-per-turn and sees the
+    FULL WorldState (including already-superseded items) every turn, so
+    it could plausibly re-flag the same now-inactive text on a later
+    turn. Re-applying the SAME correction must be a no-op the second
+    time -- the already-superseded target is never rematched, so no
+    second duplicate "consolidated" fact is fabricated."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        observed_facts=["User wants to move into the Product team."]
+    ))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User wants to move into the Product team.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User wants to move to the Product team.",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="User wants to move into the Product team.", kind="superseded",
+            corrected_content="User wants to move to the Product team.",
+        )],
+    )
+    once = apply_knowledge_corrections(state, judgment)
+    assert len(once.facts) == 2  # original superseded + one new active
+
+    twice = apply_knowledge_corrections(once, judgment)
+    assert len(twice.facts) == 2  # unchanged -- target is no longer active, never rematched
+
+
+def test_apply_knowledge_corrections_claim_target_stays_a_claim():
+    """A "superseded" correction targeting a Claim appends to
+    state.claims, not state.facts -- type preservation."""
+    state = WorldState()
+    state = update_state(state, make_interp(claims=["User believes their boss is upset."]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User believes their boss is upset.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User no longer believes their boss is upset.",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="User believes their boss is upset.", kind="superseded",
+            corrected_content="User no longer believes their boss is upset.",
+        )],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert len(new_state.claims) == 2
+    assert len(new_state.facts) == 0
+    active_claim = next(c for c in new_state.claims if c.status == "active")
+    assert active_claim.content == "User no longer believes their boss is upset."
+
+
+def test_apply_knowledge_corrections_deep_copy_does_not_mutate_caller():
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="retracted",
+        knowledge_corrections=[KnowledgeCorrection(target="Boss denied the transfer.", kind="retracted")],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert new_state.facts[0].status == "retracted"
+    assert state.facts[0].status == "active"  # caller's original object untouched
+
+
+def test_apply_knowledge_corrections_bumps_last_updated_not_first_seen():
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))  # turn 1
+    state = update_state(state, make_interp())  # turn 2, no new content
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="retracted",
+        knowledge_corrections=[KnowledgeCorrection(target="Boss denied the transfer.", kind="retracted")],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert new_state.facts[0].provenance.first_seen == 1
+    assert new_state.facts[0].provenance.last_updated == 2
+    assert new_state.turn_count == 2  # apply_knowledge_corrections never increments it
+
+
+def test_apply_knowledge_corrections_new_item_gets_fresh_provenance_source_judgment_and_tier_confidence():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        observed_facts=["User wants to move into the Product team."]
+    ))  # turn 1
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="User wants to move into the Product team.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="User wants to move to the Product team.",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="User wants to move into the Product team.", kind="superseded",
+            corrected_content="User wants to move to the Product team.",
+        )],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    new_fact = next(f for f in new_state.facts if f.status == "active")
+    assert new_fact.provenance.source == "judgment"
+    assert new_fact.provenance.first_seen == new_state.turn_count == 1
+    assert new_fact.provenance.last_updated == new_state.turn_count
+    assert new_fact.confidence == 1.0  # FACT_TIER_CONFIDENCE
+
+
+def test_apply_knowledge_corrections_superseded_with_blank_corrected_content_is_dropped_even_when_hand_built():
+    """The builder's own defensive check, independent of Judgment's
+    schema-level auto-repair: a KnowledgeCorrection(kind="superseded",
+    corrected_content="") that arrives having bypassed the repair path
+    entirely (constructed directly, as if the model emitted the list
+    itself) is still dropped -- never fabricates a blank replacement."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="Boss denied the transfer.", kind="superseded", corrected_content=""
+        )],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert new_state.facts[0].status == "active"  # never touched
+    assert len(new_state.facts) == 1  # nothing fabricated
+
+
+def test_correction_target_exact_match_wins_over_fuzzy_similar_candidate_regardless_of_list_order():
+    """The direct regression test for the antonym-collision fix: "Boss
+    denied the transfer." and "Boss approved the transfer." score 0.67
+    fuzzy overlap against EACH OTHER (see _find_active_correction_target
+    in src/state/builder.py). Confirms the exact-quoted target is always
+    the one corrected, never the fuzzy-similar neighbor, in BOTH list
+    orders."""
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="retracted",
+        knowledge_corrections=[KnowledgeCorrection(target="Boss denied the transfer.", kind="retracted")],
+    )
+
+    state_denied_first = WorldState()
+    state_denied_first = update_state(state_denied_first, make_interp(
+        observed_facts=["Boss denied the transfer.", "Boss approved the transfer."]
+    ))
+    result_a = apply_knowledge_corrections(state_denied_first, judgment)
+    denied_a = next(f for f in result_a.facts if f.content == "Boss denied the transfer.")
+    approved_a = next(f for f in result_a.facts if f.content == "Boss approved the transfer.")
+    assert denied_a.status == "retracted"
+    assert approved_a.status == "active"
+
+    state_approved_first = WorldState()
+    state_approved_first = update_state(state_approved_first, make_interp(
+        observed_facts=["Boss approved the transfer.", "Boss denied the transfer."]
+    ))
+    result_b = apply_knowledge_corrections(state_approved_first, judgment)
+    denied_b = next(f for f in result_b.facts if f.content == "Boss denied the transfer.")
+    approved_b = next(f for f in result_b.facts if f.content == "Boss approved the transfer.")
+    assert denied_b.status == "retracted"
+    assert approved_b.status == "active"
+
+
+def test_lexically_similar_but_distinct_facts_are_never_conflated_without_an_explicit_correction():
+    """Negative control: two genuinely distinct facts that happen to
+    share most of their words ("User can afford a house." / "User can
+    afford an MBA.", 0.75 word overlap by the same formula used above)
+    must never be touched by this mechanism absent an explicit,
+    Judgment-authored correction naming one of them as a target -- no
+    code path in apply_knowledge_corrections can spontaneously conflate
+    two distinct facts on its own."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=[
+        "User can afford a house.", "User can afford an MBA.",
+    ]))
+    judgment = make_judgment(has_knowledge_correction=False)
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    assert new_state.facts[0].status == "active"
+    assert new_state.facts[1].status == "active"
+    assert len(new_state.facts) == 2
+
+
+def test_tier1_excludes_retracted_and_superseded_after_a_correction():
+    """End-to-end through build_tier1_statements: after a correction, the
+    stale item is excluded from Tier 1 and the new active replacement is
+    included -- exercises src/understanding/engine.py's
+    _FACT_CLAIM_VISIBLE_STATUSES concretely (it already excludes
+    "retracted"/"superseded" with zero code change needed there)."""
+    state = WorldState()
+    state = update_state(state, make_interp(observed_facts=["Boss denied the transfer."]))
+    judgment = make_judgment(
+        has_knowledge_correction=True,
+        knowledge_correction_target="Boss denied the transfer.",
+        knowledge_correction_kind="superseded",
+        knowledge_correction_corrected_content="Boss approved the transfer.",
+        knowledge_corrections=[KnowledgeCorrection(
+            target="Boss denied the transfer.", kind="superseded",
+            corrected_content="Boss approved the transfer.",
+        )],
+    )
+    new_state = apply_knowledge_corrections(state, judgment)
+
+    fact_texts = [s.text for s in build_tier1_statements(new_state) if s.kind == "fact"]
+    assert "Boss denied the transfer." not in fact_texts
+    assert "Boss approved the transfer." in fact_texts
 
 
 # ---------------------------------------------------------------------------

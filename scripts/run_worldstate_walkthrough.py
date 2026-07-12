@@ -40,7 +40,13 @@ from src.state.world_state import WorldState
 
 # Career-decision scenario, deliberately built to exercise: an accumulating
 # goal, an unknown a later turn plausibly resolves, an entity who gets a
-# later role update, and a final decision.
+# later role update, and a final decision. Turn 11 (added 2026-07-12, see
+# engine/decisions.md "Fact/Claim correction and near-duplicate
+# consolidation") directly reverses turn 8's fact, to exercise
+# Judgment.has_knowledge_correction against a real, live model on a real
+# correction moment -- unlike every other boolean-gate field in this
+# codebase (assumptions, decision_events, decision_resolutions), this one
+# had no prior live-run track record when it shipped.
 TRANSCRIPT = [
     "I've been trying to move from my current team to the Product team for a few months now.",
     "My manager, Sarah, keeps saying it's not the right time, but she never gives a clear reason.",
@@ -52,6 +58,7 @@ TRANSCRIPT = [
     "Sarah mentioned she's actually being promoted to Head of Product in Q3.",
     "If she's leading Product, I think my chances go up a lot once the freeze ends.",
     "I've decided to wait until Q3 and see what happens once she's in the new role.",
+    "Actually, I just found out Sarah's promotion fell through -- she's not moving to Head of Product after all, she's staying on as my manager.",
 ]
 
 

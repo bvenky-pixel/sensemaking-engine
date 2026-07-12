@@ -55,6 +55,47 @@ class DecisionResolution(BaseModel):
     status: Literal["resolved", "deferred"]
 
 
+class KnowledgeCorrection(BaseModel):
+    """
+    Signals that a Fact or Claim already tracked in WorldState (status
+    still "active" as of the WorldState Judgment was given) is stale or
+    redundant, per this turn's fuller picture of WorldState.facts/claims.
+    `target` MUST be the EXACT text of the existing WorldState.facts/
+    claims entry being corrected -- same reasoning as DecisionResolution.
+    option above: Judgment is given the full serialized WorldState
+    verbatim, so it can quote the real thing directly rather than
+    inventing a label.
+
+    kind="retracted": target is no longer true, no replacement known --
+    corrected_content is "".
+    kind="superseded": target is outdated or a reworded near-duplicate of
+    a clearer statement -- corrected_content carries that replacement
+    text, which src/state/builder.py appends as a fresh, active item of
+    the SAME type (Fact stays Fact, Claim stays Claim); target itself is
+    marked superseded, never deleted.
+
+    One model covers BOTH Facts and Claims rather than splitting into
+    FactCorrection/ClaimCorrection -- matching happens by content
+    (src/state/builder.py searches WorldState.facts then WorldState.claims
+    for `target`), not by a type Judgment would have to declare itself;
+    asking Judgment to also classify the tier is pure transcription risk
+    with no upstream evidence it's needed. See engine/decisions.md
+    "Fact/Claim correction and near-duplicate consolidation".
+    """
+
+    target: str
+    kind: Literal["retracted", "superseded"]
+    # Required (non-empty) only when kind == "superseded". NOT enforced
+    # by a raising validator here -- a hard ValidationError on this one
+    # field would fail the entire Judgment call over one malformed entry
+    # in a new, unproven mechanism. Enforced instead by Judgment's own
+    # auto-repair validator below AND, independently, by
+    # src/state/builder.py::apply_knowledge_corrections (an entry can
+    # arrive there having bypassed the repair path entirely, if the model
+    # writes directly into knowledge_corrections).
+    corrected_content: str = ""
+
+
 class Judgment(BaseModel):
     primary_problem: str
     primary_goal: str
@@ -77,6 +118,39 @@ class Judgment(BaseModel):
     open_unknowns: List[str] = Field(default_factory=list)
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
+
+    # v1.7 (added 2026-07-12, see engine/decisions.md "Fact/Claim
+    # correction and near-duplicate consolidation"): the structured,
+    # WorldState-mutating counterpart to contradictions just above --
+    # contradictions is free text with no write-back path (confirmed by
+    # grep: it only ever flows into Planner's prompt and an eval metric
+    # count). This closes two related gaps at once: (1) FactStatus/
+    # ClaimStatus already anticipate "superseded"/"retracted" (see
+    # src/state/world_state.py) but nothing ever assigns them, and (2)
+    # near-duplicate Facts/Claims (paraphrased restatements of the same
+    # underlying content -- _merge_content_items in src/state/builder.py
+    # dedups by exact match only) accumulate with no decay. Both route
+    # through this ONE mechanism rather than two: both are really the
+    # same underlying judgment call -- "is this WorldState fact/claim
+    # still the best current statement, or should something replace it?"
+    # -- and Judgment already has full WorldState visibility plus the
+    # contradictions cross-check instruction to draw on. Deliberately NOT
+    # a mechanical word-overlap merge: "Boss denied the transfer." and
+    # "Boss approved the transfer." score 0.67 fuzzy overlap under the
+    # same formula used for Unknown resolution elsewhere in this
+    # codebase -- well within a plausible near-duplicate threshold, which
+    # would silently conflate two opposite-meaning facts. Judgment
+    # reasons about meaning, not surface word overlap, so it doesn't have
+    # that false-positive risk. has_knowledge_correction is the SAME
+    # boolean-gate lever as has_decision_resolution -- same
+    # transcription-compliance rationale (Judgment already has the
+    # ground truth in front of it, the risk is forgetting to copy it
+    # into the structured field).
+    has_knowledge_correction: bool
+    knowledge_correction_target: str  # exact WorldState facts/claims text; "" if has_knowledge_correction is False
+    knowledge_correction_kind: Literal["", "retracted", "superseded"]
+    knowledge_correction_corrected_content: str  # required only when kind == "superseded"; "" otherwise
+    knowledge_corrections: List[KnowledgeCorrection] = Field(default_factory=list)
 
     # v1.4 (see engine/decisions.md "decision lifecycle, round 3"):
     # Interpretation's decision_events (even after its own boolean-gate
@@ -170,4 +244,33 @@ class Judgment(BaseModel):
                     status=self.decision_resolution_status,
                 )
             ]
+
+        # has_knowledge_correction=True is the model's own committed
+        # signal that knowledge_correction_target/kind (and, for
+        # "superseded", corrected_content) name a real correction. Same
+        # mechanical-relocation repair as decision_resolutions above, but
+        # the replacement-content requirement is CONDITIONAL on kind --
+        # "retracted" has no replacement text at all (corrected_content
+        # stays ""), "superseded" requires real, non-empty
+        # corrected_content, never fabricated here: if the model left it
+        # blank for a superseded correction, this repair intentionally
+        # does NOT construct an entry (silently drop rather than
+        # fabricate, same discipline as every _apply_* function in
+        # src/state/builder.py). src/state/builder.py's own
+        # apply_knowledge_corrections defensively re-checks this same
+        # condition for entries that arrive pre-built in
+        # knowledge_corrections, bypassing this repair path entirely.
+        if self.has_knowledge_correction and not self.knowledge_corrections:
+            target = self.knowledge_correction_target.strip()
+            corrected = self.knowledge_correction_corrected_content.strip()
+            kind = self.knowledge_correction_kind
+            valid_for_kind = kind == "retracted" or (kind == "superseded" and corrected)
+            if target and kind and valid_for_kind:
+                self.knowledge_corrections = [
+                    KnowledgeCorrection(
+                        target=target,
+                        kind=kind,
+                        corrected_content=corrected if kind == "superseded" else "",
+                    )
+                ]
         return self

@@ -37,6 +37,7 @@ from src.state.world_state import (
     Fact,
     Goal,
     Inference,
+    KnowledgeItem,
     Provenance,
     Unknown,
     WorldState,
@@ -308,6 +309,161 @@ def apply_judgment_resolutions(state: WorldState, judgment: Judgment) -> WorldSt
                 if d.provenance is not None:
                     d.provenance.last_updated = new_state.turn_count
                 break
+    return new_state
+
+
+def _find_active_correction_target(
+    facts: List[Fact], claims: List[Claim], target: str
+) -> Tuple[Optional[KnowledgeItem], Optional[str]]:
+    """
+    Locates the ACTIVE Fact or Claim `target` refers to -- returns
+    (item, "fact"|"claim"), or (None, None) if nothing matches. Searches
+    facts before claims (deterministic order -- Fact is the higher-tier,
+    more directly-stated content, so a target ambiguous between the two
+    lists resolves toward the stronger-evidence tier first).
+
+    Tries an EXACT (case-insensitive, trimmed) match across every active
+    item BEFORE ever falling back to the fuzzy _is_resolved_by word-
+    overlap check used elsewhere in this module. This is NOT optional,
+    unlike apply_judgment_resolutions' pure fuzzy scan above: Fact/Claim
+    content is exactly the shape a word-overlap ratio gets wrong --
+    "Boss denied the transfer." and "Boss approved the transfer." score
+    0.67 fuzzy overlap against EACH OTHER (well above the 0.5 threshold
+    used for Unknown resolution), because a single antonym leaves most of
+    the sentence's words shared. Judgment is instructed to quote
+    WorldState text verbatim (see src/judgment/prompt.py), so an exact
+    match is the overwhelmingly common case; skipping straight to fuzzy
+    matching here would reintroduce, at this matching step, the exact
+    false-positive risk already ruled out for auto-merging Facts/Claims
+    -- if the wrong (antonym) candidate happened to appear earlier in the
+    list, a fuzzy-only scan could retract/supersede the wrong side even
+    though Judgment named the correct one exactly.
+    """
+    target_key = target.strip().lower()
+    for f in facts:
+        if f.status == "active" and f.content.strip().lower() == target_key:
+            return f, "fact"
+    for c in claims:
+        if c.status == "active" and c.content.strip().lower() == target_key:
+            return c, "claim"
+    for f in facts:
+        if f.status == "active" and (
+            _is_resolved_by(target, f.content) or _is_resolved_by(f.content, target)
+        ):
+            return f, "fact"
+    for c in claims:
+        if c.status == "active" and (
+            _is_resolved_by(target, c.content) or _is_resolved_by(c.content, target)
+        ):
+            return c, "claim"
+    return None, None
+
+
+def apply_knowledge_corrections(state: WorldState, judgment: Judgment) -> WorldState:
+    """
+    Applies Judgment.knowledge_corrections to WorldState.facts/claims --
+    added 2026-07-12 (see engine/decisions.md "Fact/Claim correction and
+    near-duplicate consolidation"), the same "Judgment never writes to
+    WorldState except through this one exception" pattern as
+    apply_judgment_resolutions above, extended to the two knowledge tiers
+    that never had a correction pathway at all: FactStatus/ClaimStatus
+    already anticipate "superseded"/"retracted" (src/state/world_state.py)
+    but nothing ever assigned them, and near-duplicate Facts/Claims
+    (_merge_content_items dedups by exact match only) accumulated with no
+    decay. Called by the orchestrator immediately after
+    apply_judgment_resolutions in run_turn.
+
+    Searches ACTIVE facts, then ACTIVE claims, for each correction's
+    target (see _find_active_correction_target above for why exact-match
+    is tried before fuzzy word-overlap). Already-superseded/retracted
+    items are never rematched -- this guard matters here in a way it
+    doesn't for _apply_decision_events/apply_judgment_resolutions:
+    Judgment is stateless-per-turn and re-derives its assessment fresh
+    every turn from the FULL WorldState it's given (which still includes
+    retracted/superseded items verbatim -- Judgment's own prompt view is
+    not filtered the way Tier 1 understanding is). A Decision re-flagged
+    on a later turn is harmless -- it's just a status re-assignment, no
+    new object is created, so at worst a stale re-flag flips a status
+    field back and forth. A Fact/Claim "superseded" correction is
+    different: it APPENDS a new active item. Without the active-only
+    guard, Judgment re-noticing the SAME now-inactive text on a later
+    turn (entirely plausible -- nothing prunes retracted/superseded
+    content from what Judgment sees) could re-trigger a "superseded"
+    correction and fabricate ANOTHER duplicate "consolidated" item each
+    time it's re-flagged -- the correction mechanism silently becoming a
+    NEW source of the exact duplicate-accumulation problem it exists to
+    fix. Restricting matches to status=="active" closes this off: once
+    corrected, an item is permanently out of consideration.
+
+    Within a single call, multiple corrections may legitimately point at
+    the SAME corrected_content (e.g. two separately-reworded duplicates
+    both consolidating into one canonical phrasing -- see the prompt's
+    worked example). Tracks case-insensitive content keys of every
+    active Fact/Claim -- both pre-existing AND newly appended earlier in
+    THIS SAME call -- so a second correction whose corrected_content
+    already has a matching active item (just-created or pre-existing)
+    is recognized as already covered and does NOT append a second
+    duplicate.
+
+    Stamps provenance.last_updated on the TARGET using state.turn_count,
+    same "does not increment it, update_state already did this turn"
+    discipline as apply_judgment_resolutions. The newly-created
+    "superseded" replacement gets fresh Provenance(first_seen=
+    last_updated=turn_count), source="judgment" -- NOT "interpretation":
+    this is the one place besides Interpretation that ever creates a new
+    KnowledgeItem (see Provenance's own docstring in world_state.py,
+    updated alongside this change).
+    """
+    new_state = state.model_copy(deep=True)  # never mutate the caller's state
+    turn = new_state.turn_count
+
+    active_fact_keys = {f.content.strip().lower() for f in new_state.facts if f.status == "active"}
+    active_claim_keys = {c.content.strip().lower() for c in new_state.claims if c.status == "active"}
+
+    for correction in judgment.knowledge_corrections:
+        # Defensive re-check, independent of Judgment's own auto-repair
+        # validator -- entries can arrive here either reconstructed by
+        # that repair (which already enforces this) or emitted directly
+        # by the model into knowledge_corrections, bypassing the repair
+        # path entirely. Never fabricate a "superseded" replacement with
+        # blank content.
+        if correction.kind == "superseded" and not correction.corrected_content.strip():
+            continue
+
+        target_item, target_kind = _find_active_correction_target(
+            new_state.facts, new_state.claims, correction.target
+        )
+        if target_item is None:
+            continue  # no match -> dropped, never fabricated
+
+        target_item.status = correction.kind
+        if target_item.provenance is not None:
+            target_item.provenance.last_updated = turn
+
+        if correction.kind != "superseded":
+            continue
+
+        key = correction.corrected_content.strip().lower()
+        active_keys = active_fact_keys if target_kind == "fact" else active_claim_keys
+        if key in active_keys:
+            continue  # an equivalent active replacement already exists -- don't duplicate it
+
+        provenance = Provenance(source="judgment", first_seen=turn, last_updated=turn)
+        if target_kind == "fact":
+            new_state.facts.append(Fact(
+                content=correction.corrected_content.strip(),
+                confidence=FACT_TIER_CONFIDENCE,
+                provenance=provenance,
+            ))
+            active_fact_keys.add(key)
+        else:
+            new_state.claims.append(Claim(
+                content=correction.corrected_content.strip(),
+                confidence=CLAIM_TIER_CONFIDENCE,
+                provenance=provenance,
+            ))
+            active_claim_keys.add(key)
+
     return new_state
 
 

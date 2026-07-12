@@ -85,6 +85,8 @@ def test_tier1_ids_are_namespaced_by_kind():
 _MINIMAL_JUDGMENT = {
     "primary_problem": "", "primary_goal": "", "current_focus": "", "key_blockers": [],
     "secondary_issues": [], "open_unknowns": [], "active_decisions": [], "contradictions": [],
+    "has_knowledge_correction": False, "knowledge_correction_target": "",
+    "knowledge_correction_kind": "", "knowledge_correction_corrected_content": "",
     "has_risk_signal": False, "risk_scan": "No risk-worthy signal identified.", "risks": [],
     "opportunities": [], "has_decision_resolution": False, "decision_resolution_option": "",
     "decision_resolution_status": "", "stagnation_notes": [], "confidence": 0.5,
