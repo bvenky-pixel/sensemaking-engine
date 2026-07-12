@@ -38,7 +38,7 @@ from src.instrumentation.usage import AttemptRecord, UsageTracker, default_track
 from src.judgment.prompt import build_messages
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.judgment.schema import Judgment
-from src.state.world_state import WorldState
+from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.15  # low: this is assessment/reasoning, not creative generation
 
@@ -136,7 +136,7 @@ def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> J
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
     """
-    world_state_json = state.model_dump_json(indent=2)
+    world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     stagnation_signals = compute_stagnation_signals(state)
     system_prompt, messages = build_messages(world_state_json, stagnation_signals)
     schema = Judgment.model_json_schema()

@@ -62,9 +62,16 @@ at now.
 
 from __future__ import annotations
 
+import uuid
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+# Imports specifically from the schema submodule, not the understanding
+# package root -- see src/understanding/__init__.py's own comment on why
+# (avoids a circular import through src/understanding/engine.py, which
+# needs WorldState itself).
+from src.understanding.schema import UnderstandingState
 
 FactStatus = Literal["active", "superseded", "retracted"]
 ClaimStatus = Literal["active", "superseded", "retracted"]
@@ -98,18 +105,46 @@ class Provenance(BaseModel):
 class KnowledgeItem(BaseModel):
     """
     Common shape shared by every durable knowledge object (Fact, Claim,
-    Goal, Decision, Unknown, Entity), so a future WorkingMemory/Knowledge
-    split (see module TODO above) has a single, consistent base to work
-    from rather than six ad hoc shapes.
+    Goal, Decision, Unknown, Entity, Assumption, Inference), so a future
+    WorkingMemory/Knowledge split (see module TODO above) has a single,
+    consistent base to work from rather than six-plus ad hoc shapes.
 
     `status` is required on every subtype (each narrows the Literal and
-    default to its own lifecycle). `confidence` is still a placeholder for
-    a future round -- nothing populates it yet, so it stays None rather
-    than a fabricated default. `provenance` was the same kind of
-    placeholder until v1.1 (see Provenance above) -- now populated by
-    src/state/builder.py at creation and at every status transition.
+    default to its own lifecycle). `provenance` is populated by
+    src/state/builder.py at creation and at every status transition (see
+    Provenance above).
+
+    `id` (added 2026-07-12, see engine/decisions.md "Understanding layer
+    -- Journey-scoped identity"): stable across turns for as long as the
+    item itself persists -- previously there was NO stable identity on
+    these objects at all (matching went entirely by content/word-overlap
+    heuristics in src/state/builder.py, explicitly named as a deferred
+    gap in three separate places in this codebase). `default_factory`
+    keeps every pre-existing session's `model_validate_json` safe (no
+    ValidationError on a JSON blob with no "id" key), but means an
+    already-persisted item gets a DIFFERENT id on every deserialization
+    until it's next written back -- see scripts/backfill_knowledge_item_ids.py,
+    a required one-time migration for already-deployed sessions, not an
+    optional cleanup. Deliberately does NOT replace or change
+    src/state/builder.py's existing exact-match/word-overlap matching --
+    Interpretation stays stateless (never reads WorldState, see
+    src/interpretation/schema.py's GoalUpdate docstring), so its
+    GoalUpdate/DecisionEvent output will always be paraphrase text, never
+    a literal id reference. `id` is purely additive metadata for
+    downstream consumers (src/understanding/) to cite, not a matching
+    mechanism.
+
+    `confidence` (populated 2026-07-12, previously a dead placeholder --
+    nothing ever assigned it): a deterministic persistence TIER derived
+    from which KnowledgeItem subtype an item is, not a new per-item LLM
+    output -- see src/state/builder.py's FACT_TIER_CONFIDENCE and
+    siblings. The one exception is Inference, which gets a REAL per-item
+    value from Interpretation's own Inference.confidence (already a
+    calibrated LLM output, already gated by builder.py's
+    INFERENCE_CONFIDENCE_FLOOR) rather than a flat constant.
     """
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: str
     confidence: Optional[float] = None
     provenance: Optional[Provenance] = None
@@ -181,6 +216,51 @@ class Entity(KnowledgeItem):
     relationships: List[str] = Field(default_factory=list)
 
 
+AssumptionStatus = Literal["active", "retracted"]
+InferenceStatus = Literal["active", "retracted"]
+
+
+class Assumption(KnowledgeItem):
+    """
+    Added 2026-07-12 (see engine/decisions.md "Understanding layer --
+    Journey-scoped identity") -- an id-bearing, groundable counterpart to
+    the existing flat WorldState.assumptions: List[str]. Deliberately
+    ADDITIVE, not a replacement: the flat list stays exactly as it is
+    today (same population logic, same consumer -- src/judgment/engine.py's
+    phase-transition logic reads len(state.assumptions)), because an
+    in-place type change on that existing field would break
+    model_validate_json on every pre-existing session (old JSON has plain
+    strings where a structured object would now be expected -- a type
+    mismatch has no safe default the way an additive field does). This
+    type exists purely so src/understanding/ has something with a stable
+    id to cite; nothing here changes what Judgment/Planner/Response see.
+    confidence is populated with the flat ASSUMPTION_TIER_CONFIDENCE
+    constant (src/state/builder.py) -- Interpretation's assumptions field
+    is plain List[str], no per-item signal exists to use instead.
+    """
+
+    content: str
+    status: AssumptionStatus = "active"
+
+
+class Inference(KnowledgeItem):
+    """
+    Added 2026-07-12, same reasoning and same additive relationship to
+    WorldState.inferences: List[str] as Assumption above. Unlike
+    Assumption, confidence here is REAL per-item data, not a flat
+    constant -- src/interpretation/schema.py's own Inference.confidence
+    is already a calibrated LLM output (already gated by
+    src/state/builder.py's INFERENCE_CONFIDENCE_FLOOR), populated
+    directly from it. `content` is the cleaned reading only (no embedded
+    "(confidence=X)" suffix, since confidence is now a structured field)
+    -- NOT required to be byte-identical to the corresponding flat-list
+    string, which keeps its own suffix as before.
+    """
+
+    content: str
+    status: InferenceStatus = "active"
+
+
 class WorldState(BaseModel):
     # --- Working Memory (see module TODO) ---
     # Phase 2 (Discover) tracking -- not in the spec's Core Structure
@@ -217,6 +297,17 @@ class WorldState(BaseModel):
     unknowns: List[Unknown] = Field(default_factory=list)
     entities: List[Entity] = Field(default_factory=list)
 
+    # Added 2026-07-12 (see Assumption/Inference above and
+    # engine/decisions.md "Understanding layer -- Journey-scoped
+    # identity"): id-bearing, groundable counterparts to the flat
+    # assumptions/inferences string lists above, which stay untouched.
+    # Deliberately excluded from Judgment/Planner/Response's prompts
+    # (see the `exclude=` set at each of their model_dump_json call
+    # sites) -- these exist for src/understanding/ to consume, not as a
+    # new signal for the existing pipeline stages.
+    assumption_items: List[Assumption] = Field(default_factory=list)
+    inference_items: List[Inference] = Field(default_factory=list)
+
     # v1.1 (added 2026-07-10, see engine/decisions.md "WorldState
     # provenance -- trajectory prerequisite"): incremented exactly once
     # per turn, solely by src/state/builder.py::update_state -- the single
@@ -224,3 +315,31 @@ class WorldState(BaseModel):
     # with no turns yet. Nothing else (Orchestrator, the API layer) needs
     # to know about or manage this counter.
     turn_count: int = 0
+
+    # Added 2026-07-12 (see engine/decisions.md "Understanding layer --
+    # Journey-scoped identity"): the stable, human-readable layer
+    # rendered from this WorldState -- see src/understanding/. An empty
+    # default is correct (not harmful the way a fresh random `id` above
+    # would be) for a pre-existing session that hasn't had Tier 1
+    # computed yet; it populates on that session's very next turn, no
+    # backfill needed. Deliberately excluded from Judgment/Planner/
+    # Response's prompts, same reasoning as assumption_items/inference_items
+    # above -- this is a rendering of already-decided content, not a new
+    # input for those stages to reason over.
+    understanding: UnderstandingState = Field(default_factory=UnderstandingState)
+
+
+# Added 2026-07-12 (see engine/decisions.md "Understanding layer --
+# Journey-scoped identity"): src/judgment/engine.py, src/planner/engine.py,
+# and src/response/engine.py all dump the FULL WorldState verbatim into
+# their prompts (`state.model_dump_json(indent=2)`, no field filtering).
+# Left unexcluded, `understanding`/`assumption_items`/`inference_items`
+# would silently start flowing into all three already-calibrated prompts
+# the moment they exist -- pure token waste at minimum, and a real
+# behavior-regression risk at worst (a model citing/quoting
+# `understanding` text back, or treating assumption_items/inference_items
+# as a distinct new signal alongside the existing flat assumptions/
+# inferences lists they duplicate). Defined once here, imported by all
+# three engines' `model_dump_json(..., exclude=PROMPT_EXCLUDED_FIELDS)`
+# call, rather than three independently-maintained copies of the same set.
+PROMPT_EXCLUDED_FIELDS = {"understanding", "assumption_items", "inference_items"}

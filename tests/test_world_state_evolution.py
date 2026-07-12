@@ -745,3 +745,92 @@ def test_entity_stamped_with_provenance_at_creation():
     assert provenance.source == "interpretation"
     assert provenance.first_seen == 1
     assert provenance.last_updated == 1
+
+
+# --- Understanding layer -- Journey-scoped identity (2026-07-12, see
+# engine/decisions.md) ---
+
+
+def test_knowledge_item_ids_are_stable_across_repeated_update_state_calls_when_content_unchanged():
+    """The exact-dedup path in _merge_content_items returns the SAME
+    Goal object (not a new one) when the identical content is restated --
+    its id must be the literal same string both times, not just "some
+    id"."""
+    state = WorldState()
+    state = update_state(state, make_interp(goals=["Move to the Product team."]))
+    first_id = state.goals[0].id
+
+    state = update_state(state, make_interp(goals=["Move to the Product team."]))
+    assert len(state.goals) == 1
+    assert state.goals[0].id == first_id
+
+
+def test_knowledge_item_ids_are_unique_across_items_in_one_turn():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        observed_facts=["Fact one.", "Fact two."], goals=["Goal one.", "Goal two."],
+    ))
+    ids = [f.id for f in state.facts] + [g.id for g in state.goals]
+    assert len(ids) == len(set(ids))
+
+
+def test_fact_goal_decision_get_highest_tier_confidence():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        observed_facts=["A fact."], goals=["A goal."], decision_options=["An option."],
+    ))
+    assert state.facts[0].confidence == 1.0
+    assert state.goals[0].confidence == 1.0
+    assert state.decisions[0].confidence == 1.0
+
+
+def test_claim_gets_interpretive_tier_confidence():
+    state = WorldState()
+    state = update_state(state, make_interp(claims=["A claim."]))
+    assert state.claims[0].confidence == 0.7
+
+
+def test_assumption_item_gets_lowest_tier_confidence():
+    state = WorldState()
+    state = update_state(state, make_interp(assumptions=["Assumes something."]))
+    assert len(state.assumption_items) == 1
+    assert state.assumption_items[0].confidence == 0.3
+    assert state.assumption_items[0].content == "Assumes something."
+
+
+def test_inference_item_confidence_matches_real_interpretation_confidence_not_a_constant():
+    """Unlike Assumption, Inference gets REAL per-item confidence from
+    Interpretation's own calibrated Inference.confidence -- not a flat
+    tier constant."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        inferences=[Inference(reading="User seems anxious about this.", confidence=0.62)]
+    ))
+    assert len(state.inference_items) == 1
+    assert state.inference_items[0].confidence == 0.62
+    assert state.inference_items[0].content == "User seems anxious about this."
+
+
+def test_assumptions_and_inferences_flat_lists_unchanged_by_new_parallel_fields():
+    """Regression guard for src/judgment/engine.py's phase-transition
+    logic, which reads len(state.assumptions) + len(state.biases) --
+    the flat lists must stay byte-identical to pre-change behavior."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        assumptions=["Assumes X."],
+        inferences=[Inference(reading="Seems like Y.", confidence=0.5)],
+    ))
+    assert state.assumptions == ["Assumes X."]
+    assert state.inferences == ["Seems like Y. (confidence=0.50)"]
+
+
+def test_assumption_items_dedup_matches_flat_list_exact_match_semantics():
+    """assumption_items merges with case_insensitive=False, mirroring
+    _merge_unique's exact-match dedup exactly -- two near-duplicates
+    differing only in case both survive, same as the flat assumptions
+    list does, unlike _merge_content_items' usual case-insensitive
+    default."""
+    state = WorldState()
+    state = update_state(state, make_interp(assumptions=["Assumes X.", "assumes x."]))
+    assert len(state.assumptions) == 2
+    assert len(state.assumption_items) == 2

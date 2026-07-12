@@ -36,7 +36,7 @@ from src.judgment.schema import Judgment
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.planner.prompt import build_messages
 from src.planner.schema import Planner
-from src.state.world_state import WorldState
+from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.15  # low: this is assessment/planning, not creative generation
 
@@ -68,7 +68,7 @@ def run_planner(
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
     """
-    world_state_json = state.model_dump_json(indent=2)
+    world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     system_prompt, messages = build_messages(world_state_json, judgment_json)
     schema = Planner.model_json_schema()

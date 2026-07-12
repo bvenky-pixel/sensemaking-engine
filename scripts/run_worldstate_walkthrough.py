@@ -82,6 +82,19 @@ def main() -> int:
         print("\n--- WORLDSTATE AFTER TURN", i, "---")
         render(state)
 
+        # Understanding layer, Tier 1 (2026-07-12, see engine/decisions.md
+        # "Understanding layer -- Journey-scoped identity") -- deterministic,
+        # already computed by run_turn itself (src/orchestrator/engine.py),
+        # printed here so a live multi-turn run visibly demonstrates
+        # statement-id stability across turns, not just constructed test
+        # fixtures.
+        print("\n--- UNDERSTANDING (Tier 1) ---")
+        if state.understanding.tier1:
+            for stmt in state.understanding.tier1:
+                print(f"    [{stmt.kind}] {stmt.text!r} (id={stmt.id})")
+        else:
+            print("    (none yet)")
+
         if not result.judgment:
             failures += 1
             print(f"[FAIL] turn {i} (judgment): {result.error}")

@@ -19,7 +19,7 @@ leaking into state in an earlier version.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from src.interpretation.schema import (
     DecisionEvent,
@@ -29,12 +29,14 @@ from src.interpretation.schema import (
 )
 from src.judgment.schema import Judgment
 from src.state.world_state import (
+    Assumption,
     Claim,
     Decision,
     Entity,
     EntityAttribute,
     Fact,
     Goal,
+    Inference,
     Provenance,
     Unknown,
     WorldState,
@@ -44,6 +46,29 @@ from src.state.world_state import (
 # multiplies by this for display (matches the Pydantic mirror in
 # engine/state_updater.py, kept in sync for the eventual Claude swap).
 INTENSITY_SCALE = 10
+
+# Confidence tiers (added 2026-07-12, see engine/decisions.md
+# "Understanding layer -- Journey-scoped identity"): KnowledgeItem.confidence
+# was a dead placeholder field until now -- these constants populate it
+# deterministically by which knowledge-item TYPE an item is, not via a
+# new per-item LLM output (no evidence Interpretation can reliably
+# produce that). Directly extends this module's own long-standing
+# "epistemic tiers" concept (see module docstring above) into an actual
+# numeric ordering: Fact/Goal/Decision are directly stated (highest);
+# Claim is interpretive (lower); Assumption is the lowest durable tier,
+# since Interpretation's `assumptions` field has no per-item signal at
+# all to draw from. Unknown/Entity are deliberately left at the base
+# `confidence=None` default -- a question or a named party isn't a
+# confidence-bearing claim in the same sense, and nothing asked for a
+# tier on those. Inference is the one exception to "tier constant, not
+# real data" -- see the Inference-specific comment further down, where
+# its confidence comes from Interpretation's own calibrated per-item
+# value instead.
+FACT_TIER_CONFIDENCE = 1.0
+GOAL_TIER_CONFIDENCE = 1.0
+DECISION_TIER_CONFIDENCE = 1.0
+CLAIM_TIER_CONFIDENCE = 0.7
+ASSUMPTION_TIER_CONFIDENCE = 0.3
 
 # Inferences below this confidence don't get promoted into state. See
 # engine/decisions.md 2026-07-02 "v0.6" for why this is 0.15, not 0.5:
@@ -119,14 +144,22 @@ def _merge_unique(existing: List[str], new: List[str]) -> List[str]:
     return merged
 
 
-def _merge_content_items(existing: list, new_contents: List[str], model_cls, turn: int) -> list:
+def _merge_content_items(
+    existing: list,
+    new_contents: List[str],
+    model_cls,
+    turn: int,
+    confidence: Optional[float] = None,
+    case_insensitive: bool = True,
+) -> list:
     """
-    Generic merge for the typed Fact/Claim/Goal/Decision/Unknown tiers:
-    dedup by content (case-insensitive), append genuinely new items as a
-    fresh instance of model_cls with its default status. Existing items
-    are returned unchanged -- status transitions are handled by whichever
-    caller has the signal for them (see _reconcile_unknowns below for the
-    one transition Interpretation actually gives us evidence for).
+    Generic merge for the typed Fact/Claim/Goal/Decision/Unknown/
+    Assumption/Inference tiers: dedup by content, append genuinely new
+    items as a fresh instance of model_cls with its default status.
+    Existing items are returned unchanged -- status transitions are
+    handled by whichever caller has the signal for them (see
+    _reconcile_unknowns below for the one transition Interpretation
+    actually gives us evidence for).
 
     `turn` (added 2026-07-10, see engine/decisions.md "WorldState
     provenance -- trajectory prerequisite") stamps every newly created
@@ -135,15 +168,30 @@ def _merge_content_items(existing: list, new_contents: List[str], model_cls, tur
     creates a new KnowledgeItem. A reaffirmed-but-unchanged existing item
     is still returned untouched, same as before this field existed --
     dedup happens before this loop even sees it.
+
+    `confidence` (added 2026-07-12): stamps every newly created item with
+    this fixed tier value (see FACT_TIER_CONFIDENCE and siblings above).
+    None (the default) leaves KnowledgeItem.confidence at its own base
+    default -- used for Unknown, which isn't a confidence-bearing claim.
+
+    `case_insensitive` (added 2026-07-12): defaults to True, preserving
+    this function's original dedup behavior exactly for its five
+    pre-existing callers (Fact/Claim/Goal/Decision/Unknown). Set to False
+    for assumption_items/inference_items so their membership can't
+    silently diverge from the existing flat assumptions/inferences string
+    lists, which dedup via _merge_unique's exact-match semantics, not
+    this function's case-insensitive default.
     """
     result = list(existing)
-    seen = {item.content.strip().lower() for item in result}
+    key_fn = (lambda c: c.strip().lower()) if case_insensitive else (lambda c: c.strip())
+    seen = {key_fn(item.content) for item in result}
     for content in new_contents:
-        key = content.strip().lower()
+        key = key_fn(content)
         if key not in seen:
             result.append(
                 model_cls(
                     content=content,
+                    confidence=confidence,
                     provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
                 )
             )
@@ -400,13 +448,33 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     # pre-turn state to notice. Sourcing from new_state.X (already an
     # independent deep copy) instead of state.X fixes this without
     # changing any merge/dedup semantics.
-    new_state.facts = _merge_content_items(new_state.facts, interp.observed_facts, Fact, turn)
-    new_state.claims = _merge_content_items(new_state.claims, interp.claims, Claim, turn)
-    new_state.goals = _merge_content_items(new_state.goals, interp.goals, Goal, turn)
+    new_state.facts = _merge_content_items(
+        new_state.facts, interp.observed_facts, Fact, turn, confidence=FACT_TIER_CONFIDENCE
+    )
+    new_state.claims = _merge_content_items(
+        new_state.claims, interp.claims, Claim, turn, confidence=CLAIM_TIER_CONFIDENCE
+    )
+    new_state.goals = _merge_content_items(
+        new_state.goals, interp.goals, Goal, turn, confidence=GOAL_TIER_CONFIDENCE
+    )
     new_state.goals = _apply_goal_updates(new_state.goals, interp.goal_updates, turn)
-    new_state.decisions = _merge_content_items(new_state.decisions, interp.decision_options, Decision, turn)
+    new_state.decisions = _merge_content_items(
+        new_state.decisions, interp.decision_options, Decision, turn, confidence=DECISION_TIER_CONFIDENCE
+    )
     new_state.decisions = _apply_decision_events(new_state.decisions, interp.decision_events, turn)
     new_state.assumptions = _merge_unique(state.assumptions, interp.assumptions)
+
+    # Added 2026-07-12, see engine/decisions.md "Understanding layer --
+    # Journey-scoped identity": an id-bearing, groundable counterpart to
+    # the flat assumptions list just above -- deliberately additive, not
+    # a replacement (see Assumption's own docstring in world_state.py).
+    # case_insensitive=False mirrors _merge_unique's exact-match dedup
+    # exactly, so this list's membership never silently diverges from the
+    # flat assumptions list's.
+    new_state.assumption_items = _merge_content_items(
+        new_state.assumption_items, interp.assumptions, Assumption, turn,
+        confidence=ASSUMPTION_TIER_CONFIDENCE, case_insensitive=False,
+    )
 
     kept_inferences = [
         f"{_clean_reading(inf.reading)} (confidence={inf.confidence:.2f})"
@@ -415,6 +483,28 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     ]
     new_state.inferences = _merge_unique(state.inferences, kept_inferences)
 
+    # Same pattern as assumption_items above, for inferences -- but with
+    # REAL per-item confidence (Interpretation's own calibrated
+    # Inference.confidence), not a flat tier constant, since that signal
+    # actually exists here. content is the cleaned reading only (no
+    # embedded "(confidence=X)" suffix -- confidence is now a structured
+    # field) so it intentionally is NOT byte-identical to the
+    # corresponding kept_inferences string, which keeps its own suffix.
+    kept_inference_objs = [inf for inf in interp.inferences if inf.confidence >= INFERENCE_CONFIDENCE_FLOOR]
+    existing_inference_keys = {i.content.strip() for i in new_state.inference_items}
+    for inf in kept_inference_objs:
+        cleaned = _clean_reading(inf.reading)
+        key = cleaned.strip()
+        if key not in existing_inference_keys:
+            new_state.inference_items.append(
+                Inference(
+                    content=cleaned,
+                    confidence=inf.confidence,
+                    provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
+                )
+            )
+            existing_inference_keys.add(key)
+
     updated_unknowns, resolved = _reconcile_unknowns(
         new_state.unknowns, interp.unknowns, interp.observed_facts + interp.claims, turn
     )
@@ -422,7 +512,9 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
     if resolved:
         # Resolved unknowns become facts (spec: "Unknowns -- Remove only
         # when answered. Resolved unknowns become facts.").
-        new_state.facts = _merge_content_items(new_state.facts, resolved, Fact, turn)
+        new_state.facts = _merge_content_items(
+            new_state.facts, resolved, Fact, turn, confidence=FACT_TIER_CONFIDENCE
+        )
 
     new_state.biases = _merge_unique(state.biases, [b.bias for b in interp.biases])
     new_state.entities = _merge_entities(

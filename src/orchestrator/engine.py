@@ -53,6 +53,7 @@ from src.planner.engine import PlannerError, run_planner
 from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.state.builder import apply_judgment_resolutions, update_state
 from src.state.world_state import WorldState
+from src.understanding.engine import build_tier1_statements
 
 
 def run_turn(
@@ -119,6 +120,16 @@ def run_turn(
     next_phase = recommend_phase_transition(state)
     if next_phase:
         state.phase = next_phase
+
+    # Added 2026-07-12 (see engine/decisions.md "Understanding layer --
+    # Journey-scoped identity"): Tier 1 is a pure, deterministic template
+    # over WorldState's own knowledge items -- same discipline as
+    # recommend_phase_transition just above (cheap, WorldState-only,
+    # always executed regardless of what Judgment/Planner/Response later
+    # do). Deliberately NOT gated behind a try/except -- unlike the four
+    # real pipeline stages below, this has no external call and no
+    # failure mode worth guarding against.
+    state.understanding.tier1 = build_tier1_statements(state)
 
     try:
         judgment = run_judgment(state, tracker=tracker)

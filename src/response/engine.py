@@ -35,7 +35,7 @@ from src.llm.providers import ProviderCallError, call_provider, resolve_provider
 from src.planner.schema import Planner
 from src.response.prompt import build_messages
 from src.response.schema import Response
-from src.state.world_state import WorldState
+from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.7  # higher than Judgment/Planner's 0.15: this is expression, not assessment
 
@@ -70,7 +70,7 @@ def run_response_generator(
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
     """
-    world_state_json = state.model_dump_json(indent=2)
+    world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     planner_json = planner.model_dump_json(indent=2)
     system_prompt, messages = build_messages(world_state_json, judgment_json, planner_json)

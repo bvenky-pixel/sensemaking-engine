@@ -290,6 +290,30 @@ def save_turn_result(session_id: str, result: TurnResult) -> None:
         )
 
 
+def get_all_sessions_raw() -> List[Tuple[str, str]]:
+    """Read-only, used only by scripts/backfill_knowledge_item_ids.py --
+    (id, world_state_json) for EVERY session, uncapped (unlike
+    get_session_texts_for_insights' MAX_SESSIONS_FOR_INSIGHT cap; a
+    one-time migration needs to reach every session, not a recency-capped
+    subset)."""
+    with _connect() as conn:
+        rows = conn.execute("SELECT id, world_state_json FROM sessions").fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def save_world_state_for_backfill(session_id: str, state: WorldState) -> None:
+    """Writes world_state_json only -- used only by
+    scripts/backfill_knowledge_item_ids.py. Deliberately does NOT bump
+    updated_at or touch debug_json (unlike save_turn_result): a backfill
+    run touching every session must not reorder list_sessions' recency
+    ordering or make untouched sessions look freshly active on Home."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET world_state_json = ? WHERE id = ?",
+            (state.model_dump_json(), session_id),
+        )
+
+
 def load_debug(session_id: str) -> Optional[dict]:
     with _connect() as conn:
         row = conn.execute(

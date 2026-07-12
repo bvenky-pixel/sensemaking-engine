@@ -5590,3 +5590,120 @@ misspelled outputs as the assertions. Full suite: 220 passed (up from
 
 Deployed via `deploy.yml` immediately after -- this fix reached the same
 `confidantsense.fly.dev` sessions the bug was reported on.
+
+---
+
+**2026-07-12 — Understanding layer: Journey-scoped identity (Tier 1)**
+
+Follow-up to an extensive architecture discussion (not code) about
+making the Understanding panel feel like a returned-to, living document
+rather than a re-generated one. That discussion converged on a root
+cause: WorldState's own knowledge objects (Fact/Claim/Goal/Decision/
+Unknown/Entity) had NO stable id -- explicitly named as deferred in
+three separate places in this codebase (`world_state.py`'s own module
+docstring, `GoalUpdate`'s docstring in `src/interpretation/schema.py`,
+`Judgment.supporting_evidence`'s field comment). Without identity,
+nothing downstream can say "this is the same statement as last turn,"
+which made a persistent Understanding layer structurally impossible, not
+just unpolished.
+
+Two further decisions from that discussion, both settled before any code
+was written: **identity is Journey-scoped, not person-scoped** (a
+Journey never closes, so "returning to a living understanding" is fully
+satisfiable within one Journey's own lifespan; cross-Journey pattern
+detection stays exclusively `src/insight/`'s job, confirmed as already
+proving cross-Journey connection doesn't need shared identity -- it
+re-synthesizes and cites evidence instead). **Tier 2 (LLM-synthesized
+statements) is explicitly deferred** to a validated follow-up round --
+`CLAUDE.md`'s standing policy confirms the pipeline already runs 4 LLM
+calls/turn against a 50 request/day free-tier ceiling with no credits
+loaded, and adding a 5th call before Tier 1 is proven out against real
+Journeys was a cost the round's own plan review flagged and the user
+explicitly declined to take on yet.
+
+**What shipped**:
+
+- `src/state/world_state.py`: `KnowledgeItem.id` (stable uuid4, uniform
+  across all six subtypes, `default_factory` for migration safety).
+  `KnowledgeItem.confidence` (previously a dead placeholder -- nothing
+  ever populated it) now gets a deterministic persistence TIER derived
+  from item type, not a new LLM output: `FACT_TIER_CONFIDENCE`/
+  `GOAL_TIER_CONFIDENCE`/`DECISION_TIER_CONFIDENCE` = 1.0 (directly
+  stated), `CLAIM_TIER_CONFIDENCE` = 0.7 (interpretive),
+  `ASSUMPTION_TIER_CONFIDENCE` = 0.3 (lowest durable tier). New
+  `Assumption`/`Inference` KnowledgeItem subtypes, fully additive
+  parallel fields (`assumption_items`/`inference_items`) alongside the
+  existing flat `assumptions`/`inferences` string lists, which stay
+  byte-identical to their pre-change behavior (a type change on the
+  existing fields would have broken `model_validate_json` on every
+  pre-existing session -- no safe default exists for a type mismatch,
+  unlike an additive field). `Inference` is the one exception to
+  "tier constant, not real data": its confidence comes directly from
+  Interpretation's own already-calibrated per-item `Inference.confidence`.
+  New `UnderstandingState`/`UnderstandingStatement` schema
+  (`src/understanding/schema.py`), living directly on `WorldState`
+  (Journey-scoped by construction, no new DB table) with `tier2` fields
+  present but unused this round, so the schema doesn't need to change
+  shape when Tier 2 is picked up.
+- `src/understanding/engine.py::build_tier1_statements`: pure template,
+  zero LLM calls, same discipline as `src/executor/engine.py::build_clarity_brief`
+  -- renders WorldState's raw Fact/Claim/Goal/Decision content directly
+  (not Judgment's freshly-synthesized prose) through the existing
+  `src/executor/voice.py::to_second_person`, with a deterministic id
+  (`f"tier1:{kind}:{item.id}"`) so re-rendering an unchanged WorldState
+  is byte-identical, including id. Wired into `src/orchestrator/engine.py::run_turn`
+  immediately after `update_state`, same spot `recommend_phase_transition`
+  already runs (cheap, deterministic, always executed).
+- **A real gap caught before shipping, not part of the original plan**:
+  `src/judgment/engine.py`/`src/planner/engine.py`/`src/response/engine.py`
+  all dump the FULL WorldState verbatim into their prompts with no field
+  filtering. Left unexcluded, the new `understanding`/`assumption_items`/
+  `inference_items` fields would have silently started flowing into all
+  three already-calibrated prompts the moment they existed -- token
+  waste at minimum, a real behavior-regression risk at worst. Fixed via
+  a single shared `WorldState.PROMPT_EXCLUDED_FIELDS` constant, applied
+  via `exclude=` at all three `model_dump_json` call sites in the same
+  change.
+- `scripts/backfill_knowledge_item_ids.py`: one-time migration for
+  already-deployed sessions (required, not optional cleanup -- without
+  it, an old session's items would get a DIFFERENT id on every
+  deserialization until touched, since `default_factory` masks a missing
+  id rather than raising). `--dry-run` does a raw `json.loads`
+  pre-check specifically because `model_validate_json`'s own
+  `default_factory` would silently mask exactly what a dry run is
+  supposed to report.
+
+**Verification**: 241 backend tests passing (up from 220) -- 8 new in
+`tests/test_world_state_evolution.py` (id stability across repeated
+`update_state` calls, tier confidences, the real-vs-constant Inference
+confidence distinction, flat-list regression guards), 4 new in
+`tests/test_backfill_knowledge_item_ids.py` (dry-run reporting,
+persistence-across-independent-reloads -- the core regression test,
+idempotency, `updated_at` non-mutation), 9 new in `tests/test_understanding.py`
+(Tier 1 determinism/byte-identity, status filters, and a prompt-hygiene
+regression guard confirming Judgment/Planner/Response's actual prompt
+strings never contain `understanding`/`assumption_items`/`inference_items`).
+Manually verified end-to-end with a mocked 3-turn conversation: a Goal
+statement's id stayed the literal same string across all 3 turns while
+new Fact statements accumulated with their own stable ids each turn --
+the core promise of this round, confirmed directly rather than assumed.
+Also manually verified the migration script against a hand-seeded
+pre-migration session (real `id` keys stripped from raw JSON) --
+dry-run, backfill, idempotent re-run, and stability across two
+independent `db.load_state` calls all confirmed.
+
+No frontend changes and no redeploy this round -- nothing in the
+frontend consumes `understanding` yet (Tier 1 rendering is a backend
+foundation, not a shipped UI change), so this is a schema/backend-only
+round, committed and pushed but not requiring a Fly.io deploy to change
+live user-facing behavior.
+
+**Deferred, not abandoned**: Tier 2 (LLM-synthesized uncertainty/
+inference statements, cache-keyed on a hash of `(id, status, content)`
+per grounding item rather than bare ids -- a real gap in the original
+design caught during planning, since keying on the id set alone
+under-invalidates a status-only change like a Decision resolving), the
+frontend surfacing of Tier 1 statements, and corrigibility (a
+"that's not right" affordance -- a new write path into WorldState that
+doesn't exist today, since every current mutation originates from
+Interpretation reading the user's own words, never a direct UI action).
