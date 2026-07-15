@@ -133,6 +133,14 @@ def run_scenario(scenario: Scenario, tracker: UsageTracker) -> tuple[Optional[bo
 
         last_judgment_result = result.judgment
         j = result.judgment
+        # Always printed, not just when the gate fires -- diagnostic
+        # visibility into whether Judgment noticed a conflict/duplicate
+        # in its own free-text contradictions field even when it didn't
+        # act on it structurally (a "detected but didn't transcribe" vs.
+        # "never noticed" distinction, the same one that mattered for
+        # has_assumption/has_risk_signal's own calibration history).
+        print(f"    primary_problem={j.primary_problem!r}")
+        print(f"    contradictions={j.contradictions!r}")
         print(f"    has_knowledge_correction={j.has_knowledge_correction}")
         if j.has_knowledge_correction:
             print(f"    target={j.knowledge_correction_target!r}")
