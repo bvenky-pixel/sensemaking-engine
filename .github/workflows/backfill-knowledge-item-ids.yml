@@ -44,7 +44,7 @@ jobs:
           MACHINE_ID=$(flyctl machine list --app confidantsense --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
           echo "machine_id=$MACHINE_ID" >> "$GITHUB_ENV"
           flyctl machine start "$MACHINE_ID" --app confidantsense
-          flyctl machine wait "$MACHINE_ID" --app confidantsense --timeout 60
+          flyctl machine wait "$MACHINE_ID" --app confidantsense --state started --wait-timeout 60s
 
       - name: Run backfill against production
         env:
