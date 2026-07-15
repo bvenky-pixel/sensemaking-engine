@@ -371,14 +371,18 @@ def load_debug(session_id: str) -> Optional[dict]:
 
 
 def append_message(
-    session_id: str, role: str, content: str, options: Optional[List[str]] = None
+    session_id: str, role: str, content: str, options: Optional[List[dict]] = None
 ) -> None:
     """`options` (Response v3 -- real choice buttons): only ever
     meaningful for an `assistant` message -- persisted as JSON so a page
     reload (GET /sessions/{id}/messages) still shows the same tappable
     buttons the person saw live, not just a plain paragraph. `None`
     (the default, and every `user` message) stores NULL, which
-    get_messages below treats identically to an empty list.
+    get_messages below treats identically to an empty list. Each dict is
+    `{"label": ..., "description": ...}` (see ResponseOptionOut) -- stored
+    as plain JSON, not a ResponseOptionOut instance, since this module
+    has no business depending on that API-layer type; get_messages below
+    hands the same shape back and MessageOut's own field coerces it.
     """
     with _connect() as conn:
         conn.execute(

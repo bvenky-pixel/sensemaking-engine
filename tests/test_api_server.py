@@ -168,13 +168,22 @@ def test_send_message_returns_options_when_response_generator_provides_them(clie
     )
     monkeypatch.setattr(
         "src.response.engine.call_provider",
-        _always_returns({**_MINIMAL_RESPONSE, "options": ["The MBA", "The house"]}),
+        _always_returns({
+            **_MINIMAL_RESPONSE,
+            "options": [
+                {"label": "The MBA", "description": "You mentioned the program's tuition."},
+                {"label": "The house", "description": "You mentioned the down payment."},
+            ],
+        }),
     )
     session_id = client.post("/sessions").json()["id"]
 
     res = client.post(f"/sessions/{session_id}/messages", json={"content": "House or MBA?"})
 
-    assert res.json()["options"] == ["The MBA", "The house"]
+    assert res.json()["options"] == [
+        {"label": "The MBA", "description": "You mentioned the program's tuition."},
+        {"label": "The house", "description": "You mentioned the down payment."},
+    ]
 
 
 def test_send_message_returns_empty_options_by_default(client, monkeypatch):
@@ -199,7 +208,13 @@ def test_options_persist_across_a_reload(client, monkeypatch):
     )
     monkeypatch.setattr(
         "src.response.engine.call_provider",
-        _always_returns({**_MINIMAL_RESPONSE, "options": ["The MBA", "The house"]}),
+        _always_returns({
+            **_MINIMAL_RESPONSE,
+            "options": [
+                {"label": "The MBA", "description": "You mentioned the program's tuition."},
+                {"label": "The house", "description": "You mentioned the down payment."},
+            ],
+        }),
     )
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/messages", json={"content": "House or MBA?"})
@@ -207,7 +222,10 @@ def test_options_persist_across_a_reload(client, monkeypatch):
     messages = client.get(f"/sessions/{session_id}/messages").json()
 
     assert messages[0]["options"] == []  # the user's own message
-    assert messages[1]["options"] == ["The MBA", "The house"]
+    assert messages[1]["options"] == [
+        {"label": "The MBA", "description": "You mentioned the program's tuition."},
+        {"label": "The house", "description": "You mentioned the down payment."},
+    ]
 
 
 def test_second_message_reflects_accumulated_state(client, monkeypatch):

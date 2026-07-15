@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.response.schema import Response
+from src.response.schema import Response, ResponseOption
 
 REQUIRED_FIELDS = dict(
     response_text="It sounds like the timing here has been genuinely unclear for you.",
@@ -37,10 +37,17 @@ def test_options_defaults_to_empty_list():
     assert response.options == []
 
 
-@pytest.mark.parametrize("options", [["The MBA"], ["The MBA", "The home loan"], ["A", "B", "C"]])
+_MBA_OPTION = {"label": "The MBA", "description": "You mentioned the program's tuition."}
+_HOUSE_OPTION = {"label": "The house", "description": "You mentioned the down payment."}
+
+
+@pytest.mark.parametrize(
+    "options", [[_MBA_OPTION], [_MBA_OPTION, _HOUSE_OPTION], [_MBA_OPTION, _HOUSE_OPTION, _MBA_OPTION]]
+)
 def test_options_accepts_one_to_three_items(options):
     response = Response(**{**REQUIRED_FIELDS, "options": options})
-    assert response.options == options
+    assert [o.label for o in response.options] == [o["label"] for o in options]
+    assert [o.description for o in response.options] == [o["description"] for o in options]
 
 
 def test_options_rejects_more_than_three_items():
@@ -48,13 +55,27 @@ def test_options_rejects_more_than_three_items():
     instead of 2-3 real choices -- see src/response/schema.py's own
     docstring on why this fails loud rather than silently truncating."""
     with pytest.raises(ValidationError):
-        Response(**{**REQUIRED_FIELDS, "options": ["A", "B", "C", "D"]})
+        Response(**{**REQUIRED_FIELDS, "options": [_MBA_OPTION, _HOUSE_OPTION, _MBA_OPTION, _HOUSE_OPTION]})
 
 
-@pytest.mark.parametrize("bad_options", [[""], ["   "], ["The MBA", ""]])
-def test_options_rejects_blank_entries(bad_options):
+@pytest.mark.parametrize(
+    "bad_options",
+    [
+        [{"label": "", "description": "Something."}],
+        [{"label": "   ", "description": "Something."}],
+        [{"label": "The MBA", "description": ""}],
+        [{"label": "The MBA", "description": "   "}],
+    ],
+)
+def test_options_rejects_blank_label_or_description(bad_options):
     with pytest.raises(ValidationError):
         Response(**{**REQUIRED_FIELDS, "options": bad_options})
+
+
+def test_response_option_constructs_directly():
+    option = ResponseOption(label="The MBA", description="You mentioned the program's tuition.")
+    assert option.label == "The MBA"
+    assert option.description == "You mentioned the program's tuition."
 
 
 @pytest.mark.parametrize("bad_confidence", [-0.01, 1.01, 2.0, -5.0])

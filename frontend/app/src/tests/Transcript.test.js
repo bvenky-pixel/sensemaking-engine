@@ -2,19 +2,24 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import Transcript from '../components/Transcript.svelte';
 
+const MBA_OPTION = { label: 'The MBA', description: "You mentioned the program's tuition." };
+const HOUSE_OPTION = { label: 'The home loan', description: 'You mentioned the down payment.' };
+
 // Response v3 -- real choice buttons (see engine/decisions.md): tapping
 // an option must behave exactly like typing and sending it, and only
 // the LAST message's options are ever live -- an earlier turn's
-// question is no longer the one on the table.
+// question is no longer the one on the table. Each option carries a
+// label (the clickable reply) and a description (1-2 sentences of
+// display-only reasoning, added same round per direct user request).
 describe('Transcript', () => {
-  it('renders option buttons for the last assistant message', () => {
+  it('renders each option\'s label and description for the last assistant message', () => {
     const messages = [
       { role: 'user', content: 'I want to move teams.', created_at: '' },
       {
         role: 'assistant',
         content: 'Which one is weighing on you more right now?',
         created_at: '',
-        options: ['The MBA', 'The home loan'],
+        options: [MBA_OPTION, HOUSE_OPTION],
       },
     ];
     const { getByText } = render(Transcript, {
@@ -22,17 +27,19 @@ describe('Transcript', () => {
     });
 
     expect(getByText('The MBA')).toBeTruthy();
+    expect(getByText("You mentioned the program's tuition.")).toBeTruthy();
     expect(getByText('The home loan')).toBeTruthy();
+    expect(getByText('You mentioned the down payment.')).toBeTruthy();
   });
 
-  it('calls onOptionSelect with the tapped option label', async () => {
+  it('calls onOptionSelect with the tapped option\'s label, not its description', async () => {
     const onOptionSelect = vi.fn();
     const messages = [
       {
         role: 'assistant',
         content: 'Which one is weighing on you more right now?',
         created_at: '',
-        options: ['The MBA', 'The home loan'],
+        options: [MBA_OPTION, HOUSE_OPTION],
       },
     ];
     const { getByText } = render(Transcript, {
@@ -49,7 +56,7 @@ describe('Transcript', () => {
         role: 'assistant',
         content: 'Which one is weighing on you more right now?',
         created_at: '',
-        options: ['The MBA', 'The home loan'],
+        options: [MBA_OPTION, HOUSE_OPTION],
       },
       { role: 'user', content: 'The MBA.', created_at: '' },
       { role: 'assistant', content: 'What makes the MBA feel riskier?', created_at: '', options: [] },
@@ -79,13 +86,13 @@ describe('Transcript', () => {
         role: 'assistant',
         content: 'Which one is weighing on you more right now?',
         created_at: '',
-        options: ['The MBA', 'The home loan'],
+        options: [MBA_OPTION, HOUSE_OPTION],
       },
     ];
     const { getByText } = render(Transcript, {
       props: { messages, onOptionSelect: vi.fn(), disabled: true },
     });
 
-    expect(getByText('The MBA')).toBeDisabled();
+    expect(getByText('The MBA').closest('button')).toBeDisabled();
   });
 });

@@ -7279,3 +7279,42 @@ unambiguous: real clickable options.
    `planning_constraints: ["no direct questions in the response"]` and
    the model correctly produced zero question marks with a declarative
    closing instead -- the intended fallback, not a miss.
+
+## Response v3 round 3 -- option reasoning (why each choice might apply)
+
+Direct follow-up, same day: "write a short description or reasoning
+behind each choice ... max 1-2 sentences." Round 2 shipped bare option
+labels only (`options: list[str]`); this widens each entry into a
+`ResponseOption` (`src/response/schema.py`) with two fields:
+
+- `label` -- unchanged in spirit: the short button text, and exactly
+  what gets sent as the person's own reply if tapped.
+- `description` -- new: 1-2 sentences of grounded reasoning for WHY this
+  option might apply, shown alongside the button, never itself sent
+  anywhere. Same Grounding law as everything else in this layer:
+  restates only content already present in WorldState/Judgment/Planner
+  (e.g. "you mentioned the program's tuition"), never a new severity or
+  emotional claim invented just to justify the option existing --
+  the prompt's own BAD example spells out exactly that failure mode
+  ("...could cause you significant stress" when nothing upstream said
+  so).
+
+Threaded end to end: `ResponseOption` (engine) ->
+`ResponseOptionOut` (`src/api/schema.py`, same "curated API-facing
+mirror" convention as `UnderstandingStatementOut`) ->
+`options_json` (unchanged column, now stores `{label, description}`
+dicts instead of bare strings) -> `Transcript.svelte`, whose chip-row
+layout no longer fit this much text per option and was restructured
+into a vertical stack of full-width cards: bold label on top, muted
+description beneath, the whole card clickable and still firing
+`onOptionSelect(option.label)` only -- description is display-only,
+consistent with the prompt's own framing.
+
+**Verified**: updated/extended unit tests across all three layers
+(`test_response_schema.py`, `test_api_server.py`, `Transcript.test.js`)
+for the new two-field shape -- full suite green (`pytest` 323,
+`vitest` 28, clean `npm run build`). Live Playwright re-verification:
+reseeded the same house-vs-MBA scenario with real descriptions attached,
+confirmed both label and description rendered as bold-title/muted-
+subtitle cards, and confirmed tapping a card still sent only the label
+("The MBA") as the real message, not its description.

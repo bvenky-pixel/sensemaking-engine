@@ -30,10 +30,23 @@ class SendMessageRequest(BaseModel):
     content: str
 
 
+class ResponseOptionOut(BaseModel):
+    """Mirrors src/response/schema.py::ResponseOption -- same "curated,
+    never the raw internal model" discipline as UnderstandingStatementOut
+    below. `label` is what gets sent as the person's own reply if
+    tapped; `description` (added same round, see engine/decisions.md
+    "Response v3 -- option reasoning") is 1-2 sentences of grounded
+    reasoning shown alongside the button, never sent anywhere itself.
+    """
+
+    label: str
+    description: str
+
+
 class SendMessageResponse(BaseModel):
     response_text: Optional[str] = None
     confidence: Optional[float] = None
-    options: List[str] = []
+    options: List[ResponseOptionOut] = []
     failed_stage: Optional[FailedStage] = None
     error: Optional[str] = None
 
@@ -46,7 +59,7 @@ class MessageOut(BaseModel):
     # ever non-empty on an assistant message. Persisted (src/api/db.py)
     # so a page reload still shows the same tappable buttons, not just
     # the plain paragraph.
-    options: List[str] = []
+    options: List[ResponseOptionOut] = []
 
 
 class SessionSummary(BaseModel):

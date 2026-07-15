@@ -30,16 +30,25 @@ src/llm/providers.py's _extract_message_content.
 
 `options` (added Response v3, see engine/decisions.md "Response v3 --
 real choice buttons"): an optional list of up to 3 short, concrete reply
-labels the person can tap instead of typing -- rendered as real buttons
+choices the person can tap instead of typing -- rendered as real buttons
 by the frontend (see Transcript.svelte), never just described in
 response_text's own prose. Empty is the common, correct case (most
 turns are open-ended and free text is always available regardless).
 Same "fail loud on malformed data" principle as response_text's own
 validator above, not silent truncation: more than 3 items, or any
-blank/whitespace-only item, is a hard validation failure -- a prompt
+blank/whitespace-only field, is a hard validation failure -- a prompt
 that's drifting toward an exhaustive menu instead of 2-3 real choices
 should surface as a visible error, not get quietly coerced into
 something that looks fine.
+
+`ResponseOption.description` (added same round, direct user request
+after seeing bare labels alone): 1-2 sentences of grounded reasoning for
+WHY this option might apply -- same Grounding law as response_text
+itself, restating only content already present in WorldState/Judgment/
+Planner, never a new diagnosis invented just to justify the option.
+`label` is what's sent as the person's reply if tapped (see
+src/api/server.py); `description` is display-only support for the
+choice, never sent anywhere itself.
 """
 
 from __future__ import annotations
@@ -47,10 +56,22 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, field_validator
 
 
+class ResponseOption(BaseModel):
+    label: str
+    description: str
+
+    @field_validator("label", "description", mode="after")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("ResponseOption fields must not be empty or whitespace-only")
+        return value
+
+
 class Response(BaseModel):
     response_text: str
     confidence: float = Field(ge=0.0, le=1.0)
-    options: list[str] = Field(default_factory=list)
+    options: list[ResponseOption] = Field(default_factory=list)
 
     @field_validator("response_text", mode="after")
     @classmethod
@@ -61,9 +82,7 @@ class Response(BaseModel):
 
     @field_validator("options", mode="after")
     @classmethod
-    def _validate_options(cls, value: list[str]) -> list[str]:
+    def _validate_options(cls, value: list[ResponseOption]) -> list[ResponseOption]:
         if len(value) > 3:
             raise ValueError("options must contain at most 3 items -- real UI choices, not a menu")
-        if any(not option.strip() for option in value):
-            raise ValueError("options must not contain empty/whitespace-only entries")
         return value

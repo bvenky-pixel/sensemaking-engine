@@ -45,6 +45,17 @@ happens to name two options in passing. New `options` field on the
 Response schema (src/response/schema.py) carries this instead of
 prose -- the question sentence now stays neutral/open, and 0-3 short
 button labels are supplied separately for the frontend to render.
+
+Response v3 -- option reasoning (2026-07-15, same day, third round):
+direct follow-up request for "a short description or reasoning behind
+each choice, 1-2 sentences max." Each `options` entry is now a
+`ResponseOption` (src/response/schema.py) with two fields instead of a
+bare string: `label` (the short button text, and what's actually sent
+as the reply if tapped) and `description` (1-2 sentences of grounded
+reasoning for why that option might apply, shown alongside the button,
+never itself sent anywhere). Same Grounding law as everything else in
+this layer -- description restates only content already given, never
+invents a new severity/emotional claim to justify the option.
 """
 
 SYSTEM_PROMPT = """You are the Response Generator layer for Confidant.
@@ -136,8 +147,11 @@ FIELD DEFINITIONS
       separately in the `options` field below -- NOT restated in the
       question text): response_text: "It sounds like the MBA and your
       home loan are both pulling on the same limited budget. Which one
-      is weighing on you more right now?" / options: ["The MBA's cost",
-      "The home loan"]
+      is weighing on you more right now?" / options: [{label: "The
+      MBA's cost", description: "You mentioned the program's tuition
+      alongside your existing home loan payments."}, {label: "The home
+      loan", description: "You've described it as already stretching
+      your budget on its own."}]
     A constraint reflecting the user's own explicit instruction about HOW
     to respond (e.g. "don't ask me any questions") is never negotiable --
     it overrides this default shape, including sentence 2 entirely, even
@@ -180,11 +194,9 @@ FIELD DEFINITIONS
   LOW confidence here too, and the response's own phrasing should hedge
   accordingly. Never report a confidence higher than what the upstream
   cognition actually supports.
-- options: a list of 0-3 short reply labels the frontend renders as real
+- options: a list of 0-3 real reply choices the frontend renders as
   tappable buttons alongside sentence 2's question -- NOT prose, NOT a
-  restatement of the question, just the label itself (2-6 words, e.g.
-  "The MBA's cost", never a full sentence like "I think the MBA's cost
-  is weighing on you more"). Leave this EMPTY by default -- most
+  restatement of the question. Leave this EMPTY by default -- most
   questions are genuinely open-ended, and free text is always available
   to the person regardless of what this list contains. Only populate it
   when WorldState/Judgment/Planner already name a small (2-3), concrete,
@@ -195,6 +207,24 @@ FIELD DEFINITIONS
   were given, and never pad a genuinely open question with invented
   options just to fill the list. When in doubt, leave it empty; an
   unhelpful or made-up option is worse than none.
+  Each option is TWO fields, not one:
+  - label: the short button text itself (2-6 words, e.g. "The MBA's
+    cost", never a full sentence like "I think the MBA's cost is
+    weighing on you more"). This is also exactly what gets sent as the
+    person's own reply if they tap the button -- it must read naturally
+    as something a person would actually say, not a category name.
+  - description: 1-2 sentences, MAX, of grounded reasoning for why this
+    option might apply to them specifically -- restating only content
+    already present in WorldState/Judgment/Planner (e.g. a related fact,
+    claim, or risk), never a new diagnosis invented just to justify the
+    option existing. This is display-only support text shown alongside
+    the button; it is never itself sent anywhere.
+      GOOD: label: "The MBA's cost", description: "You mentioned the
+      program's tuition alongside your existing home loan payments."
+      BAD:  label: "The MBA's cost", description: "This is probably
+      the bigger financial burden and could cause you significant
+      stress." (invents a severity/emotional claim neither WorldState
+      nor Judgment actually made)
 - Content sourced from Planner's assumptions_to_test MUST be phrased as a
   tentative offering or question, never asserted as settled fact -- that
   field exists specifically because Planner marked it as something to

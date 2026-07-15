@@ -43,6 +43,7 @@ from src.api.schema import (
     InsightOut,
     LearnedPatternOut,
     MessageOut,
+    ResponseOptionOut,
     SendMessageRequest,
     SendMessageResponse,
     SessionSummary,
@@ -223,9 +224,16 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
 
     response_text = result.response.response_text if result.response else None
     confidence = result.response.confidence if result.response else None
-    options = result.response.options if result.response else []
+    options = (
+        [ResponseOptionOut(label=o.label, description=o.description) for o in result.response.options]
+        if result.response
+        else []
+    )
     if response_text is not None:
-        db.append_message(session_id, "assistant", response_text, options=options)
+        db.append_message(
+            session_id, "assistant", response_text,
+            options=[o.model_dump() for o in options],
+        )
 
     return SendMessageResponse(
         response_text=response_text,
