@@ -285,6 +285,27 @@ def set_bookmark(session_id: str, bookmarked: bool) -> None:
         )
 
 
+def delete_session(session_id: str) -> None:
+    """Removes a Journey and everything that references it -- added for
+    Settings' Data section (see engine/decisions.md "Frontend UX pass").
+    No `ON DELETE CASCADE` in `_SCHEMA` above, so child rows are deleted
+    explicitly, in dependency order, in one transaction (`_connect`'s own
+    `with` block commits on success / rolls back on any exception -- see
+    its own docstring). `insight_sessions` (this session's OWN evidence
+    link) is removed, but `insights` themselves are NOT -- an Insight is
+    a cross-session theme that may still be evidenced by other sessions,
+    so deleting one session must not delete a theme other sessions still
+    support. Silently a no-op if `session_id` doesn't exist (same
+    "caller already checked existence via session_exists" pattern every
+    other per-session function here assumes -- see _require_session in
+    src/api/server.py)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM insight_sessions WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM behavioral_events WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+
 def load_state(session_id: str) -> WorldState:
     with _connect() as conn:
         row = conn.execute(

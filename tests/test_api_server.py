@@ -310,6 +310,44 @@ def test_bookmark_unknown_session_returns_404(client):
     assert res.status_code == 404
 
 
+def test_delete_session_removes_it_from_the_list(client, monkeypatch):
+    """Added for Settings' Data section (see engine/decisions.md
+    "Frontend UX pass")."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    res = client.delete(f"/sessions/{session_id}")
+    assert res.status_code == 204
+
+    assert session_id not in [s["id"] for s in client.get("/sessions").json()]
+    assert client.get(f"/sessions/{session_id}/messages").status_code == 404
+
+
+def test_delete_session_does_not_affect_other_sessions(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_a = client.post("/sessions").json()["id"]
+    session_b = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_a}/messages", json={"content": "I want to move teams."})
+
+    client.delete(f"/sessions/{session_a}")
+
+    remaining_ids = [s["id"] for s in client.get("/sessions").json()]
+    assert session_a not in remaining_ids
+    assert session_b in remaining_ids
+
+
+def test_delete_unknown_session_returns_404(client):
+    res = client.delete("/sessions/does-not-exist")
+    assert res.status_code == 404
+
+
 def test_has_stagnation_signal_false_for_fresh_session(client):
     """A brand-new session (turn_count=0, no goals/decisions) has nothing
     for compute_stagnation_signals to flag."""

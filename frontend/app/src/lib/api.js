@@ -22,6 +22,15 @@ export async function listSessions(bookmarkedOnly = false) {
   return _json(res);
 }
 
+// Irreversible -- no soft-delete/undo exists yet (see
+// src/api/server.py::delete_session's own docstring).
+export async function deleteSession(sessionId) {
+  const res = await fetch(`/sessions/${sessionId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): ${await res.text()}`);
+  }
+}
+
 export async function setBookmark(sessionId, bookmarked) {
   const res = await fetch(`/sessions/${sessionId}/bookmark`, {
     method: 'POST',

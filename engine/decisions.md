@@ -7145,3 +7145,54 @@ the last chat message (correctly suppressed, since `current_direction`
 alone still renders); Home shows the stable opening message across both
 turns. Full `pytest` (307 tests), `vitest` (18 tests), and a clean
 `npm run build` all green.
+
+## Remove-a-Journey (Settings' Data section)
+
+Explicit follow-on request: give Settings' previously-static "Data"
+section a real control for removing an existing Journey. First backend
+delete this codebase has ever needed -- everything before this was
+additive.
+
+1. **`src/api/db.py::delete_session`** -- new function, deletes, in
+   order, `insight_sessions`, `behavioral_events`, `messages`, then
+   `sessions` rows for the given id. Deliberately does NOT touch the
+   `insights` table itself: an insight is a cross-session theme that
+   may still be evidenced by other sessions even after this one is
+   gone -- only this session's OWN evidence link
+   (`insight_sessions`) is removed.
+2. **`DELETE /sessions/{session_id}`** (`src/api/server.py`,
+   `status_code=204`) -- reuses the existing `_require_session` guard
+   (404 for an unknown id, matching every other per-session endpoint).
+   Irreversible, same as any real delete: no soft-delete/undo exists
+   yet, stated plainly in both the endpoint's and `deleteSession`'s own
+   docstrings rather than left implicit.
+3. **`frontend/app/src/lib/api.js::deleteSession`** -- thin wrapper,
+   deliberately NOT using the shared `_json` helper (that helper always
+   calls `res.json()`, but a 204 has no body).
+4. **`Settings.svelte`** -- the Data section now lists every session by
+   its `preview_text`, each with a two-step inline confirm ("Remove" ->
+   "Remove this Journey for good? [Yes, remove it] [Cancel]") rather
+   than a native `confirm()` dialog -- matches this app's own calm,
+   custom-styled aesthetic instead of a browser-chrome interruption,
+   same reasoning already established for this codebase's other
+   user-facing copy. No dedicated "danger" red exists in this app's
+   muted palette (`tokens.css`); full-contrast ink + bold on "Yes,
+   remove it" marks it as the serious choice instead of an invented
+   color.
+
+**Verified twice**: new backend tests (`test_delete_session_removes_it_
+from_the_list`, `test_delete_session_does_not_affect_other_sessions`,
+`test_delete_unknown_session_returns_404` in `test_api_server.py`) and a
+new `Settings.test.js` (mocks `lib/api.js`, not `fetch`, matching this
+screen's own thin-wrapper boundary) covering the session list render,
+the empty-state message, the fallback label for a session with no
+`preview_text` yet, the Cancel path leaving the row untouched, and the
+confirm path actually calling `deleteSession` and dropping the row.
+Full suite green: `pytest` 310 tests, `vitest` 23 tests, clean
+`npm run build`. Then re-verified live: launched the real backend
+against a scratch DB, seeded two real sessions, drove Settings with
+Playwright -- clicked Remove, confirmed the prompt appeared, clicked
+"Yes, remove it", confirmed the row disappeared, then RELOADED the page
+and confirmed the deleted session stayed gone (proving the delete is
+real and server-side, not just local component state) while the other
+session was untouched.

@@ -127,6 +127,17 @@ def set_bookmark(session_id: str, body: SetBookmarkRequest) -> SetBookmarkReques
     return body
 
 
+@app.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session_id: str) -> None:
+    """Added for Settings' Data section (see engine/decisions.md
+    "Frontend UX pass") -- removes a Journey and every row that
+    references it (see db.delete_session's own docstring for exactly
+    what that means for insight_sessions specifically). Irreversible,
+    same as any real delete -- no soft-delete/undo exists yet."""
+    _require_session(session_id)
+    db.delete_session(session_id)
+
+
 @app.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
 def list_messages(session_id: str) -> list[MessageOut]:
     _require_session(session_id)
