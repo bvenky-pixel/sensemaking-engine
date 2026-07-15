@@ -6286,3 +6286,57 @@ Not yet measured live: whether this restructure both (a) restores
 whether `near_duplicates` gets populated at all now that it's
 decoupled. Needs a fresh dispatch against `gpt-4o-mini` -- see the
 follow-up entry for the result.
+
+**Measured result: the restructure worked exactly as intended.**
+Re-ran calibration against `gpt-4o-mini` (run 29411975475, commit
+`6b1abaa`). Scored compliance is back to 3/4:
+
+```
+[HIT ] contradiction_explicit: expected=True, actual=True
+[MISS] near_duplicate_rewording: expected=True, actual=False
+[HIT ] negative_control_distinct_facts: expected=False, actual=False
+[HIT ] negative_control_fresh_conversation: expected=False, actual=False
+```
+
+`contradiction_explicit` is restored: turn 2 correctly produced
+`contradictions=['User was informed by Sarah that they are not getting
+a raise this year, but HR informed the user they are getting a
+raise.']`, `has_knowledge_correction=True`, `target='User is not
+getting a raise this year.'`, `kind='retracted'` -- confirming the
+regression really was the near_duplicates-between-them placement, not
+noise, since reverting just that one structural choice (nothing else
+changed about the contradictions/has_knowledge_correction wording)
+fully restored the hit.
+
+`near_duplicates` printed `[]` on every single turn of every scenario
+again, including all three turns of `near_duplicate_rewording` --
+identical to the prior (pre-restructure) run. Decoupling it from the
+gate did not, by itself, make the model any more likely to populate
+it. The observability gap remains open: we still cannot tell whether
+`gpt-4o-mini` ever actually attempts a near-duplicate scan, or whether
+it silently never engages with that instruction at all. This wasn't
+expected to fix that (the restructure's job was only to stop
+regressing the contradictions pathway while collecting this exact data
+point) but it does mean giving the check a dedicated field, on its
+own, isn't sufficient to surface model behavior here -- unlike
+`contradictions`, which the model visibly uses on its own.
+
+**Where this leaves the near-duplicate pathway**: two rounds of prompt
+change (embedded sub-check, then dedicated field, now decoupled
+dedicated field) have all produced the same `near_duplicates=[]`/
+`has_knowledge_correction=False` result on `near_duplicate_rewording`,
+with zero evidence in any of them that the model engages with the
+instruction at all. That's a different, weaker signal than
+`has_knowledge_correction` ever had for the contradictions pathway
+(which visibly WAS being reasoned about, just not transcribed). Worth
+naming plainly: this may not be a prompt-wording problem at all -- it
+may be that `gpt-4o-mini` genuinely doesn't perform this kind of
+cross-item semantic-equivalence scan over a free-form list without
+much stronger scaffolding (e.g. enumerating each Fact/Claim by index
+and asking for pairwise comparisons), which is a materially bigger
+prompt/schema change than anything tried so far, or a capability limit
+worth accepting for this model tier. Recommend treating this as a
+separate, lower-priority investigation rather than continuing to
+iterate blindly on the same field -- the contradictions pathway fix is
+the real, confirmed win from this whole arc and is now safely restored
+and unregressed.
