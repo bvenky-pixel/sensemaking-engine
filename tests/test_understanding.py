@@ -18,6 +18,7 @@ from src.state.world_state import (
     Assumption,
     Claim,
     Decision,
+    EmotionalSignalItem,
     Entity,
     EntityAttribute,
     Fact,
@@ -178,6 +179,35 @@ def test_tier1_renders_inference_items():
     assert statements[0].grounding_item_ids == [state.inference_items[0].id]
 
 
+def test_tier1_renders_emotional_signal_items():
+    """Regression test for validation report Failure Mode #4:
+    Interpretation's emotional_signals had no home in WorldState at all,
+    let alone in Tier 1 -- see engine/decisions.md "Tier 1 completeness
+    + has_knowledge_correction calibration"."""
+    state = WorldState()
+    state.emotional_signal_items.append(
+        EmotionalSignalItem(emotion="disenchantment", intensity=0.8, confidence=0.9, source="explicit")
+    )
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].kind == "emotion"
+    assert statements[0].text == "You're experiencing disenchantment (intensity 8/10)."
+    assert statements[0].grounding_item_ids == [state.emotional_signal_items[0].id]
+
+
+def test_tier1_respects_emotional_signal_status_filter():
+    state = WorldState()
+    state.emotional_signal_items.append(
+        EmotionalSignalItem(emotion="relief", intensity=0.5, confidence=0.7, source="explicit", status="active")
+    )
+    state.emotional_signal_items.append(
+        EmotionalSignalItem(emotion="dread", intensity=0.6, confidence=0.7, source="inferred", status="retracted")
+    )
+    texts = " ".join(s.text for s in build_tier1_statements(state))
+    assert "relief" in texts
+    assert "dread" not in texts
+
+
 def test_tier1_decision_renders_as_a_full_sentence_not_a_bare_label():
     """Regression test for the bare-label bug: real Interpretation output
     extracts decision_options as bare noun-phrase labels (e.g. "House",
@@ -225,6 +255,9 @@ def _state_with_shadow_fields() -> WorldState:
     state = WorldState()
     state.assumption_items.append(Assumption(content="Assumes something."))
     state.inference_items.append(Inference(content="User seems anxious."))
+    state.emotional_signal_items.append(
+        EmotionalSignalItem(emotion="disenchantment", intensity=0.8, confidence=0.9, source="explicit")
+    )
     return state
 
 
@@ -251,7 +284,9 @@ def test_judgment_prompt_excludes_understanding_and_shadow_fields(monkeypatch):
     assert "understanding" not in captured["messages"]
     assert "assumption_items" not in captured["messages"]
     assert "inference_items" not in captured["messages"]
+    assert "emotional_signal_items" not in captured["messages"]
     assert "User seems anxious." not in captured["messages"]
+    assert "disenchantment" not in captured["messages"]
 
 
 def test_planner_prompt_excludes_understanding_and_shadow_fields(monkeypatch):
@@ -262,6 +297,7 @@ def test_planner_prompt_excludes_understanding_and_shadow_fields(monkeypatch):
     assert "understanding" not in captured["messages"]
     assert "assumption_items" not in captured["messages"]
     assert "inference_items" not in captured["messages"]
+    assert "emotional_signal_items" not in captured["messages"]
 
 
 def test_response_prompt_excludes_understanding_and_shadow_fields(monkeypatch):
@@ -272,3 +308,4 @@ def test_response_prompt_excludes_understanding_and_shadow_fields(monkeypatch):
     assert "understanding" not in captured["messages"]
     assert "assumption_items" not in captured["messages"]
     assert "inference_items" not in captured["messages"]
+    assert "emotional_signal_items" not in captured["messages"]

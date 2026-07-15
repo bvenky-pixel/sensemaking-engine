@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 UnderstandingStatementKind = Literal[
     "fact", "claim", "goal", "decision", "uncertainty", "inference", "entity", "assumption",
+    "emotion",
 ]
 UnderstandingTier = Literal[1, 2]
 

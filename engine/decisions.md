@@ -6340,3 +6340,91 @@ separate, lower-priority investigation rather than continuing to
 iterate blindly on the same field -- the contradictions pathway fix is
 the real, confirmed win from this whole arc and is now safely restored
 and unregressed.
+
+## Emotional signal schema gap (validation report Failure Mode #4)
+
+Per the user's explicit choice (offered the remaining validation-report
+failure modes -- #7 to_second_person false positive, #8 flat Assumption
+confidence, #4 emotional signal schema gap -- after accepting the
+near-duplicate observation gap above) picked up Failure Mode #4, the
+biggest of the three: "emotional signal is structurally discarded
+before WorldState exists... any future 'does Understanding reflect how
+someone feels, not just what they said' ambition is blocked at the
+state layer, not the Understanding layer." Confirmed directly:
+`src/interpretation/schema.py`'s `EmotionalSignal` (emotion/intensity/
+confidence/source) was computed by Interpretation every turn and never
+referenced anywhere in `src/state/world_state.py` -- `grep` confirmed
+zero uses outside Interpretation's own schema/prompt/debug files before
+this change.
+
+**Schema (`src/state/world_state.py`)**: added `EmotionalSignalItem(KnowledgeItem)`
+(`emotion: str`, `intensity: float`, `source: Literal["explicit",
+"inferred"]`, `status: EmotionalSignalStatus = "active"`) and
+`WorldState.emotional_signal_items: List[EmotionalSignalItem]`.
+Deliberately NOT paired with a pre-existing flat `List[str]` the way
+Assumption/Inference are -- there was no flat `emotional_signals` field
+in WorldState to preserve backward-compatibility with; this data simply
+had no home before now, so it goes straight to a structured type.
+Excluded from Judgment/Planner/Response's prompts via the existing
+`PROMPT_EXCLUDED_FIELDS` set, same reasoning as `assumption_items`/
+`inference_items` -- this exists for `src/understanding/` to render,
+not as a new signal for the calibrated pipeline stages to reason over
+(a materially bigger, separate decision would be needed to change
+that, out of scope here).
+
+**Merge semantics (`src/state/builder.py::_merge_emotional_signals`)**:
+deliberately DIFFERENT from every other tier's merge. Fact/Claim/Goal/
+Decision/Unknown/Assumption/Inference all dedup by content and leave an
+existing item untouched on a repeat. Emotional intensity is inherently
+a live reading, not a fact that's simply reaffirmed -- treating a
+same-emotion recurrence as "already known, skip" would leave a stale
+intensity/confidence on record indefinitely, and treating it as a
+brand-new entry would reproduce this same report's Failure Mode #3
+(unbounded near-duplicate accumulation) for emotions specifically.
+`_merge_emotional_signals` is keyed by `emotion` (case-insensitive,
+trimmed) and UPDATES intensity/confidence/source/`provenance.last_updated`
+in place on a repeat, while preserving the original `first_seen`.
+Confidence is REAL per-item data from Interpretation's own calibrated
+`EmotionalSignal.confidence`, same treatment as Inference (not a flat
+tier constant like Assumption).
+
+**Understanding/Tier 1 (`src/understanding/`)**: added `"emotion"` to
+`UnderstandingStatementKind`, a `_render_emotion_text` helper (using
+the pre-existing but previously-dead `INTENSITY_SCALE = 10` constant in
+`src/state/builder.py` -- its own comment already said "the render
+layer multiplies by this for display," clearly anticipating exactly
+this work, just never wired up until now), and a new render loop
+filtered by `_EMOTION_VISIBLE_STATUSES = {"active"}` (nothing sets
+"retracted" today, same defensive-filter convention as Entity/
+Assumption/Inference).
+
+**Verified end-to-end with a manual smoke test replaying the
+validation report's own E03 case** ("User doesn't enjoy anything
+anymore"): `EmotionalSignal(emotion='disenchantment', intensity=0.8,
+confidence=0.9, source='explicit')` through `update_state` then
+`build_tier1_statements` now produces `[fact] 'You express a lack of
+enjoyment.'`, `[claim] 'You do not enjoy anything.'`, and -- the
+previously-missing line -- `[emotion] "You're experiencing
+disenchantment (intensity 8/10)."` This is the exact gap the report
+called out closed: Interpretation's own emotional signal, which used to
+vanish before WorldState existed, now survives to the rendered
+Understanding layer.
+
+Added 6 new tests: `tests/test_understanding.py` (render + status
+filter, plus extending the existing shadow-field exclusion tests to
+cover `emotional_signal_items`) and `tests/test_world_state_evolution.py`
+(real confidence propagation, in-place update on recurrence including
+case-insensitivity, `first_seen` preserved/`last_updated` bumped on
+recurrence, distinct emotions accumulate separately). Full `pytest`
+suite green (272 tests, up from 266).
+
+Not yet done, explicitly out of scope for this round: no Judgment/
+Planner/Response prompt changes to actually USE emotional_signal_items
+as reasoning input (kept excluded, matching assumption_items/
+inference_items' own precedent of being additive-only for
+Understanding); no live LLM verification (this is a deterministic
+Tier 1 template + merge-logic change, same category as the original
+Tier 1 completeness fixes, so unlike the has_knowledge_correction
+work above it doesn't require live calibration to validate -- pytest +
+the manual E03 replay are the appropriate verification here, same
+reasoning applied to the original Part A completeness fixes).

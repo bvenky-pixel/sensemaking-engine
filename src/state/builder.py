@@ -23,6 +23,7 @@ from typing import List, Optional, Tuple
 
 from src.interpretation.schema import (
     DecisionEvent,
+    EmotionalSignal,
     EntityAttributeUpdate,
     GoalUpdate,
     Interpretation,
@@ -32,6 +33,7 @@ from src.state.world_state import (
     Assumption,
     Claim,
     Decision,
+    EmotionalSignalItem,
     Entity,
     EntityAttribute,
     Fact,
@@ -197,6 +199,43 @@ def _merge_content_items(
                 )
             )
             seen.add(key)
+    return result
+
+
+def _merge_emotional_signals(
+    existing: List[EmotionalSignalItem], new_signals: List[EmotionalSignal], turn: int
+) -> List[EmotionalSignalItem]:
+    """
+    Keyed by `emotion` (case-insensitive, trimmed) -- unlike
+    _merge_content_items, a repeat UPDATES the existing item's
+    intensity/confidence/source/provenance.last_updated in place rather
+    than being dropped as an unchanged duplicate (see
+    EmotionalSignalItem's own docstring in world_state.py for why: an
+    emotion recurring is a fresh reading of the same underlying signal,
+    not a fact being reaffirmed unchanged). first_seen is preserved from
+    the item's original occurrence.
+    """
+    result = list(existing)
+    by_emotion = {item.emotion.strip().lower(): item for item in result}
+    for sig in new_signals:
+        key = sig.emotion.strip().lower()
+        current = by_emotion.get(key)
+        if current is not None:
+            current.intensity = sig.intensity
+            current.confidence = sig.confidence
+            current.source = sig.source
+            if current.provenance is not None:
+                current.provenance.last_updated = turn
+        else:
+            new_item = EmotionalSignalItem(
+                emotion=sig.emotion,
+                intensity=sig.intensity,
+                confidence=sig.confidence,
+                source=sig.source,
+                provenance=Provenance(source="interpretation", first_seen=turn, last_updated=turn),
+            )
+            result.append(new_item)
+            by_emotion[key] = new_item
     return result
 
 
@@ -660,6 +699,17 @@ def update_state(state: WorldState, interp: Interpretation) -> WorldState:
                 )
             )
             existing_inference_keys.add(key)
+
+    # Added 2026-07-15, see engine/decisions.md "Tier 1 completeness +
+    # has_knowledge_correction calibration" -- validation report Failure
+    # Mode #4: Interpretation's emotional_signals was computed every
+    # turn and discarded before this line existed. See
+    # _merge_emotional_signals and EmotionalSignalItem's own docstrings
+    # for why this is update-in-place rather than the append-only/dedup
+    # pattern every other tier above uses.
+    new_state.emotional_signal_items = _merge_emotional_signals(
+        new_state.emotional_signal_items, interp.emotional_signals, turn
+    )
 
     updated_unknowns, resolved = _reconcile_unknowns(
         new_state.unknowns, interp.unknowns, interp.observed_facts + interp.claims, turn

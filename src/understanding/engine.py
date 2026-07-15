@@ -19,7 +19,8 @@ from __future__ import annotations
 from typing import List
 
 from src.executor.voice import to_second_person
-from src.state.world_state import Entity, WorldState
+from src.state.builder import INTENSITY_SCALE
+from src.state.world_state import EmotionalSignalItem, Entity, WorldState
 from src.understanding.schema import UnderstandingStatement
 
 _FACT_CLAIM_VISIBLE_STATUSES = {"active"}
@@ -31,11 +32,13 @@ _DECISION_VISIBLE_STATUSES = {"open", "deferred", "resolved"}
 # world_state.py). Filtering defensively anyway, same discipline as
 # every other loop here.
 _UNKNOWN_VISIBLE_STATUSES = {"open"}
-# Nothing sets Entity/Assumption/Inference status to "retracted" today --
-# same "filter defensively for a state nothing currently produces" reasoning.
+# Nothing sets Entity/Assumption/Inference/EmotionalSignalItem status to
+# "retracted" today -- same "filter defensively for a state nothing
+# currently produces" reasoning.
 _ENTITY_VISIBLE_STATUSES = {"active"}
 _ASSUMPTION_VISIBLE_STATUSES = {"active"}
 _INFERENCE_VISIBLE_STATUSES = {"active"}
+_EMOTION_VISIBLE_STATUSES = {"active"}
 
 
 def _render_entity_text(entity: Entity) -> str:
@@ -54,6 +57,18 @@ def _render_entity_text(entity: Entity) -> str:
     parts = [f"{attr.attribute} is {attr.value}" for attr in entity.attributes]
     parts += list(entity.relationships)
     return f"{entity.name} -- " + "; ".join(parts) + "."
+
+
+def _render_emotion_text(item: EmotionalSignalItem) -> str:
+    """
+    EmotionalSignalItem has no content string to pass through
+    to_second_person (unlike every other KnowledgeItem subtype except
+    Entity) -- emotion/intensity instead. INTENSITY_SCALE (defined in
+    src/state/builder.py, this module's own "render layer multiplies by
+    this for display" comment) converts the 0.0-1.0 stored value into a
+    /10 reading that reads naturally in a sentence.
+    """
+    return f"You're experiencing {item.emotion} (intensity {round(item.intensity * INTENSITY_SCALE)}/10)."
 
 
 def build_tier1_statements(state: WorldState) -> List[UnderstandingStatement]:
@@ -147,6 +162,14 @@ def build_tier1_statements(state: WorldState) -> List[UnderstandingStatement]:
         statements.append(UnderstandingStatement(
             id=f"tier1:inference:{inference.id}", tier=1, kind="inference",
             text=to_second_person(inference.content), grounding_item_ids=[inference.id],
+        ))
+
+    for emotion in state.emotional_signal_items:
+        if emotion.status not in _EMOTION_VISIBLE_STATUSES:
+            continue
+        statements.append(UnderstandingStatement(
+            id=f"tier1:emotion:{emotion.id}", tier=1, kind="emotion",
+            text=_render_emotion_text(emotion), grounding_item_ids=[emotion.id],
         ))
 
     return statements

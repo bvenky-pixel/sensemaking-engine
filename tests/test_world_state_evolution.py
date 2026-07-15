@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from src.interpretation.schema import (
     DecisionEvent,
+    EmotionalSignal,
     EntityAttributeUpdate,
     GoalUpdate,
     Inference,
@@ -1221,3 +1222,75 @@ def test_assumption_items_dedup_matches_flat_list_exact_match_semantics():
     state = update_state(state, make_interp(assumptions=["Assumes X.", "assumes x."]))
     assert len(state.assumptions) == 2
     assert len(state.assumption_items) == 2
+
+
+# ---------------------------------------------------------------------------
+# emotional_signal_items -- validation report Failure Mode #4 (see
+# engine/decisions.md "Tier 1 completeness + has_knowledge_correction
+# calibration"): Interpretation's emotional_signals had no home in
+# WorldState at all before this.
+# ---------------------------------------------------------------------------
+def test_emotional_signal_item_created_with_real_interpretation_confidence():
+    """Like Inference (and unlike Assumption), confidence is REAL
+    per-item data from Interpretation's own calibrated
+    EmotionalSignal.confidence, not a flat tier constant."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        emotional_signals=[EmotionalSignal(emotion="disenchantment", intensity=0.8, confidence=0.9, source="explicit")]
+    ))
+    assert len(state.emotional_signal_items) == 1
+    item = state.emotional_signal_items[0]
+    assert item.emotion == "disenchantment"
+    assert item.intensity == 0.8
+    assert item.confidence == 0.9
+    assert item.source == "explicit"
+
+
+def test_emotional_signal_recurrence_updates_in_place_not_a_new_entry():
+    """Unlike every other tier's dedup-by-content merge, a repeat of the
+    SAME emotion updates intensity/confidence/source in place rather than
+    being dropped as an unchanged duplicate or appended as a fresh entry
+    -- see _merge_emotional_signals and EmotionalSignalItem's own
+    docstrings for why: intensity is a live reading, not a reaffirmed
+    fact, and accumulating a fresh entry per turn would reproduce this
+    same report's Failure Mode #3 (unbounded near-duplicate
+    accumulation) for emotions specifically."""
+    state = WorldState()
+    state = update_state(state, make_interp(
+        emotional_signals=[EmotionalSignal(emotion="anxiety", intensity=0.4, confidence=0.5, source="inferred")]
+    ))
+    state = update_state(state, make_interp(
+        emotional_signals=[EmotionalSignal(emotion="Anxiety", intensity=0.9, confidence=0.8, source="explicit")]
+    ))
+    assert len(state.emotional_signal_items) == 1
+    item = state.emotional_signal_items[0]
+    assert item.intensity == 0.9
+    assert item.confidence == 0.8
+    assert item.source == "explicit"
+
+
+def test_emotional_signal_recurrence_preserves_first_seen_bumps_last_updated():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        emotional_signals=[EmotionalSignal(emotion="relief", intensity=0.3, confidence=0.6, source="inferred")]
+    ))
+    first_seen = state.emotional_signal_items[0].provenance.first_seen
+    state = update_state(state, make_interp(
+        emotional_signals=[EmotionalSignal(emotion="relief", intensity=0.5, confidence=0.6, source="inferred")]
+    ))
+    item = state.emotional_signal_items[0]
+    assert item.provenance.first_seen == first_seen
+    assert item.provenance.last_updated == state.turn_count
+
+
+def test_distinct_emotions_accumulate_as_separate_items():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        emotional_signals=[
+            EmotionalSignal(emotion="anxiety", intensity=0.4, confidence=0.5, source="inferred"),
+            EmotionalSignal(emotion="hope", intensity=0.6, confidence=0.7, source="explicit"),
+        ]
+    ))
+    assert len(state.emotional_signal_items) == 2
+    emotions = {item.emotion for item in state.emotional_signal_items}
+    assert emotions == {"anxiety", "hope"}

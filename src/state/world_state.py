@@ -265,6 +265,44 @@ class Inference(KnowledgeItem):
     status: InferenceStatus = "active"
 
 
+EmotionalSignalStatus = Literal["active", "retracted"]
+
+
+class EmotionalSignalItem(KnowledgeItem):
+    """
+    Added 2026-07-15 (see engine/decisions.md "Tier 1 completeness +
+    has_knowledge_correction calibration" -- validation report Failure
+    Mode #4): closes a genuine SCHEMA gap, not a rendering one --
+    Interpretation's own EmotionalSignal (emotion/intensity/confidence/
+    source, see src/interpretation/schema.py) was computed every turn
+    and then discarded before WorldState even existed, unlike every
+    other Interpretation output. Deliberately NOT paired with a
+    pre-existing flat `List[str]` the way Assumption/Inference are (see
+    their docstrings) -- there was no flat `emotional_signals` field to
+    preserve compatibility with; this data had no home in WorldState at
+    all before now, so it can start directly as a structured type.
+
+    Unlike Fact/Claim/Assumption/Inference (dedup by content, existing
+    items never updated in place), this list is keyed by `emotion` and
+    UPDATED in place on a repeat (see
+    src/state/builder.py::_merge_emotional_signals) -- intensity is
+    inherently a live reading that changes turn to turn for the same
+    named emotion, not a fact that's simply reaffirmed. Treating a
+    same-emotion recurrence as a brand-new entry would reproduce this
+    same report's Failure Mode #3 (unbounded near-duplicate
+    accumulation) for emotions specifically; treating it as an
+    unchanged duplicate would leave a stale intensity on record
+    indefinitely. `confidence` is REAL per-item data (Interpretation's
+    own calibrated EmotionalSignal.confidence), same treatment as
+    Inference.
+    """
+
+    emotion: str
+    intensity: float = Field(ge=0.0, le=1.0)
+    source: Literal["explicit", "inferred"]
+    status: EmotionalSignalStatus = "active"
+
+
 class WorldState(BaseModel):
     # --- Working Memory (see module TODO) ---
     # Phase 2 (Discover) tracking -- not in the spec's Core Structure
@@ -312,6 +350,15 @@ class WorldState(BaseModel):
     assumption_items: List[Assumption] = Field(default_factory=list)
     inference_items: List[Inference] = Field(default_factory=list)
 
+    # Added 2026-07-15 (see EmotionalSignalItem above and
+    # engine/decisions.md "Tier 1 completeness + has_knowledge_correction
+    # calibration" -- validation report Failure Mode #4). Excluded from
+    # Judgment/Planner/Response's prompts below, same reasoning as
+    # assumption_items/inference_items -- this exists for
+    # src/understanding/ to render, not as a new signal for the existing
+    # pipeline stages to reason over.
+    emotional_signal_items: List[EmotionalSignalItem] = Field(default_factory=list)
+
     # v1.1 (added 2026-07-10, see engine/decisions.md "WorldState
     # provenance -- trajectory prerequisite"): incremented exactly once
     # per turn, solely by src/state/builder.py::update_state -- the single
@@ -337,13 +384,16 @@ class WorldState(BaseModel):
 # Journey-scoped identity"): src/judgment/engine.py, src/planner/engine.py,
 # and src/response/engine.py all dump the FULL WorldState verbatim into
 # their prompts (`state.model_dump_json(indent=2)`, no field filtering).
-# Left unexcluded, `understanding`/`assumption_items`/`inference_items`
-# would silently start flowing into all three already-calibrated prompts
-# the moment they exist -- pure token waste at minimum, and a real
-# behavior-regression risk at worst (a model citing/quoting
-# `understanding` text back, or treating assumption_items/inference_items
-# as a distinct new signal alongside the existing flat assumptions/
-# inferences lists they duplicate). Defined once here, imported by all
+# Left unexcluded, `understanding`/`assumption_items`/`inference_items`/
+# `emotional_signal_items` would silently start flowing into all three
+# already-calibrated prompts the moment they exist -- pure token waste
+# at minimum, and a real behavior-regression risk at worst (a model
+# citing/quoting `understanding` text back, or treating
+# assumption_items/inference_items/emotional_signal_items as a distinct
+# new signal alongside the existing flat assumptions/inferences lists
+# they duplicate, or alongside nothing at all for emotional signals,
+# which have no pre-existing flat-list counterpart to be consistent
+# with). Defined once here, imported by all
 # three engines' `model_dump_json(..., exclude=PROMPT_EXCLUDED_FIELDS)`
 # call, rather than three independently-maintained copies of the same set.
-PROMPT_EXCLUDED_FIELDS = {"understanding", "assumption_items", "inference_items"}
+PROMPT_EXCLUDED_FIELDS = {"understanding", "assumption_items", "inference_items", "emotional_signal_items"}
