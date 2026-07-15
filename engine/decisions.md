@@ -6728,3 +6728,107 @@ the calibration script/workflow).
 Not yet dispatched live against a real model -- that's the next step,
 same as this codebase's other freshly-shipped calibration harnesses
 before their first real run.
+
+## Tier 2 first live calibration run (gpt-4o-mini)
+
+Dispatched against `openai/gpt-4o-mini` (run 29425815512, commit
+`b8bc0b0`). Scored 2/4:
+
+```
+[HIT ] synthesis_decision_and_assumption: expected_nonempty=True, actual=True
+[HIT ] synthesis_goal_and_blocking_fact: expected_nonempty=True, actual=True
+[MISS] negative_control_unrelated: expected_nonempty=False, actual=True
+[MISS] single_candidate_floor_check: expected_nonempty=False, actual=True
+```
+
+**The mechanism worked perfectly -- every single caching check across
+all four scenarios showed `signature unchanged=True, computed_at_turn
+unchanged=True`.** The candidate selection, grounding-signature hashing,
+and skip-on-no-change gating all behaved exactly as designed against
+real pipeline data, not just the synthetic unit tests. No hallucinated
+or thin grounding ids were visible in any surviving statement (all
+`grounding_item_ids` were real Tier 1 ids from the candidates actually
+offered).
+
+**`single_candidate_floor_check` MISS is a calibration-script design
+bug, not a Tier 2 finding.** The scenario assumed one turn ("deciding
+whether to ask my manager for a raise or not") would produce at most
+one Decision candidate -- it actually produced TWO
+(`tier1:decision:e9095de5...`/`tier1:decision:00080e66...`, "ask" and
+"not ask" as separate options), clearing `MIN_GROUNDING_ITEMS` the
+scenario was designed to stay under. The resulting statement itself is
+reasonable ("weighing both the option to ask your manager and the
+option not to ask"). This needs a scenario fix (a message shaped to
+produce genuinely zero or one Decision/Goal/Fact extraction), not a
+mechanism fix -- logged honestly as a test-design gap.
+
+**`negative_control_unrelated` MISS is a real, concerning finding: the
+model over-synthesizes, and did so in the more worrying direction than
+under-firing.** Turn 2 ("Also I've started going to pottery classes on
+Tuesdays, it's fun.") produced:
+
+```
+'Your enjoyment of pottery classes may be a positive outlet that
+supports your goal of saving for a house, suggesting a balance between
+leisure and financial aspirations.'
+grounded_in=[..house-saving fact/claim/goal.., ..pottery fact/claim/emotion..]
+```
+
+This is a fabricated narrative connection -- nothing in either turn
+states or implies pottery classes relate to the house-saving goal at
+all. The model didn't just fail to abstain; it actively invented a
+plausible-sounding "balance between leisure and financial aspirations"
+story bridging two genuinely unconnected candidates. This is exactly
+the risk flagged before dispatch (a synthesis-shaped prompt has an
+over-eagerness failure mode a correction-detection prompt like
+`has_knowledge_correction` never had to guard against), now confirmed
+with real evidence rather than a hypothesis.
+
+**A second, subtler compliance gap, visible even on the two scored
+HITs**: both synthesis scenarios' FIRST-turn statement (before the
+genuinely connecting content even existed yet) is a near-paraphrase
+across duplicate/overlapping WorldState items, not a real synthesis --
+e.g. `synthesis_goal_and_blocking_fact` turn 1 (only "My goal is to
+move into the Product team." said so far) produced: `'Your aspiration
+to move into the Product team is clearly defined as both a goal and a
+desire, indicating a strong commitment to this career path.'` grounded
+in a Fact + Claim + Goal that all just restate the same single
+statement. The prompt's own law 3 explicitly says this is NOT
+synthesis and must not be produced ("restating one candidate's own
+text in different words... must not be produced"), yet the model
+produced it anyway on both synthesis scenarios' first turn. It was
+only turn 2 (once real cross-candidate content existed) that produced
+genuinely correct synthesis in both cases. This suggests the model may
+be biased toward always returning at least one statement when
+`MIN_GROUNDING_ITEMS` is technically met, rather than treating "no real
+synthesis opportunity yet" as the common, correct answer the prompt
+asks for -- the same "detected but didn't hold the line" shape as
+several Judgment fields earlier in this log, applied to a prompt where
+the model finds it easy to always have SOMETHING to say.
+
+**Not yet acted on.** Two real findings, not yet fixed:
+1. Fix the `single_candidate_floor_check` scenario itself (test-design
+   bug, see above) -- low effort, no mechanism change needed.
+2. The over-synthesis / paraphrase-as-synthesis compliance gap is the
+   substantive one. Recommend NOT attempting a blind prompt-wording
+   tweak first, per this log's own established discipline
+   (`has_knowledge_correction`'s two-round lesson: an explicit ask
+   alone didn't fix a similar compliance gap, a structural fix -- field
+   adjacency -- did). A plausible next hypothesis, not yet tested: the
+   prompt's anti-paraphrase rule (law 3) is currently one bullet among
+   six GOVERNING LAWS with no worked "correctly abstained" example --
+   every worked example in the prompt shows a case where synthesis
+   SHOULD fire, none show a case where the correct answer is silence
+   despite `MIN_GROUNDING_ITEMS` being met. Worth testing whether adding
+   an explicit "met the floor, still correctly returned []" worked
+   example changes this, rather than reflexively strengthening the
+   prohibition wording alone.
+
+Cost: 35 calls, 163,054 tokens, $0.0275 for this full run (6 turns
+across 4 scenarios, up to 5 stages/turn) -- confirms the
+`should_recompute_tier2` gating didn't prevent this first run from
+exercising the LLM (every turn in every scenario had a fresh candidate
+pool, so every turn recomputed) -- the gating's cost benefit shows up
+on REPEATED turns with an unchanged pool (confirmed working via the
+caching checks above), not on this kind of short, always-novel
+calibration scenario.
