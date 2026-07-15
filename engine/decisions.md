@@ -7397,3 +7397,67 @@ button works). Full suite green: `pytest` 336, `vitest` 31, clean
 real backend-sourced descriptions, clicked "Vent," confirmed it landed
 on the Journey screen, and confirmed directly against the database that
 the new session's `mode` column was actually set to `"vent"`.
+
+## Counseling modes -- distinct character per mode
+
+Direct follow-up, same day: the first cut's focus notes nudged emphasis
+without genuinely changing behavior -- three concrete examples set the
+bar for what "distinct" actually means: Vent should read as a real
+empathetic-listener voice, not a softer default; Strategize should
+actively enumerate concrete choices toward a decision, not discuss
+tradeoffs abstractly; Explore should genuinely challenge/push back on
+the person's own stated assumptions, not just ask neutrally open
+questions.
+
+**Split Planner's and Response's focus notes into two separate dicts**
+(`PLANNER_MODE_FOCUS`, `RESPONSE_MODE_FOCUS` in `src/orchestrator/modes.py`,
+replacing the single shared `MODE_FOCUS`) -- the two layers' jobs
+(deciding what to prioritize vs. deciding how to phrase it) diverge
+enough per mode that one shared paragraph could no longer serve both
+without being vague in one direction. New `planner_mode_focus_note`/
+`response_mode_focus_note` functions, same empty-string-for-none/
+unrecognized contract as the original `mode_focus_note` they replace.
+
+Per-mode changes with real teeth, not just emphasis:
+- **Vent** (Response): explicitly framed as "you are, in this mode, an
+  empathetic listener first" -- no advice/tradeoffs/action steps unless
+  asked, and sentence 2 becomes a feelings check-in ("What's the hardest
+  part of this for you right now?") instead of a diagnostic question.
+- **Strategize** (Response): explicitly instructed to actively populate
+  the `options` field (Response v3's real choice buttons) whenever
+  WorldState/Planner name 2-3 concrete options -- this is the one mode
+  where leaving `options` empty is the exception, not the default, and
+  sentence 2 pushes toward an actual decision ("Which of these feels
+  closer to the right call?").
+- **Explore** (Planner + Response): reframed from neutral open
+  questions to an actual challenge -- Planner's primary_objective now
+  aims to press on a SPECIFIC assumption/contradiction/risk Judgment
+  already identified, and Response's sentence 2 phrases it as a real
+  pushback ("You said X -- but doesn't that assume Y?") rather than a
+  gentle open question. Still bound by the Grounding law (never invents
+  a new critique) and user agency (surfaces a tension to examine, never
+  asserts the person is wrong).
+- **Commit** and **Realign** sharpened in the same spirit (concrete
+  commitments with a when; identity/values fit) though not explicitly
+  called out by name this round.
+
+Mode descriptions on the mode-select screen updated to match ("Lay out
+real choices and move toward a decision" / "Get pushed on your own
+thinking, not just asked about it") so the person picking a mode has an
+accurate preview of what they're actually choosing.
+
+Also added: an optional `mode` env var (`WALKTHROUGH_MODE`) to
+`scripts/run_worldstate_walkthrough.py` and a matching `mode` input on
+`.github/workflows/worldstate-walkthrough.yml`, so a specific mode's
+sharpened behavior can be checked against a real model on the existing
+career-decision transcript, not just asserted in tests.
+
+**Verified**: `tests/test_modes.py` rewritten for the two-dict split,
+plus new regression guards (`test_strategize_response_focus_explicitly_
+mentions_options`, `test_explore_response_focus_frames_a_challenge_not_
+a_neutral_question`, and a check that Planner's and Response's notes for
+the same mode are never identical strings). Full suite green: `pytest`
+340. Live dispatch of `worldstate-walkthrough.yml` against
+`openai/gpt-4o-mini` for `mode=vent`, `mode=strategize`, and
+`mode=explore` -- see below for the actual per-mode output read
+against each mode's own bar.

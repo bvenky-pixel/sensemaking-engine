@@ -249,7 +249,7 @@ def build_messages(world_state_json: str, judgment_json: str, mode: str = ""):
     src/orchestrator/modes.py): the pre-computed focus note for this
     Journey's chosen mode, or "" for a Journey with no mode (the common
     case for every Journey created before this feature existed). Passed
-    in already-resolved (mode_focus_note's return value, not a raw mode
+    in already-resolved (planner_mode_focus_note's return value, not a raw mode
     id) so this module stays a pure function of strings, same as
     `world_state_json`/`judgment_json` above -- it doesn't need to know
     src/orchestrator/modes.py exists.

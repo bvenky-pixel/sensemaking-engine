@@ -32,7 +32,7 @@ from pydantic import ValidationError
 from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.judgment.schema import Judgment
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
-from src.orchestrator.modes import mode_focus_note
+from src.orchestrator.modes import response_mode_focus_note
 from src.planner.schema import Planner
 from src.response.prompt import build_messages
 from src.response.schema import Response
@@ -74,13 +74,13 @@ def run_response_generator(
 
     mode: optional Counseling mode id (see src/orchestrator/modes.py) --
     same raw session-level value passed to run_planner, resolved to its
-    prompt-injection note here via mode_focus_note.
+    prompt-injection note here via response_mode_focus_note.
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     planner_json = planner.model_dump_json(indent=2)
     system_prompt, messages = build_messages(
-        world_state_json, judgment_json, planner_json, mode_focus_note(mode)
+        world_state_json, judgment_json, planner_json, response_mode_focus_note(mode)
     )
     schema = Response.model_json_schema()
     tracker = tracker or default_tracker

@@ -191,7 +191,7 @@ def init_db(db_path: Optional[Path] = None) -> None:
         # Same pattern for `mode` (Counseling modes, see engine/decisions.md
         # and src/orchestrator/modes.py): a session from before this
         # feature existed has no mode, which is exactly what NULL ->
-        # `mode_focus_note(None) == ""` already means -- Planner/Response
+        # `planner_mode_focus_note(None) == ""` already means -- Planner/Response
         # behave exactly as they did before this feature for that session.
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN mode TEXT")

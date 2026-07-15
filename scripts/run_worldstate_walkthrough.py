@@ -67,6 +67,15 @@ def main() -> int:
     failures = 0
     tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
 
+    # Counseling modes (see engine/decisions.md): optional, env-set so a
+    # dispatch of this script (or the GH Actions workflow wrapping it)
+    # can exercise the same fixed transcript under a specific mode's
+    # focus notes against a real model -- unset (the default) behaves
+    # exactly as before this feature existed.
+    mode = os.environ.get("WALKTHROUGH_MODE") or None
+    if mode:
+        print(f"Counseling mode: {mode}")
+
     for i, message in enumerate(TRANSCRIPT, start=1):
         print(f"\n{'=' * 70}\nTURN {i}: {message}\n{'=' * 70}")
         turn_start = tracker.count()
@@ -76,7 +85,7 @@ def main() -> int:
         # how far this turn got -- see src/orchestrator/engine.py.
         # `result.state` always reflects what actually happened, so it's
         # safe to reassign unconditionally even on a mid-pipeline failure.
-        result = run_turn(message, state, tracker=tracker)
+        result = run_turn(message, state, tracker=tracker, mode=mode)
         state = result.state
 
         if not result.interpretation:

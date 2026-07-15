@@ -10,6 +10,10 @@ on:
         description: "OPENROUTER_MODEL override (blank = provider default)"
         required: false
         default: ""
+      mode:
+        description: "Counseling mode (vent/strategize/commit/explore/realign, blank = none)"
+        required: false
+        default: ""
 
 jobs:
   walkthrough:
@@ -28,6 +32,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          WALKTHROUGH_MODE: ${{ github.event.inputs.mode }}
           CONFIDANT_TRACK_USAGE: "1"
         run: |
           if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
