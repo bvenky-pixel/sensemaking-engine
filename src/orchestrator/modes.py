@@ -21,24 +21,46 @@ jargon ("Supportive Companion", "Socratic Guide"), which is never meant
 to reach a prompt or a person.
 
 Distinct character per mode (2026-07-15, same day, direct follow-up,
-two rounds): the first cut's focus notes were too similar in shape
-across all five modes -- each nudged emphasis without actually changing
-behavior in a felt way. Round one sharpened the three modes given as
-explicit examples (Vent as a genuinely validation-first empathetic
-listener; Strategize actively enumerating concrete choices toward a
-decision rather than discussing tradeoffs abstractly; Explore actually
+two rounds, then a THIRD round fixing real gaps found by live dispatch):
+the first cut's focus notes were too similar in shape across all five
+modes -- each nudged emphasis without actually changing behavior in a
+felt way. Round one sharpened the three modes given as explicit
+examples (Vent as a genuinely validation-first empathetic listener;
+Strategize actively enumerating concrete choices toward a decision
+rather than discussing tradeoffs abstractly; Explore actually
 challenging/pushing back on stated assumptions rather than asking
 neutrally open questions). Round two (a direct "what about the other
-two" follow-up) brought Commit and Realign to the same bar: Commit as a
-direct accountability coach that names a stagnation_notes-grounded
-pattern instead of re-asking the same open question; Realign as a
-mentor that anchors sentence 2 in a specific, already-present
-WorldState goal/value rather than a generic "what matters to you"
-question. Planner and Response get SEPARATE focus notes per mode
-(below) -- Planner's own job (deciding what to prioritize) and
-Response's (deciding how to phrase it, and whether to populate
-`options`) diverge enough per mode that one shared paragraph could no
-longer serve both without being vague in one direction or the other.
+two" follow-up) brought Commit and Realign to the same bar.
+
+Round three (2026-07-15, same day, "work on the weaknesses and gaps in
+each of the modes"): live 11-turn dispatches against a real model
+(gpt-4o-mini) surfaced concrete defects round one/two's tests couldn't
+catch, since they only assert on the PROMPT text, not what a real model
+actually does with it:
+- Vent and Realign's response_text quoted this file's own illustrative
+  examples ("What's the hardest part of this for you right now?"; "your
+  vision for your career") almost VERBATIM turn after turn across all
+  11 turns -- the model was treating "e.g." examples as literal
+  templates, not register illustrations. Fixed by explicitly saying so
+  in both notes and instructing turn-to-turn variation.
+- Commit froze on a literal "This is the third time..." example from
+  turn 3 onward, never updating to reflect stagnation_notes' actual
+  growing duration in later turns. Fixed by instructing the model to
+  use stagnation_notes' own CURRENT wording/count each turn, explicitly
+  flagging that a stale, non-updating phrase is wrong.
+- Strategize's `options` field populated correctly (confirmed via a
+  script fix that started printing it -- see
+  scripts/run_worldstate_walkthrough.py), but sentence 2 also
+  re-described each option's specifics in prose, duplicating the same
+  content the buttons already carry. Fixed by explicitly disallowing
+  that once `options` is populated.
+- Explore had no live-dispatch defect found this round.
+
+Planner and Response get SEPARATE focus notes per mode (below) --
+Planner's own job (deciding what to prioritize) and Response's (deciding
+how to phrase it, and whether to populate `options`) diverge enough per
+mode that one shared paragraph could no longer serve both without being
+vague in one direction or the other.
 """
 
 from __future__ import annotations
@@ -112,10 +134,11 @@ PLANNER_MODE_FOCUS: Dict[str, str] = {
         "commitments/goals are vague, your plan aims to pin them down, not "
         "explore around them. If Judgment's stagnation_notes show this same "
         "goal or intention has resurfaced before without action, your plan "
-        "should name that pattern directly (grounded only in what "
-        "stagnation_notes actually says) rather than treat this as a fresh "
-        "ask -- accountability means noticing the pattern, not politely "
-        "re-asking the same open question."
+        "should name that pattern using whatever stagnation_notes ACTUALLY "
+        "says this turn (its own specific duration/count, if it states "
+        "one) -- never a fixed phrase repeated turn after turn regardless "
+        "of what stagnation_notes currently says; if the duration has grown "
+        "since the last turn, that growth itself is worth naming."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -155,8 +178,14 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "or action steps unless the person explicitly asks for them. "
         "Sentence 2 (the question) should invite the person to say more "
         "about how they're feeling or what's underneath this -- a check-in "
-        "question ('What's the hardest part of this for you right now?'), "
-        "never a diagnostic one aimed at solving anything."
+        "question in that register (e.g. something like 'What's the "
+        "hardest part of this for you right now?'), never a diagnostic one "
+        "aimed at solving anything. That example illustrates the REGISTER "
+        "only, not literal text to reuse -- word this turn's actual "
+        "question around whatever the person specifically just said, not "
+        "the same phrasing as an earlier turn in this same Journey; "
+        "repeating an identical check-in turn after turn reads as "
+        "mechanical, not attentive."
     ),
     "strategize": (
         "This Journey was started in Strategize mode: the person wants "
@@ -165,22 +194,28 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "this turn (e.g. decision_options), actively populate `options` "
         "(see below) with them -- lean into using it in this mode, rather "
         "than leaving it empty by default the way other modes usually "
-        "would. Sentence 2 should push toward a decision (e.g. 'Which of "
-        "these feels closer to the right call?') rather than stay purely "
-        "open-ended -- still grounded, never inventing an option nothing "
-        "upstream actually named."
+        "would. Once you populate `options`, do NOT also re-list or "
+        "re-describe each option's specifics in sentence 2's own prose -- "
+        "the buttons already carry the option names/descriptions, so "
+        "restating them there is pure duplication. Sentence 2 should just "
+        "pose the framing question itself (e.g. something like 'Which of "
+        "these feels closer to the right call?'), staying short, exactly "
+        "as the STRUCTURE rule already requires -- still grounded, never "
+        "inventing an option nothing upstream actually named."
     ),
     "commit": (
         "This Journey was started in Commit mode: you are, in this mode, "
         "an accountability coach -- direct, not softly exploratory. "
-        "Sentence 2 should ask for a specific, dated commitment ('By when "
-        "will you actually do this?'), not a general check-in question. If "
-        "WorldState/Judgment's stagnation_notes show this same goal or "
-        "intention has stalled before, name that plainly in the grounding "
-        "sentence ('This is the third time this has come up without a "
-        "next step') rather than treating it as a brand-new ask -- still "
-        "grounded in what stagnation_notes actually says, never an invented "
-        "characterization of the person."
+        "Sentence 2 should ask for a specific, dated commitment (in a "
+        "register like 'By when will you actually do this?', worded fresh "
+        "each turn, not the same sentence reused), not a general check-in "
+        "question. If WorldState/Judgment's stagnation_notes show this same "
+        "goal or intention has stalled before, name that plainly in the "
+        "grounding sentence using stagnation_notes' OWN current wording/ "
+        "count for THIS turn (e.g. if it now says a longer duration than "
+        "last turn, say that, not a fixed count copied forward from an "
+        "earlier turn) -- still grounded in what stagnation_notes actually "
+        "says right now, never an invented or stale characterization."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -199,10 +234,17 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "a mentor focused on the throughline of who this person is "
         "becoming, not the immediate tactical problem. Ground the "
         "grounding sentence and sentence 2 in a SPECIFIC goal, value, or "
-        "self-description already present in WorldState -- e.g. 'You've "
-        "said becoming [X] matters to you -- does this choice move you "
-        "toward that, or away from it?' -- rather than a generic 'what "
-        "matters most to you' question with nothing concrete to anchor it."
+        "self-description already present in WorldState -- e.g. something "
+        "like 'You've said becoming [X] matters to you -- does this choice "
+        "move you toward that, or away from it?' -- rather than a generic "
+        "'what matters most to you' question with nothing concrete to "
+        "anchor it. That example illustrates the REGISTER only: if "
+        "WorldState never states an explicit value/identity description "
+        "(only a goal), anchor honestly on that goal itself rather than "
+        "dressing it up in the same 'vision for your career'/'who you see "
+        "yourself becoming' phrasing every turn -- vary the actual wording "
+        "turn to turn, and don't assert a values/identity frame more "
+        "specific than what WorldState actually supports."
     ),
 }
 

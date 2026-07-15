@@ -95,3 +95,27 @@ def test_realign_focus_notes_anchor_in_a_specific_worldstate_value():
     you" question with nothing concrete to anchor it."""
     assert "specific" in PLANNER_MODE_FOCUS["realign"].lower()
     assert "specific" in RESPONSE_MODE_FOCUS["realign"].lower()
+
+
+def test_vent_and_realign_response_focus_warn_against_verbatim_repetition():
+    """Regression guard for a live-dispatch finding: the model was
+    quoting this file's own illustrative examples verbatim every turn
+    (Vent's check-in question, Realign's "vision for your career"
+    phrasing) instead of treating them as register examples. Both notes
+    must now explicitly say the example isn't literal text to reuse."""
+    assert "not literal text to reuse" in RESPONSE_MODE_FOCUS["vent"]
+    assert "vary the actual wording" in RESPONSE_MODE_FOCUS["realign"]
+
+
+def test_commit_focus_notes_use_stagnation_notes_current_wording_not_a_fixed_phrase():
+    """Regression guard for a live-dispatch finding: the model froze on
+    a literal "third time" example from turn 3 onward instead of
+    reflecting stagnation_notes' actual growing count each turn."""
+    assert "stale" in PLANNER_MODE_FOCUS["commit"] or "stale" in RESPONSE_MODE_FOCUS["commit"]
+
+
+def test_strategize_response_focus_warns_against_duplicating_options_in_prose():
+    """Regression guard for a live-dispatch finding: options populated
+    correctly, but sentence 2 also re-described each option in prose --
+    pure duplication now explicitly disallowed."""
+    assert "duplicat" in RESPONSE_MODE_FOCUS["strategize"].lower()

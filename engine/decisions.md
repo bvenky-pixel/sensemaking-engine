@@ -7490,3 +7490,59 @@ mechanism.
 `test_realign_focus_notes_anchor_in_a_specific_worldstate_value`),
 matching the pattern already established for Strategize/Explore. Full
 suite green: `pytest` 342.
+
+## Counseling modes -- fixing real gaps found by live dispatch
+
+Follow-up to "work on the weaknesses and gaps in each of the modes."
+Dispatched all 5 modes' focus notes against a real model
+(`openai/gpt-4o-mini`, the production model) on the existing 11-turn
+career-decision transcript and read the actual output -- something
+round one/two's tests couldn't catch, since they only assert on the
+PROMPT text, never on what a real model actually does with it. Found
+four real defects:
+
+1. **Vent and Realign quoted this file's own illustrative examples
+   almost VERBATIM every turn.** Vent's response_text repeated "What's
+   the hardest part of this for you right now?" near-identically across
+   all 11 turns; Realign repeated "your vision for your career"/"who you
+   see yourself becoming" the same way. Root cause: the prompt's "e.g."
+   examples were being read as literal templates, not register
+   illustrations. Fix: both notes now explicitly say the example isn't
+   literal text to reuse and instruct varying the actual wording turn to
+   turn, grounded in what the person specifically just said.
+2. **Commit froze on a literal "This is the third time this has come up
+   without a next step" example from turn 3 onward**, never updating
+   even as stagnation_notes' actual duration kept growing through
+   turn 11. Same root cause as #1. Fix: both Planner's and Response's
+   Commit notes now explicitly require using stagnation_notes' own
+   CURRENT wording/count each turn, calling out that a stale,
+   non-updating phrase is wrong -- growth in the duration since last
+   turn is itself worth naming.
+3. **Strategize's `options` field populates correctly** (confirmed by a
+   script fix -- see below -- 11/11 turns had real, distinct option
+   labels/descriptions, not "(none)") **but sentence 2 also re-described
+   each option's specifics in prose**, duplicating the exact content the
+   buttons already carry. Fix: Response's Strategize note now explicitly
+   disallows re-listing option specifics in prose once `options` is
+   populated -- pose the framing question only.
+4. **Explore had no live-dispatch defect this round** -- its challenges
+   stayed specific and content-grounded (naming the manager, the freeze,
+   the paperwork, the leadership change) across all 11 turns without the
+   verbatim-repetition problem the other modes showed.
+
+**Also fixed a verification gap, not a behavior gap**:
+`scripts/run_worldstate_walkthrough.py` never printed
+`result.response.options` at all, so the first live-dispatch pass had no
+way to confirm whether Strategize was populating real choice buttons or
+just describing them in prose -- it could only see response_text. Now
+prints each option's label + description (or "(none)") after every
+turn's confidence line.
+
+**Verified**: new regression tests
+(`test_vent_and_realign_response_focus_warn_against_verbatim_repetition`,
+`test_commit_focus_notes_use_stagnation_notes_current_wording_not_a_fixed_phrase`,
+`test_strategize_response_focus_warns_against_duplicating_options_in_prose`).
+Full suite green: `pytest` 345. All four fixes are logged with the exact
+verbatim defect quoted from the live run they came from, not just
+asserted -- see the commit history for the raw per-turn output that
+motivated each one.
