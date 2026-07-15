@@ -6880,3 +6880,85 @@ Not yet measured: whether the new worked example actually changes
 `gpt-4o-mini`'s behavior on `negative_control_unrelated` and the
 first-turn paraphrase pattern. Needs a fresh dispatch -- see the
 follow-up entry for the result.
+
+## Tier 2 second live calibration run (gpt-4o-mini) -- abstention example: partially worked
+
+Dispatched against `openai/gpt-4o-mini` (run 29427863551, commit
+`9d06041`). Scored 2/3 on the scored scenarios (`same_decision_two_options`
+is now observation-only, per its own fix above):
+
+```
+[HIT ] synthesis_decision_and_assumption: expected_nonempty=True, actual=True
+[HIT ] synthesis_goal_and_blocking_fact: expected_nonempty=True, actual=True
+[MISS] negative_control_unrelated: expected_nonempty=False, actual=True
+[observation] same_decision_two_options: tier2_nonempty=True
+```
+
+**Real, measurable improvement on the first-turn paraphrase pattern.**
+Both `negative_control_unrelated` turn 1 ("I've been trying to save up
+for a house.") and `synthesis_goal_and_blocking_fact` turn 1 ("My goal
+is to move into the Product team.") now correctly produced
+`tier2 statements (0)` -- empty, correct restraint. In the PRIOR run,
+these exact same turns produced paraphrase-across-near-duplicates
+statements (e.g. "Your aspiration to move into the Product team is
+clearly defined as both a goal and a desire..."). This is a real,
+attributable behavior change from the fix, not noise -- the specific
+failure mode the new worked example targeted (producing a statement
+just because the floor is met, with nothing genuine to synthesize yet)
+measurably stopped occurring on these two turns.
+
+**The deeper over-synthesis problem was NOT fixed.** Turn 2 of
+`negative_control_unrelated` ("Also I've started going to pottery
+classes on Tuesdays, it's fun.") still fabricated a connection, nearly
+identical in substance to the prior run:
+
+```
+'Your enjoyment of pottery classes may provide a valuable balance to
+your goal of saving for a house, suggesting that you are finding ways
+to engage in enjoyable activities while pursuing significant financial
+objectives.'
+```
+
+(prior run: "...may be a positive outlet that supports your goal of
+saving for a house, suggesting a balance between leisure and financial
+aspirations.") Same fabricated narrative, same two unrelated topics
+bridged, essentially the same wording pattern -- the new GOOD
+(correct-restraint) worked example did not transfer to this case even
+though it's structurally the same shape (two real, unconnected
+candidates). The abstention fix helped when the risk was "nothing to
+synthesize YET" (early in a conversation, genuinely too little
+content) but not when the risk is "plausible-sounding narrative
+available to invent" (enough candidates exist that a model eager to
+produce SOMETHING can always construct a story connecting them).
+
+**No overcorrection**: both genuine synthesis scenarios' second turns
+still produced correct, real synthesis ("Your consideration of both
+buying a house and pursuing an MBA suggests a significant
+decision-making process influenced by financial constraints.";
+"Your goal to move into the Product team is complicated by your
+uncertainty about reporting structure after your manager's
+promotion.") -- the fix didn't push the model toward silence in
+general, only toward correct restraint in the specific "too early"
+case.
+
+**Verdict: partially worked, and instructively so.** This maps cleanly
+onto the same lesson from `has_knowledge_correction`'s own two-round
+history: a worked example (like an explicit ask) can fix ONE specific
+shape of the compliance gap without fixing a structurally different
+shape of the same underlying problem. Here, "abstain when there's
+nothing yet" and "abstain when there's something to connect but no
+REAL connection" are evidently two different compliance behaviors for
+this model, not one. Recommend NOT immediately trying a third blind
+prompt tweak -- the next evidence-backed lever, not yet tested, would
+likely need something closer to Judgment's own eventual fix shape for
+a similar "detected but didn't hold the line" problem: an explicit,
+mandatory self-check the model must answer BEFORE writing a statement
+("for the specific pair of candidates you are about to cite together,
+does either candidate's own text explicitly reference the other's
+topic? If not, do not connect them") rather than another passive
+worked example. Left as a recommendation for the next round, not
+attempted here without further direction.
+
+Cost: 35 calls, 165,025 tokens, $0.0275 -- materially unchanged from
+the first run's $0.0275, as expected (same scenarios, same call
+pattern; the prompt-text change added negligible tokens).
