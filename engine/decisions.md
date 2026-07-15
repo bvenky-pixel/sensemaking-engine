@@ -5839,3 +5839,57 @@ contradiction it notices, proven to work end to end at least once live,
 with calibration of how often it actually fires left as follow-up work,
 the same trajectory every other boolean-gate field in this codebase has
 gone through."
+
+---
+
+**2026-07-15 — Production KnowledgeItem id backfill actually run**
+
+Follow-up to the previous round's honest gap: `scripts/backfill_knowledge_item_ids.py`
+had been implemented and tested locally since the Understanding-layer
+round, but had never executed against the real production database --
+this sandbox has no network path to `confidantsense.fly.dev` (its own
+outbound proxy blocks it) or to Fly's private network (SQLite is a local
+file on a mounted volume, not a network-reachable service; nothing to
+connect to even without the proxy restriction). Closed via a new manual
+GitHub Actions workflow, `.github/workflows/backfill-knowledge-item-ids.yml`,
+reusing `deploy.yml`'s existing `flyctl`/`FLY_API_TOKEN` pattern --
+GitHub-hosted runners have normal, unrestricted internet access (the
+restriction is specific to this sandbox, not to Actions generally), so
+a workflow can reach Fly's infrastructure even though this session can't
+directly.
+
+**Two real, unanticipated obstacles found and fixed live, not assumed
+away:**
+1. First dispatch failed: `Error: app confidantsense has no started VMs.`
+   `fly.toml`'s `auto_stop_machines`/`min_machines_running=0` scales the
+   app to zero when idle -- `flyctl ssh console` connects directly over
+   Fly's private network and does NOT go through the HTTP proxy's
+   `auto_start_machines` wake-up path, so a stopped machine had to be
+   started explicitly (`flyctl machine start` + `flyctl machine wait
+   --state started --wait-timeout 60s` -- the exact flag names were
+   confirmed by reading the real `--help` output surfaced in the first
+   failed attempt, not guessed).
+2. Second, more significant finding: once the machine woke and SSH
+   connected, `python: can't open file '/app/scripts/backfill_knowledge_item_ids.py':
+   [Errno 2] No such file or directory` -- production was running an
+   image that predated the entire Understanding-layer round, script
+   included. Not just the migration unrun -- the feature itself wasn't
+   live. Required an explicit `deploy.yml` dispatch (confirmed with the
+   user first, as a materially bigger action than the idempotent,
+   additive migration script) before the backfill could run at all.
+
+**Result, confirmed at every stage via real dry-run output, not
+assumed:** dry run against the freshly-deployed image reported `66
+item(s) missing an id across 2 session(s)` (of 4 total sessions --
+the other 2 already had ids, having been created after the fresh
+deploy). Real run: `5f903829-...: backfilled 51 item(s)`,
+`510087ab-...: backfilled 15 item(s)` -- summing to the dry run's 66,
+exactly as expected. Immediate follow-up dry run confirmed idempotency:
+`0 item(s) missing an id across 0 session(s)`.
+
+Stable `KnowledgeItem.id` (and therefore Tier 1 Understanding's
+`tier1:{kind}:{item.id}` rendering) is now actually load-bearing for
+every existing production session, not just for sessions created after
+this point -- closing Failure Mode #1 from
+`experiments/confidant-validation/tier1-validation-report.md`, the top
+of that report's ranked list.
