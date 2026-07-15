@@ -5893,3 +5893,113 @@ every existing production session, not just for sessions created after
 this point -- closing Failure Mode #1 from
 `experiments/confidant-validation/tier1-validation-report.md`, the top
 of that report's ranked list.
+
+---
+
+**2026-07-15 — Tier 1 completeness (Unknown/Entity/Assumption/Inference)
++ Decision fix + has_knowledge_correction calibration**
+
+Two remaining items from the Tier 1 validation report, picked up
+together per explicit request.
+
+**Part A — Tier 1 completeness.** `build_tier1_statements`
+(`src/understanding/engine.py`) previously rendered only Fact/Claim/
+Goal/Decision -- Unknown, Entity, Assumption, and Inference were fully
+populated in WorldState but invisible to Understanding entirely (Failure
+Mode #5). Added all four, reusing kind values (`"uncertainty"` for
+Unknown, `"inference"` for Inference) the schema had already defined but
+the engine never used, plus two genuinely new kinds
+(`"entity"`, `"assumption"`) added to `UnderstandingStatementKind`.
+Confirmed via grep first that nothing downstream (`src/api/server.py`,
+`frontend/app/src`) reads `understanding.tier1` or keys off `kind` yet,
+so this was safe to widen with zero consumers to break.
+
+`Entity` has no single `content` string (unlike every other
+`KnowledgeItem` subtype) -- `name`/`type`/`attributes`/`relationships`
+instead -- so it gets its own `_render_entity_text` helper, and is
+skipped entirely when it has no attributes or relationships: real
+captured data shows `Entity(name="friend")` with no attributes
+alongside a separate Fact "You have a friend." -- rendering the bare
+entity too would just redundantly restate what the Fact already says.
+Entity only earns a Tier 1 line once it carries structured information
+(e.g. `role: Head of Product`) a Fact sentence wouldn't naturally
+capture.
+
+Also fixed Decision rendering (Failure Mode #6): `decision_options` are
+extracted as bare noun-phrase labels (real examples: `"House"`, `"MBA"`
+-- log.md case D01), and `to_second_person` is a documented no-op on
+text with no "user"/"they" token, so Decisions rendered as isolated
+single-word bullets. Now wrapped in a sentence template
+(`f"You're weighing {content} as an option."`). Deliberately NOT
+status-differentiated (e.g. a different sentence for "resolved" vs.
+"open"): `DecisionResolution`/`DecisionEvent` both collapse "chosen" and
+"rejected" into the same `"resolved"` status value
+(`_DECISION_EVENT_TO_STATUS` in `src/state/builder.py`), so a resolved
+Decision's actual outcome isn't recoverable from status alone -- a
+confident "You've decided on X" phrasing would risk asserting the wrong
+outcome for a rejected option. Fixing that ambiguity is a separate,
+pre-existing modeling gap, left alone here.
+
+8 new tests in `tests/test_understanding.py`; one pre-existing test
+(`test_tier1_respects_status_filters`) needed updating since it asserted
+the exact bare-label text for Decisions, which the fix intentionally
+changes -- updated to check substring containment instead, same
+assertion intent (status filtering), not weakened. 266 tests passing
+(up from 258).
+
+**Part B — has_knowledge_correction calibration.** The correction round
+had exactly one live data point (one hit, one miss) on `openai/gpt-4o`,
+a manual override -- NOT `fly.toml`'s actual production pin
+(`OPENROUTER_MODEL = 'openai/gpt-4o-mini'`). New harness
+`scripts/run_knowledge_correction_calibration.py` + its workflow: five
+short (2-3 turn), independent scenarios per run rather than one long
+transcript, so each situation's trigger/non-trigger result is cleanly
+attributable.
+
+First live dispatch failed immediately (`ModuleNotFoundError: No module
+named 'engine'`) -- the script never added the repo root to `sys.path`
+before importing `engine.state_inspector`, unlike
+`run_worldstate_walkthrough.py`; a local smoke test had masked this
+since `sys.path` was pre-seeded manually. Fixed and re-verified with a
+clean-subprocess run before re-dispatching.
+
+The free-tier run (`openrouter/free`) ran for ~24 minutes before failing
+outright -- consistent with the rate-limit pattern already seen on
+similarly-sized free-tier runs this session, and correctly treated as
+uninformative about model compliance, not retried.
+
+**The `openai/gpt-4o-mini` run -- production's actual model -- is the
+real result, and it's a genuine miss, not a partial win:**
+
+```
+[MISS] contradiction_explicit: expected=True, actual=False
+[MISS] near_duplicate_rewording: expected=True, actual=False
+[HIT ] negative_control_distinct_facts: expected=False, actual=False
+[HIT ] negative_control_fresh_conversation: expected=False, actual=False
+[observation] ambiguous_belief_over_time: has_knowledge_correction=False
+Scored compliance: 2/4
+```
+
+`has_knowledge_correction` never fired on production's pinned model for
+either scenario it was built to catch. Confirmed in the actual resulting
+WorldState, not just the boolean flag: after the contradiction scenario,
+both "You are not getting a raise this year." and "You are getting a
+raise." remained separate active Claims (and both underlying Facts
+stayed active too) -- a real, visible contradiction sitting in
+Understanding with no correction applied. After the near-duplicate
+scenario, "User has been trying to save up money." and "User is working
+on saving money for a house purchase." remained two separate active
+Facts, same for the corresponding Claims.
+
+The negative controls passed cleanly (no false positives -- the
+mechanism isn't trigger-happy), and last round's own live run did
+produce one real, correct firing, but that was on `gpt-4o`, a stronger
+model than what production actually runs. Net finding: on the model
+real users get today, the correction mechanism built two rounds ago has
+not yet been observed to fire on either of its two target cases. This is
+exactly the "detects but doesn't act"/prompt-compliance gap other
+boolean-gate fields in this codebase (`has_assumption`, `has_risk_signal`)
+needed real calibration data to surface and fix -- this round supplies
+that data; the fix itself (likely a prompt-side compliance issue, same
+class as those earlier fields, though not yet diagnosed which specific
+part of the instruction isn't landing) is follow-up work, not done here.
