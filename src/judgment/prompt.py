@@ -86,36 +86,6 @@ FIELD DEFINITIONS
   here -- it stopped being active the moment you recognized its fate
   changed, even though WorldState still shows it as "open" as of when
   you were given it this turn.
-- has_decision_resolution: MANDATORY. Answer this FIRST, before writing
-  decision_resolution_option/decision_resolution_status/
-  decision_resolutions: does anything in WorldState.facts/claims reveal
-  that a decision currently marked status="open" in WorldState.decisions
-  has since been decided (chosen or rejected -> "resolved") or postponed
-  ("deferred")? Just true or false. False is the common, correct answer
-  most turns.
-      Decisions: ["Apply externally (status=open)"]. Claims: ["User has
-      decided to wait until Q3."] -> has_decision_resolution: true (the
-      user is postponing this option, not permanently ruling it out)
-- decision_resolution_option / decision_resolution_status: MANDATORY. If
-  has_decision_resolution is true, quote the EXACT text of the
-  WorldState.decisions entry whose fate changed -- you can see it
-  verbatim in WorldState, so copy it directly, never paraphrase or
-  invent a fresh label for whichever option the user is now acting on.
-  status is "resolved" (chosen or rejected -- no longer being weighed
-  either way) or "deferred" (postponed, not ruled out). If
-  has_decision_resolution is false, both are empty strings ("").
-      Decisions: ["Apply externally (status=open)"]. Claims: ["User has
-      decided to wait until Q3."] -> decision_resolution_option: "Apply
-      externally", decision_resolution_status: "deferred" (quote the
-      EXISTING entry -- never invent "wait until Q3" as a new option)
-- decision_resolutions: the structured list, built from the fields
-  above. If has_decision_resolution is true, this list MUST contain an
-  entry for decision_resolution_option/decision_resolution_status --
-  `has_decision_resolution: true` paired with `decision_resolutions: []`
-  is a direct contradiction of your own answer one field ago.
-  decision_resolutions=[] (with has_decision_resolution=false) is
-  correct whenever nothing in WorldState speaks to an open decision's
-  fate changing this turn.
 - contradictions: real conflicts between two specific pieces of
   WorldState content (e.g. a Fact directly contradicting another Fact or
   Claim). Quote both sides. Do not report a mere update or refinement as
@@ -221,6 +191,36 @@ FIELD DEFINITIONS
   be corrected (or both are still true on their own, e.g. two claims from
   different points in time that don't actually rule each other out),
   leave has_knowledge_correction false and rely on contradictions alone.
+- has_decision_resolution: MANDATORY. Answer this FIRST, before writing
+  decision_resolution_option/decision_resolution_status/
+  decision_resolutions: does anything in WorldState.facts/claims reveal
+  that a decision currently marked status="open" in WorldState.decisions
+  has since been decided (chosen or rejected -> "resolved") or postponed
+  ("deferred")? Just true or false. False is the common, correct answer
+  most turns.
+      Decisions: ["Apply externally (status=open)"]. Claims: ["User has
+      decided to wait until Q3."] -> has_decision_resolution: true (the
+      user is postponing this option, not permanently ruling it out)
+- decision_resolution_option / decision_resolution_status: MANDATORY. If
+  has_decision_resolution is true, quote the EXACT text of the
+  WorldState.decisions entry whose fate changed -- you can see it
+  verbatim in WorldState, so copy it directly, never paraphrase or
+  invent a fresh label for whichever option the user is now acting on.
+  status is "resolved" (chosen or rejected -- no longer being weighed
+  either way) or "deferred" (postponed, not ruled out). If
+  has_decision_resolution is false, both are empty strings ("").
+      Decisions: ["Apply externally (status=open)"]. Claims: ["User has
+      decided to wait until Q3."] -> decision_resolution_option: "Apply
+      externally", decision_resolution_status: "deferred" (quote the
+      EXISTING entry -- never invent "wait until Q3" as a new option)
+- decision_resolutions: the structured list, built from the fields
+  above. If has_decision_resolution is true, this list MUST contain an
+  entry for decision_resolution_option/decision_resolution_status --
+  `has_decision_resolution: true` paired with `decision_resolutions: []`
+  is a direct contradiction of your own answer one field ago.
+  decision_resolutions=[] (with has_decision_resolution=false) is
+  correct whenever nothing in WorldState speaks to an open decision's
+  fate changing this turn.
 - has_risk_signal: MANDATORY. Answer this FIRST, before writing
   risk_scan or risks: does any Fact, Claim, or Unknown imply a plausible
   negative consequence for the primary goal that hasn't been stated
