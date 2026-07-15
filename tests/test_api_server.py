@@ -144,6 +144,86 @@ def test_create_session_returns_id(client):
     assert "id" in res.json()
 
 
+def test_create_session_without_mode_persists_none(client):
+    """Counseling modes (see engine/decisions.md, src/orchestrator/modes.py):
+    every existing caller (and the frontend's own mode-select skip path)
+    sends no body at all -- must still succeed, matching how this
+    endpoint worked before this feature existed."""
+    session_id = client.post("/sessions").json()["id"]
+    assert db.get_session_mode(session_id) is None
+
+
+def test_create_session_persists_a_chosen_mode(client):
+    session_id = client.post("/sessions", json={"mode": "vent"}).json()["id"]
+    assert db.get_session_mode(session_id) == "vent"
+
+
+def test_create_session_rejects_an_unrecognized_mode(client):
+    res = client.post("/sessions", json={"mode": "not-a-real-mode"})
+    assert res.status_code == 422
+
+
+def test_list_modes_returns_all_five_with_label_and_description(client):
+    res = client.get("/modes")
+    assert res.status_code == 200
+    modes = res.json()
+    assert {m["id"] for m in modes} == {"vent", "strategize", "commit", "explore", "realign"}
+    for m in modes:
+        assert m["label"]
+        assert m["description"]
+
+
+def _spy_call_provider(payload, seen, key):
+    """Same shape as _always_returns above, but also records the
+    system_prompt/messages it was actually called with under `seen[key]`
+    -- used to verify a mode's focus note actually reaches Planner's/
+    Response's own prompt, not just that run_turn accepted the parameter."""
+
+    def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None):
+        seen[key] = (system_prompt, messages)
+        return json.dumps(payload)
+    return _call
+
+
+def test_send_message_threads_mode_focus_note_into_planner_and_response_prompts(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _spy_call_provider(_MINIMAL_PLANNER, seen, "planner")
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _spy_call_provider(_MINIMAL_RESPONSE, seen, "response")
+    )
+    session_id = client.post("/sessions", json={"mode": "vent"}).json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, planner_messages = seen["planner"]
+    _, response_messages = seen["response"]
+    assert "This Journey was started in Vent mode:" in planner_messages[0]["content"]
+    assert "This Journey was started in Vent mode:" in response_messages[0]["content"]
+
+
+def test_send_message_omits_mode_focus_note_when_no_mode_was_chosen(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _spy_call_provider(_MINIMAL_PLANNER, seen, "planner")
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, planner_messages = seen["planner"]
+    assert "This Journey was started in" not in planner_messages[0]["content"]
+
+
 def test_send_message_returns_response_text(client, monkeypatch):
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",

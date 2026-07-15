@@ -19,11 +19,32 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
+from src.orchestrator.modes import CounselingMode
 from src.orchestrator.schema import FailedStage
+
+
+class CreateSessionRequest(BaseModel):
+    # Counseling modes (see engine/decisions.md, src/orchestrator/modes.py):
+    # optional -- a person can still begin a Journey with no mode chosen,
+    # same as every Journey created before this feature existed.
+    mode: Optional[CounselingMode] = None
 
 
 class CreateSessionResponse(BaseModel):
     id: str
+
+
+class ModeOut(BaseModel):
+    """One entry of GET /modes -- src/orchestrator/modes.py's MODE_COPY,
+    reshaped into a list so the frontend's mode-select screen never
+    hardcodes its own copy of these 5 labels/descriptions (see
+    frontend/app/src/lib/api.js's own "Reflection of Backend Truth,
+    Never a Second Copy" principle) -- this endpoint is the one place
+    that copy is allowed to live."""
+
+    id: str
+    label: str
+    description: str
 
 
 class SendMessageRequest(BaseModel):

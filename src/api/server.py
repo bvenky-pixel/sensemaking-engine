@@ -39,10 +39,12 @@ from fastapi.staticfiles import StaticFiles
 from src.api import db
 from src.api.schema import (
     ClarityBriefResponse,
+    CreateSessionRequest,
     CreateSessionResponse,
     InsightOut,
     LearnedPatternOut,
     MessageOut,
+    ModeOut,
     ResponseOptionOut,
     SendMessageRequest,
     SendMessageResponse,
@@ -56,6 +58,7 @@ from src.executor.voice import to_second_person
 from src.instrumentation.usage import UsageTracker
 from src.judgment.schema import Judgment
 from src.orchestrator.engine import run_turn
+from src.orchestrator.modes import MODE_COPY
 from src.planner.schema import Planner
 from src.state.world_state import WorldState
 
@@ -105,8 +108,17 @@ def _require_session(session_id: str) -> None:
 
 
 @app.post("/sessions", response_model=CreateSessionResponse)
-def create_session() -> CreateSessionResponse:
-    return CreateSessionResponse(id=db.create_session())
+def create_session(body: CreateSessionRequest = CreateSessionRequest()) -> CreateSessionResponse:
+    return CreateSessionResponse(id=db.create_session(mode=body.mode))
+
+
+@app.get("/modes", response_model=list[ModeOut])
+def list_modes() -> list[ModeOut]:
+    """Backs the mode-select screen shown before a new Journey begins
+    (see frontend/app/src/screens/ModeSelect.svelte, engine/decisions.md
+    "Counseling modes") -- never session-scoped, so no `_require_session`
+    guard, unlike every other endpoint in this file."""
+    return [ModeOut(id=mode_id, **copy) for mode_id, copy in MODE_COPY.items()]
 
 
 @app.get("/sessions", response_model=list[SessionSummary])
@@ -214,7 +226,7 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
 
     result = run_turn(
         body.content, state, tracker=tracker, session_id=session_id,
-        on_stage_complete=_push,
+        on_stage_complete=_push, mode=db.get_session_mode(session_id),
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 

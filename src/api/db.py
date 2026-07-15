@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     debug_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    bookmarked INTEGER NOT NULL DEFAULT 0
+    bookmarked INTEGER NOT NULL DEFAULT 0,
+    mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -187,18 +188,41 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute("ALTER TABLE messages ADD COLUMN options_json TEXT")
         except sqlite3.OperationalError:
             pass
+        # Same pattern for `mode` (Counseling modes, see engine/decisions.md
+        # and src/orchestrator/modes.py): a session from before this
+        # feature existed has no mode, which is exactly what NULL ->
+        # `mode_focus_note(None) == ""` already means -- Planner/Response
+        # behave exactly as they did before this feature for that session.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN mode TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
-def create_session() -> str:
+def create_session(mode: Optional[str] = None) -> str:
+    """`mode` (Counseling modes, see engine/decisions.md and
+    src/orchestrator/modes.py): chosen once, at creation, and fixed for
+    the Journey's lifetime -- there is no `set_mode`, matching how
+    `bookmarked` is the only session-level field this codebase ever lets
+    a person change after the fact; mode is deliberately not one of
+    those. `None` (every caller before this feature existed, and a
+    person who skips picking one) is a completely valid, permanent
+    state, not a placeholder awaiting a later choice."""
     session_id = str(uuid.uuid4())
     now = _now()
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, world_state_json, debug_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session_id, WorldState().model_dump_json(), None, now, now),
+            "INSERT INTO sessions (id, world_state_json, debug_json, created_at, updated_at, mode) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, WorldState().model_dump_json(), None, now, now, mode),
         )
     return session_id
+
+
+def get_session_mode(session_id: str) -> Optional[str]:
+    with _connect() as conn:
+        row = conn.execute("SELECT mode FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return row[0] if row else None
 
 
 def session_exists(session_id: str) -> bool:

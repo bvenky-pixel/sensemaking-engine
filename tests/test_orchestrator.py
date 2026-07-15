@@ -99,10 +99,10 @@ _RESPONSE = Response(response_text="It sounds like this has been unclear for a w
 def test_run_turn_full_success_populates_every_field(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
     monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
-    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None: _PLANNER)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
     )
 
     result = run_turn("I want to move teams.", WorldState())
@@ -117,6 +117,55 @@ def test_run_turn_full_success_populates_every_field(monkeypatch):
     assert any(g.content == "Move to the Product team." for g in result.state.goals)
 
 
+def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
+    """Counseling modes (see engine/decisions.md, src/orchestrator/modes.py):
+    run_turn's own `mode` parameter must reach both run_planner and
+    run_response_generator -- the two stages whose prompts reference it --
+    unchanged, not just be accepted and dropped."""
+    seen = {}
+
+    def _planner(state, judgment, tracker=None, mode=None):
+        seen["planner_mode"] = mode
+        return _PLANNER
+
+    def _response(state, judgment, planner, tracker=None, mode=None):
+        seen["response_mode"] = mode
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    run_turn("I want to move teams.", WorldState(), mode="vent")
+
+    assert seen["planner_mode"] == "vent"
+    assert seen["response_mode"] == "vent"
+
+
+def test_run_turn_defaults_mode_to_none(monkeypatch):
+    """Every existing caller (conversation_runner.py, the walkthrough
+    script, every other test in this file) never passes `mode` at all --
+    must default to None, not break or require it."""
+    seen = {}
+
+    def _planner(state, judgment, tracker=None, mode=None):
+        seen["planner_mode"] = mode
+        return _PLANNER
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+    )
+
+    run_turn("I want to move teams.", WorldState())
+
+    assert seen["planner_mode"] is None
+
+
 def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatch):
     """Wiring regression guard for engine/decisions.md "Tier 2 design":
     update_tier2 must run as part of the real turn sequence, after
@@ -125,10 +174,10 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     responsibility (see tests/test_tier2.py), not asserted here."""
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
     monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
-    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None: _PLANNER)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
     )
 
     calls = []
@@ -191,7 +240,7 @@ def test_run_turn_judgment_failure_still_reports_the_real_updated_state(monkeypa
 
 
 def test_run_turn_planner_failure_still_reports_judgment_and_updated_state(monkeypatch):
-    def _raise(state, judgment, tracker=None):
+    def _raise(state, judgment, tracker=None, mode=None):
         raise PlannerError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
@@ -209,12 +258,12 @@ def test_run_turn_planner_failure_still_reports_judgment_and_updated_state(monke
 
 
 def test_run_turn_response_failure_still_reports_planner_and_updated_state(monkeypatch):
-    def _raise(state, judgment, planner, tracker=None):
+    def _raise(state, judgment, planner, tracker=None, mode=None):
         raise ResponseGeneratorError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
     monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
-    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None: _PLANNER)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _raise)
 
     result = run_turn("I want to move teams.", WorldState())

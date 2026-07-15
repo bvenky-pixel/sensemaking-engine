@@ -10,12 +10,15 @@
   // returning to" aside, and the reserved `.display` typographic
   // moment finally used for Home's own greeting.
   import { onMount } from 'svelte';
-  import { listSessions, createSession, setBookmark } from '../lib/api.js';
+  import { listSessions, setBookmark } from '../lib/api.js';
 
-  let { onOpen, onSettings } = $props();
+  // "+ Begin something new" hands off to a mode-select step (see
+  // engine/decisions.md "Counseling modes") rather than creating a
+  // session itself -- App.svelte owns that screen transition;
+  // ModeSelect.svelte is the one that actually calls createSession now.
+  let { onOpen, onSettings, onBeginNew } = $props();
 
   let sessions = $state([]);
-  let starting = $state(false);
   let showBookmarkedOnly = $state(false);
 
   async function refresh() {
@@ -36,15 +39,6 @@
     await refresh();
   }
 
-  async function startNew() {
-    starting = true;
-    try {
-      const { id } = await createSession();
-      onOpen(id);
-    } finally {
-      starting = false;
-    }
-  }
 </script>
 
 <div class="home">
@@ -106,7 +100,7 @@
     <p class="voice">No bookmarked Journeys yet.</p>
   {/if}
 
-  <button type="button" class="start" disabled={starting} onclick={startNew}>
+  <button type="button" class="start" onclick={onBeginNew}>
     + Begin something new
   </button>
 

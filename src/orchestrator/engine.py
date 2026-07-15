@@ -63,6 +63,7 @@ def run_turn(
     tracker: Optional[UsageTracker] = None,
     session_id: str = "",
     on_stage_complete: Optional[Callable[[str], None]] = None,
+    mode: Optional[str] = None,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -95,6 +96,15 @@ def run_turn(
     GET /sessions/{id}/stream, engine/decisions.md "Major update") --
     a callback, not a generator, so this function's `result = run_turn(...)`
     contract stays unchanged for every other caller.
+
+    mode: optional Counseling mode id (see src/orchestrator/modes.py),
+    chosen once at session creation and passed through unchanged on
+    every subsequent turn (src/api/server.py fetches it from the
+    session's own db row) -- Orchestrator only threads it to run_planner
+    and run_response_generator, the two stages whose prompts actually
+    reference it; Interpretation and Judgment are unaffected, same
+    reasoning as `phase` staying entirely their own concern elsewhere.
+    Default None is a true no-op for every existing caller.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -178,7 +188,7 @@ def run_turn(
     state = update_tier2(state, tracker=tracker)
 
     try:
-        plan = run_planner(state, judgment, tracker=tracker)
+        plan = run_planner(state, judgment, tracker=tracker, mode=mode)
     except PlannerError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment,
@@ -188,7 +198,7 @@ def run_turn(
     _notify("planner")
 
     try:
-        response = run_response_generator(state, judgment, plan, tracker=tracker)
+        response = run_response_generator(state, judgment, plan, tracker=tracker, mode=mode)
     except ResponseGeneratorError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment, planner=plan,

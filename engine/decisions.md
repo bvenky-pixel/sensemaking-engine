@@ -7318,3 +7318,82 @@ reseeded the same house-vs-MBA scenario with real descriptions attached,
 confirmed both label and description rendered as bold-title/muted-
 subtitle cards, and confirmed tapping a card still sent only the label
 ("The MBA") as the real message, not its description.
+
+## Counseling modes
+
+Explicit request, tracing back to the five coaching perspectives
+discussed earlier this session for a different project's (emeritus-
+edge-ai) adaptation of the founder's uploaded vision doc
+(`Confidant_Architecture.docx`'s Layer 9 -- Judgement: Strategic Advisor,
+Accountability Coach, Mentor, Supportive Companion, Socratic Guide) --
+"5 front end functional variants of how you can be counseled but
+presented as emotive actions like vent, strategize." Confirmed with the
+user this means a REAL backend behavior change, not just cosmetic
+framing, and confirmed the scope explicitly: NOT the full multi-
+perspective Judgement + Synthesis system that vision doc describes
+(this project's own `architecture-roadmap-v1.md` already gates that as
+Phase 3, pending real Phase 1/2 evidence, which doesn't exist yet) --
+the person picks ONE lens up front per Journey, and Planner/Response
+stay biased toward it for the whole Journey, rather than running all
+five and synthesizing tensions every turn.
+
+**Naming**: plain, emotive action verbs, never the vision doc's internal
+coaching jargon -- Vent (Supportive Companion), Strategize (Strategic
+Advisor), Commit (Accountability Coach), Explore (Socratic Guide),
+Realign (Mentor).
+
+**Mechanism** (`src/orchestrator/modes.py`, new): a mode is chosen once,
+at Journey creation, and fixed for its lifetime -- no `set_mode`, same
+as every other session-level field this codebase lets go unchanged
+after creation except `bookmarked`. `MODE_COPY` (label + description,
+what the PERSON reads) and `MODE_FOCUS` (the prompt-injection paragraph,
+what the MODEL reads) are deliberately separate dicts even though both
+derive from the same lens -- same reason response_text and its own
+prompt guidance are never the same string. `mode_focus_note(mode)`
+resolves a raw mode id to that paragraph, or `""` for `None`/unrecognized
+-- absence must never break Planner/Response, both of which already
+have well-defined default behavior without one.
+
+Threaded through: `src/api/db.py` (`sessions.mode` column, additive
+migration; `create_session(mode=...)`; new `get_session_mode`) ->
+`src/api/server.py` (`POST /sessions` accepts `{mode}`; `send_message`
+fetches the session's own mode and passes it to `run_turn`) ->
+`src/orchestrator/engine.py::run_turn` (new `mode` param, threaded ONLY
+to `run_planner`/`run_response_generator` -- the two stages whose
+prompts reference it; Interpretation and Judgment are unaffected, same
+"phase stays entirely its own concern" reasoning already established
+for Planner) -> `src/planner/prompt.py` and `src/response/prompt.py`
+(`build_messages` appends the resolved focus note as an extra paragraph
+in the user message; each SYSTEM_PROMPT gained a short paragraph
+explaining how to weigh it -- Planner: biases WHICH already-decided
+content to prioritize, never overrides user agency or Judgment's actual
+content; Response: biases WHICH of Planner's content leads and how
+sentence 2 is framed, never authorizes a third sentence).
+
+New `GET /modes` endpoint reflects `MODE_COPY` as a list -- the
+frontend's mode-select screen never hardcodes its own copy of the 5
+labels/descriptions, same "Reflection of Backend Truth, Never a Second
+Copy" principle already governing every other `api.js` call.
+
+**Frontend**: "+ Begin something new" on Home no longer calls
+`createSession()` directly -- it now transitions to a new `ModeSelect`
+screen (fetches `GET /modes`, renders 5 cards in the same "settled card"
+recipe as Home's own Journey cards), which creates the session with the
+chosen mode and hands off to Journey exactly as Home used to.
+
+**Verified**: new `tests/test_modes.py` (pure `mode_focus_note`
+behavior), new mode-threading tests in `tests/test_orchestrator.py`
+(mode reaches both `run_planner`/`run_response_generator`, defaults to
+`None`), new tests in `tests/test_api_server.py` (mode persists via
+`create_session`/`get_session_mode`, an unrecognized mode is rejected
+with 422, `GET /modes` returns all 5, and -- most importantly -- a spy
+on `call_provider` confirms the actual resolved focus-note text reaches
+both Planner's and Response's real prompt payloads, and is absent when
+no mode was chosen). New `ModeSelect.test.js` (renders all 5 from a
+mocked `GET /modes`, creates a session with the tapped mode's id, back
+button works). Full suite green: `pytest` 336, `vitest` 31, clean
+`npm run build`. Live Playwright pass: launched the real server, clicked
+"+ Begin something new," confirmed all 5 mode cards rendered with their
+real backend-sourced descriptions, clicked "Vent," confirmed it landed
+on the Journey screen, and confirmed directly against the database that
+the new session's `mode` column was actually set to `"vent"`.

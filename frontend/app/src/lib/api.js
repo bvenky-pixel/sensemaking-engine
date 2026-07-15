@@ -12,13 +12,30 @@ async function _json(res) {
   return res.json();
 }
 
-export async function createSession() {
-  const res = await fetch('/sessions', { method: 'POST' });
+// `mode` (Counseling modes, see engine/decisions.md): optional --
+// omitting it (the default) begins a Journey with no mode, same as
+// every Journey created before this feature existed.
+export async function createSession(mode = null) {
+  const res = await fetch('/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
   return _json(res);
 }
 
 export async function listSessions(bookmarkedOnly = false) {
   const res = await fetch(bookmarkedOnly ? '/sessions?bookmarked_only=true' : '/sessions');
+  return _json(res);
+}
+
+// Counseling modes (see engine/decisions.md, src/orchestrator/modes.py)
+// -- backs the mode-select screen shown before a new Journey begins.
+// Never hardcoded here: the backend is the single source of truth for
+// each mode's label/description, same "Reflection of Backend Truth"
+// principle as every other call in this file.
+export async function getModes() {
+  const res = await fetch('/modes');
   return _json(res);
 }
 

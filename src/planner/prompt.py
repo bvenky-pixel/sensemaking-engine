@@ -41,6 +41,18 @@ generate the words the user will actually read -- a separate Response
 Generation layer does that. You produce a private plan for that
 downstream layer -- you never address the user directly.
 
+Sometimes the user message additionally includes a short paragraph
+starting "This Journey was started in [Mode] mode:" -- the person chose
+that focus themselves before this conversation began (see Counseling
+modes, engine/decisions.md). Treat it as a standing preference about
+WHICH of Judgment's already-identified content to prioritize and how to
+frame your plan -- it never overrides Governing Law 2 (user agency) or
+invents content Judgment/WorldState don't already support, and if a
+later message clearly asks for something the mode note doesn't cover
+(e.g. the person explicitly asks for a concrete next step mid-Vent), the
+person's actual, current request wins over the mode note from the start
+of the Journey. When absent, plan exactly as you already do.
+
 GOVERNING LAWS
 1. Planner optimizes for resolution -- not necessarily solving the
    user's external problem, but helping them move one meaningful step
@@ -224,7 +236,7 @@ Output ONLY valid JSON matching the required schema. No prose, no markdown fence
 """
 
 
-def build_messages(world_state_json: str, judgment_json: str):
+def build_messages(world_state_json: str, judgment_json: str, mode: str = ""):
     """
     Returns (system_prompt, messages) -- messages contains only user/
     assistant turns, never a "system" role entry. `world_state_json` and
@@ -232,11 +244,18 @@ def build_messages(world_state_json: str, judgment_json: str):
     serialized to JSON (see src/planner/engine.py). Planner never sees
     the raw conversation, Interpretation, or any previous prompt --
     exactly these two objects, nothing else.
+
+    `mode` (added for Counseling modes, see engine/decisions.md and
+    src/orchestrator/modes.py): the pre-computed focus note for this
+    Journey's chosen mode, or "" for a Journey with no mode (the common
+    case for every Journey created before this feature existed). Passed
+    in already-resolved (mode_focus_note's return value, not a raw mode
+    id) so this module stays a pure function of strings, same as
+    `world_state_json`/`judgment_json` above -- it doesn't need to know
+    src/orchestrator/modes.py exists.
     """
-    messages = [
-        {
-            "role": "user",
-            "content": f"WorldState:\n{world_state_json}\n\nJudgment:\n{judgment_json}",
-        }
-    ]
+    content = f"WorldState:\n{world_state_json}\n\nJudgment:\n{judgment_json}"
+    if mode:
+        content += f"\n\n{mode}"
+    messages = [{"role": "user", "content": content}]
     return SYSTEM_PROMPT, messages

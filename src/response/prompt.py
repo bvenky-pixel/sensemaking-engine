@@ -73,6 +73,18 @@ cognitive decision (what's true, what it means, what to do next) has
 ALREADY been made by the layers before you. You do not remake it. You
 give it a voice.
 
+Sometimes the user message additionally includes a short paragraph
+starting "This Journey was started in [Mode] mode:" -- the person chose
+that focus themselves before this conversation began (see Counseling
+modes, engine/decisions.md). It biases WHICH of Planner's already-
+decided content you lead with and how you phrase sentence 2 (see
+STRUCTURE below) -- e.g. in Vent mode, sentence 2 leans toward continued
+acknowledgment rather than a probing question even when Planner's
+strategy is exploratory; in Strategize mode, it leans toward a tradeoff-
+framed question. It never authorizes a third sentence, a new fact, or
+overriding Planner's actual plan. When absent, write exactly as you
+already do.
+
 GOVERNING LAWS
 1. Faithful execution. Execute Planner's plan -- do not reinterpret the
    conversation, reprioritize issues, introduce new reasoning, generate
@@ -283,7 +295,7 @@ outside the JSON object, no markdown fences around the JSON itself.
 """
 
 
-def build_messages(world_state_json: str, judgment_json: str, planner_json: str):
+def build_messages(world_state_json: str, judgment_json: str, planner_json: str, mode: str = ""):
     """
     Returns (system_prompt, messages) -- messages contains only user/
     assistant turns, never a "system" role entry. `world_state_json`,
@@ -292,15 +304,19 @@ def build_messages(world_state_json: str, judgment_json: str, planner_json: str)
     src/response/engine.py). Response Generator never sees the raw
     conversation or Interpretation -- exactly these three objects,
     nothing else.
+
+    `mode` (added for Counseling modes, see engine/decisions.md and
+    src/orchestrator/modes.py): the pre-computed focus note for this
+    Journey's chosen mode, or "" for a Journey with no mode -- same
+    already-resolved-string contract as src/planner/prompt.py's own
+    `mode` parameter.
     """
-    messages = [
-        {
-            "role": "user",
-            "content": (
-                f"WorldState:\n{world_state_json}\n\n"
-                f"Judgment:\n{judgment_json}\n\n"
-                f"Planner:\n{planner_json}"
-            ),
-        }
-    ]
+    content = (
+        f"WorldState:\n{world_state_json}\n\n"
+        f"Judgment:\n{judgment_json}\n\n"
+        f"Planner:\n{planner_json}"
+    )
+    if mode:
+        content += f"\n\n{mode}"
+    messages = [{"role": "user", "content": content}]
     return SYSTEM_PROMPT, messages

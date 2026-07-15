@@ -34,6 +34,7 @@ from pydantic import ValidationError
 from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.judgment.schema import Judgment
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.orchestrator.modes import mode_focus_note
 from src.planner.prompt import build_messages
 from src.planner.schema import Planner
 from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
@@ -50,7 +51,8 @@ class PlannerError(Exception):
 
 
 def run_planner(
-    state: WorldState, judgment: Judgment, tracker: Optional[UsageTracker] = None
+    state: WorldState, judgment: Judgment, tracker: Optional[UsageTracker] = None,
+    mode: Optional[str] = None,
 ) -> Planner:
     """
     Calls an LLM to produce a Planner from the given WorldState and
@@ -67,10 +69,16 @@ def run_planner(
     token/cost/latency into. Defaults to the shared default_tracker if not
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
+
+    mode: optional Counseling mode id (see src/orchestrator/modes.py),
+    the raw session-level value -- resolved to its prompt-injection note
+    here (via mode_focus_note), not by the caller, so every caller of
+    run_planner passes the same raw id run_response_generator does,
+    rather than each resolving it independently.
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
-    system_prompt, messages = build_messages(world_state_json, judgment_json)
+    system_prompt, messages = build_messages(world_state_json, judgment_json, mode_focus_note(mode))
     schema = Planner.model_json_schema()
     tracker = tracker or default_tracker
 
