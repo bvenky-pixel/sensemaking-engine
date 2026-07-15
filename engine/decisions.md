@@ -6482,3 +6482,108 @@ actual named risk (silent misleading of a future reader) without
 opening a new, unrequested LLM calibration workstream.
 
 Full `pytest` suite green (274 tests, up from 272).
+
+## Tier 2 design -- resolving the two open questions from Area 7 (design only, no code yet)
+
+Before writing any Tier 2 (LLM-synthesized Understanding statements)
+code, per the user's explicit request, designing answers to the two
+unresolved questions the validation report's Area 7 flagged in the
+existing deferred design (see `src/understanding/schema.py`'s
+`UnderstandingState` docstring for that design's starting point:
+`tier2_grounding_signature` = hash of `(id, status, content)` per
+grounding item; `tier2_computed_at_turn` already stubbed for a
+staleness backstop). A third Area 7 concern (assumptions/emotional
+content sometimes not captured in WorldState in time to be grounded
+at all) is now partly closed by this round's own `emotional_signal_items`
+fix above; the Interpretation-timing half of that concern (an
+assumption named only at Planner, never in Interpretation) is a
+separate, pre-existing gap, out of scope here.
+
+**Q1 -- cache invalidation: the grounding-signature design misses new
+near-duplicate arrivals.** The deferred design only hashes items a
+Tier 2 statement already cites (`grounding_item_ids`). Area 1/5's own
+evidence is that the dominant real failure mode is a NEW near-duplicate
+id appearing alongside an existing item (the 4-variant fact group
+produced 4 permanent, never-merged ids at every checkpoint) -- a
+grounding-only hash would never see that arrival, since the new item
+was never cited in the first place.
+
+Fix: stop hashing "the items already cited" and instead hash **the
+current candidate pool** (see Q2 below for how the pool is defined) --
+sorted item ids plus each item's `(status, content)`. Because pool
+membership for Fact/Claim/Assumption/Inference/Entity/emotional_signal_items
+is recency-windowed (Q2), a new near-duplicate arriving inside that
+window changes the pool's id set and therefore the hash, forcing
+re-synthesis, without needing to first solve near-duplicate
+*detection* (still an open, unreliable pathway per this round's
+`has_knowledge_correction` calibration work above). This is
+deliberately coarse: it also re-triggers on a new item that ISN'T a
+near-duplicate of anything, trading a bit of extra LLM cost for closing
+the silent-staleness gap -- named explicitly as an accepted tradeoff,
+not an oversight.
+
+This alone doesn't catch every staleness cause (e.g. the conversation's
+emphasis shifting with no new WorldState item at all). Kept the
+already-stubbed `tier2_computed_at_turn` as a hard backstop: force
+re-synthesis if `turn_count - tier2_computed_at_turn >= TIER2_STALENESS_TURNS`
+regardless of hash match, same "belt and suspenders, not a proof of
+completeness" spirit as this codebase's other first-cut thresholds
+(`UNKNOWN_RESOLUTION_OVERLAP_THRESHOLD`, `INFERENCE_CONFIDENCE_FLOOR`).
+
+**Q2 -- prioritization: how Tier 2 picks a bounded pool out of 100+
+Tier 1 candidates.** Area 5's own numbers point to the answer: growth
+is NOT uniform across kinds. Goal/Decision/Unknown are "threads" --
+bounded in practice (a person has a handful of concurrently open
+decisions, not dozens) but individually long-lived and exactly the
+kind Area 5 showed going silently stale (the turn-3 goal's
+`last_updated` never advanced across 100 turns). Fact/Claim/Assumption/Inference/Entity/emotional_signal_items
+are "supporting detail" -- confirmed genuinely unbounded (~1 new
+assumption per 4-5 turns, linear fact/claim growth, no retraction path
+today per Area 6).
+
+Rule, differentiated by kind rather than one global cutoff:
+- **Goal/Decision/Unknown**: include ALL still in a non-terminal status
+  (`open`/`active`/`deferred`), regardless of recency. This is what
+  fixes the goal-staleness blind spot a pure recency window would
+  create -- Tier 2 keeps reconsidering the turn-3 goal on every
+  recompute specifically because it's still open, however old.
+  Terminal-status items (`resolved`/`completed`) drop out naturally.
+- **Fact/Claim/Assumption/Inference/Entity/emotional_signal_items**:
+  recency-windowed -- only items with `provenance.last_updated >=
+  turn_count - TIER2_RECENCY_WINDOW_TURNS` are candidates. An old,
+  untouched supporting Fact drops out of Tier 2's synthesis pool while
+  remaining fully visible in Tier 1's complete, unranked record -- a
+  deliberate division of labor (Tier 1 = complete permanent record,
+  Tier 2 = current synthesized picture, allowed to "forget" stale
+  supporting detail) rather than a gap.
+
+Explicitly considered and rejected: matching WorldState items against
+Judgment's own per-turn salience fields (`primary_problem`,
+`open_unknowns`, `active_decisions`, ...) to decide pool membership.
+Rejected because those fields are free prose, not id references
+(`Judgment.supporting_evidence`'s own field comment already flags this
+as a known gap -- "migrate to ID references once WorldState supports
+them", never done), so using them would need the same fuzzy word-
+overlap matching already shown fragile elsewhere in this codebase
+(`_is_resolved_by`), and Judgment objects aren't persisted turn-to-turn
+(Area 6), so nothing to match against would even survive to a later
+turn regardless. The status/recency split above gets the same practical
+effect (keep what's still open, prioritize what's fresh) using only
+data that's already durable and id-native -- no new persistence, no
+new fuzzy matching, no new LLM signal required.
+
+Both `TIER2_STALENESS_TURNS` and `TIER2_RECENCY_WINDOW_TURNS` are
+first-cut, explicitly uncalibrated placeholders (same convention as
+every other first-cut threshold in this codebase) -- not chosen from
+real evidence yet, since Tier 2 doesn't exist to generate that evidence
+until it ships.
+
+**Not addressed by this design pass, left for implementation time**:
+the exact synthesis prompt/schema for Tier 2 statements themselves, and
+whether `Judgment.supporting_evidence`'s "migrate to ID references"
+TODO should finally happen now that WorldState items have stable ids
+(this round's own work) -- flagged here as a relevant, newly-actionable
+adjacent opportunity, not decided.
+
+No code changed in this pass -- design only, per the user's explicit
+request to resolve these two questions before writing Tier 2.
