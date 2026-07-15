@@ -76,7 +76,11 @@
     try {
       const result = await sendMessage(sessionId, content);
       const text = result.response_text || honestFailureMessage(result.failed_stage);
-      messages = [...messages, { role: 'assistant', content: text, created_at: '' }];
+      // Response v3 -- real choice buttons: only a genuine response_text
+      // carries real, grounded options -- a failed turn's honest-failure
+      // message never gets buttons attached to it.
+      const options = result.response_text ? result.options || [] : [];
+      messages = [...messages, { role: 'assistant', content: text, created_at: '', options }];
       if (result.response_text) {
         await refreshBrief();
       }
@@ -102,7 +106,7 @@
 
   <button type="button" class="back" onclick={onBack}>&larr; Home</button>
 
-  <Transcript {messages} />
+  <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
     <p class="voice opening-prompt">{openingPrompt}</p>
   {/if}

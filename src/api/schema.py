@@ -33,6 +33,7 @@ class SendMessageRequest(BaseModel):
 class SendMessageResponse(BaseModel):
     response_text: Optional[str] = None
     confidence: Optional[float] = None
+    options: List[str] = []
     failed_stage: Optional[FailedStage] = None
     error: Optional[str] = None
 
@@ -41,6 +42,11 @@ class MessageOut(BaseModel):
     role: str
     content: str
     created_at: str
+    # Response v3 -- real choice buttons (see engine/decisions.md): only
+    # ever non-empty on an assistant message. Persisted (src/api/db.py)
+    # so a page reload still shows the same tappable buttons, not just
+    # the plain paragraph.
+    options: List[str] = []
 
 
 class SessionSummary(BaseModel):

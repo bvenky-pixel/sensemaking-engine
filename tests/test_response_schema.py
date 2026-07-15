@@ -26,6 +26,35 @@ def test_minimal_response_constructs():
     response = Response(**REQUIRED_FIELDS)
     assert response.response_text == REQUIRED_FIELDS["response_text"]
     assert response.confidence == 0.5
+    assert response.options == []
+
+
+def test_options_defaults_to_empty_list():
+    """options is new (Response v3 -- real choice buttons) -- omitting it
+    entirely must still construct cleanly, since most turns are
+    genuinely open-ended (see engine/decisions.md)."""
+    response = Response(**REQUIRED_FIELDS)
+    assert response.options == []
+
+
+@pytest.mark.parametrize("options", [["The MBA"], ["The MBA", "The home loan"], ["A", "B", "C"]])
+def test_options_accepts_one_to_three_items(options):
+    response = Response(**{**REQUIRED_FIELDS, "options": options})
+    assert response.options == options
+
+
+def test_options_rejects_more_than_three_items():
+    """Regression guard for prompt drift toward an exhaustive menu
+    instead of 2-3 real choices -- see src/response/schema.py's own
+    docstring on why this fails loud rather than silently truncating."""
+    with pytest.raises(ValidationError):
+        Response(**{**REQUIRED_FIELDS, "options": ["A", "B", "C", "D"]})
+
+
+@pytest.mark.parametrize("bad_options", [[""], ["   "], ["The MBA", ""]])
+def test_options_rejects_blank_entries(bad_options):
+    with pytest.raises(ValidationError):
+        Response(**{**REQUIRED_FIELDS, "options": bad_options})
 
 
 @pytest.mark.parametrize("bad_confidence", [-0.01, 1.01, 2.0, -5.0])

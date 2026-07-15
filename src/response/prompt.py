@@ -33,6 +33,18 @@ replaces the old "organize using whatever structure fits" freedom with
 one fixed shape, applied on every turn regardless of
 planning_constraints: one brief grounding sentence, then one question.
 No schema change -- still just response_text/confidence.
+
+Response v3 -- real choice buttons (2026-07-15, same day, see
+engine/decisions.md "Response v3 -- real choice buttons"): direct
+follow-up once the compact-structure round above shipped. The user
+pointed out the earlier "MAY offer options in the question's own prose"
+guidance wasn't what they'd actually asked for -- they wanted real,
+tappable choice buttons (the same UI pattern used elsewhere to offer a
+person a pick-one-or-type-your-own choice), not just a sentence that
+happens to name two options in passing. New `options` field on the
+Response schema (src/response/schema.py) carries this instead of
+prose -- the question sentence now stays neutral/open, and 0-3 short
+button labels are supplied separately for the frontend to render.
 """
 
 SYSTEM_PROMPT = """You are the Response Generator layer for Confidant.
@@ -85,7 +97,7 @@ FIELD DEFINITIONS
       navigate your path forward, don't you think?" (a rhetorical
       question that gestures toward resolution/advice the plan never
       called for)
-      GOOD: "Is it the MBA's cost, or the loan itself, that's weighing on
+      GOOD: "Between the MBA and your home loan, which one is weighing on
       you more right now?" (stays in exploration, no implied solution)
   - STRUCTURE (v3, always applies, regardless of planning_constraints):
     response_text is exactly TWO sentences -- one grounding sentence,
@@ -98,21 +110,15 @@ FIELD DEFINITIONS
       Sentence 2 (the question): the single most load-bearing item from
       Planner's questions_to_explore/priority_topics/resolution_blocker
       -- exactly one question mark in the whole response, never two or
-      three stacked together. If WorldState/Planner already names 2-3
-      concrete, mutually exclusive options relevant to that question
-      (e.g. decision_options, priority_topics naming distinct paths),
-      the question MAY offer them explicitly ("Is it the MBA's cost, or
-      the loan itself, that's weighing on you more?") -- this is framing
-      the one question with grounded options, not asking multiple
-      questions. It's never mandatory: plenty of good questions are
-      open-ended, and offering options is worthless when nothing in
-      WorldState/Planner actually names a small, concrete set. Either
-      way the person can always answer in their own words instead --
-      offered options are a scaffold, not a multiple-choice requirement.
-      This replaces the older "ask at most one, or at most two closely
-      related questions" rule of thumb entirely -- it is no longer
-      conditional on Planner setting "avoid overwhelming the user"; it
-      is the default shape of every response_text.
+      three stacked together. Phrase it so it reads naturally on its own
+      -- don't rely on the separate `options` field (below) to complete
+      the sentence, and don't manually list every option's name inside
+      the question text itself (that would duplicate the same choices in
+      both the prose and the buttons the frontend renders from
+      `options`). This replaces the older "ask at most one, or at most
+      two closely related questions" rule of thumb entirely -- it is no
+      longer conditional on Planner setting "avoid overwhelming the
+      user"; it is the default shape of every response_text.
       Everything else Planner surfaced this turn that doesn't fit those
       two sentences (additional questions_to_explore, secondary
       priority_topics, supporting rationale, opportunities) is left for
@@ -126,10 +132,12 @@ FIELD DEFINITIONS
       impact your career advancement could be valuable. It might also be
       worth exploring the financial options available to manage your
       home loan while pursuing this degree."
-      GOOD (one grounding sentence, one question): "It sounds like the
-      MBA and your home loan are both pulling on the same limited
-      budget. Is it the MBA's cost, or the loan itself, that's weighing
-      on you more right now?"
+      GOOD (one grounding sentence, one question, options carried
+      separately in the `options` field below -- NOT restated in the
+      question text): response_text: "It sounds like the MBA and your
+      home loan are both pulling on the same limited budget. Which one
+      is weighing on you more right now?" / options: ["The MBA's cost",
+      "The home loan"]
     A constraint reflecting the user's own explicit instruction about HOW
     to respond (e.g. "don't ask me any questions") is never negotiable --
     it overrides this default shape, including sentence 2 entirely, even
@@ -172,6 +180,21 @@ FIELD DEFINITIONS
   LOW confidence here too, and the response's own phrasing should hedge
   accordingly. Never report a confidence higher than what the upstream
   cognition actually supports.
+- options: a list of 0-3 short reply labels the frontend renders as real
+  tappable buttons alongside sentence 2's question -- NOT prose, NOT a
+  restatement of the question, just the label itself (2-6 words, e.g.
+  "The MBA's cost", never a full sentence like "I think the MBA's cost
+  is weighing on you more"). Leave this EMPTY by default -- most
+  questions are genuinely open-ended, and free text is always available
+  to the person regardless of what this list contains. Only populate it
+  when WorldState/Judgment/Planner already name a small (2-3), concrete,
+  mutually exclusive set of answers to sentence 2's specific question
+  (e.g. WorldState.decision_options, or Planner's priority_topics naming
+  distinct named paths) -- same Grounding law as everything else in this
+  response: never invent options that aren't already present in what you
+  were given, and never pad a genuinely open question with invented
+  options just to fill the list. When in doubt, leave it empty; an
+  unhelpful or made-up option is worse than none.
 - Content sourced from Planner's assumptions_to_test MUST be phrased as a
   tentative offering or question, never asserted as settled fact -- that
   field exists specifically because Planner marked it as something to

@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    options_json TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
@@ -176,6 +177,14 @@ def init_db(db_path: Optional[Path] = None) -> None:
         # brand-new database, since _SCHEMA above already includes it.
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        # Same pattern for `options_json` (see Response v3 -- real choice
+        # buttons, engine/decisions.md): a message row from before this
+        # column existed has no options, which is exactly what NULL ->
+        # `[]` (see get_messages below) already means.
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN options_json TEXT")
         except sqlite3.OperationalError:
             pass
 
@@ -361,21 +370,35 @@ def load_debug(session_id: str) -> Optional[dict]:
     return json.loads(row[0]) if row[0] else None
 
 
-def append_message(session_id: str, role: str, content: str) -> None:
+def append_message(
+    session_id: str, role: str, content: str, options: Optional[List[str]] = None
+) -> None:
+    """`options` (Response v3 -- real choice buttons): only ever
+    meaningful for an `assistant` message -- persisted as JSON so a page
+    reload (GET /sessions/{id}/messages) still shows the same tappable
+    buttons the person saw live, not just a plain paragraph. `None`
+    (the default, and every `user` message) stores NULL, which
+    get_messages below treats identically to an empty list.
+    """
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (session_id, role, content, _now()),
+            "INSERT INTO messages (session_id, role, content, created_at, options_json) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, role, content, _now(), json.dumps(options) if options else None),
         )
 
 
 def get_messages(session_id: str) -> List[MessageOut]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT role, content, created_at FROM messages WHERE session_id = ? ORDER BY id ASC",
+            "SELECT role, content, created_at, options_json FROM messages "
+            "WHERE session_id = ? ORDER BY id ASC",
             (session_id,),
         ).fetchall()
-    return [MessageOut(role=r[0], content=r[1], created_at=r[2]) for r in rows]
+    return [
+        MessageOut(role=r[0], content=r[1], created_at=r[2], options=json.loads(r[3]) if r[3] else [])
+        for r in rows
+    ]
 
 
 def save_events(session_id: str, events: List[BehavioralEvent]) -> None:

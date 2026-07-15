@@ -159,6 +159,57 @@ def test_send_message_returns_response_text(client, monkeypatch):
     assert body["failed_stage"] is None
 
 
+def test_send_message_returns_options_when_response_generator_provides_them(client, monkeypatch):
+    """Response v3 -- real choice buttons (see engine/decisions.md):
+    options flows straight through from Response into the API layer."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User is deciding between an MBA and buying a house.")),
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider",
+        _always_returns({**_MINIMAL_RESPONSE, "options": ["The MBA", "The house"]}),
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/messages", json={"content": "House or MBA?"})
+
+    assert res.json()["options"] == ["The MBA", "The house"]
+
+
+def test_send_message_returns_empty_options_by_default(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    assert res.json()["options"] == []
+
+
+def test_options_persist_across_a_reload(client, monkeypatch):
+    """Options must survive a page reload (GET /sessions/{id}/messages),
+    not just the live sendMessage response -- see src/api/db.py's
+    options_json column."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User is deciding between an MBA and buying a house.")),
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider",
+        _always_returns({**_MINIMAL_RESPONSE, "options": ["The MBA", "The house"]}),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "House or MBA?"})
+
+    messages = client.get(f"/sessions/{session_id}/messages").json()
+
+    assert messages[0]["options"] == []  # the user's own message
+    assert messages[1]["options"] == ["The MBA", "The house"]
+
+
 def test_second_message_reflects_accumulated_state(client, monkeypatch):
     """
     Turn 1's Interpretation mock introduces Fact A; turn 2's introduces

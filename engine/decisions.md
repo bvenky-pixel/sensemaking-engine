@@ -7196,3 +7196,86 @@ Playwright -- clicked Remove, confirmed the prompt appeared, clicked
 and confirmed the deleted session stayed gone (proving the delete is
 real and server-side, not just local component state) while the other
 session was untouched.
+
+## Response v3 -- compact structure, then real choice buttons
+
+Direct user complaint against a live reply: three declarative
+observations stacked into one turn ("weighing an MBA against a home
+loan... considering costs... it might also be worth exploring financial
+options... whenever you're ready..."), zero question marks anywhere.
+Two rounds, same day, because the first round's initial fix wasn't
+actually what the user had asked for.
+
+**Round 1 -- compact structure** (`src/response/prompt.py`): the v2
+pacing rules only capped how many QUESTIONS a response could ask, and
+only under an explicit "avoid overwhelming the user" planning
+constraint -- they never capped plain declarative/suggestion sentences,
+and never applied by default. Replaced the old "organize using whatever
+structure fits the strategy" freedom with one fixed shape, unconditional
+on every turn: exactly one grounding sentence, then exactly one
+question. Added a first cut at "the question MAY name 2-3 concrete
+options in its own prose when WorldState/Planner already name a small
+set." No schema change.
+
+**User pushback**: asked directly whether I'd ignored their request for
+choice options. On review, the round-1 prose-options idea was soft
+("MAY", "never mandatory") and, more importantly, wasn't what they'd
+actually described -- "give the user a couple of choices to choose from
+or the option to enter, like you do right now" was pointing at a real
+UI affordance (tappable options + free text), not just wording chosen
+inside a sentence. Asked directly which one was wanted; the answer was
+unambiguous: real clickable options.
+
+**Round 2 -- real choice buttons**:
+- `src/response/schema.py`: new `options: list[str]` field (default
+  empty, max 3, no blank entries -- fails loud rather than silently
+  truncating, same principle as response_text's own empty-string
+  validator).
+- `src/response/prompt.py`: `options` is populated ONLY when
+  WorldState/Judgment/Planner already name a small, concrete,
+  mutually-exclusive set (e.g. decision_options) -- same Grounding law
+  as everything else in this layer, never invented to fill the list.
+  The question sentence itself stays neutral/open now -- it no longer
+  re-lists the option names in prose (that would duplicate the buttons).
+- `src/api/db.py`: `messages.options_json` column (additive migration,
+  same pattern as `bookmarked`) so a page reload still shows the same
+  buttons, not just the plain paragraph -- `append_message`/
+  `get_messages` read/write it.
+- `src/api/schema.py`: `SendMessageResponse.options` and
+  `MessageOut.options`, both defaulting to `[]`.
+- `src/api/server.py::send_message`: threads `result.response.options`
+  through to both the live response and the persisted message.
+- `Transcript.svelte`: renders each option as a real button under the
+  LAST message only (an earlier turn's question is no longer live once
+  a further message exists), disabled while a turn is in flight.
+  Clicking one calls the same `onSend`/`handleSend` path Composer's own
+  "Share this" button uses -- a shortcut into the existing free-text
+  send flow, not a separate mechanism, so the person can always type
+  their own answer instead.
+
+**Verified three times**:
+1. Unit/schema: 5 new `tests/test_response_schema.py` tests (default
+   empty, 1-3 accepted, >3 rejected, blank entries rejected) and 3 new
+   `tests/test_api_server.py` tests (options flow through send_message,
+   default to `[]`, persist across a reload). New `Transcript.test.js`
+   (5 tests): renders buttons for the last message only, calls
+   `onOptionSelect` with the tapped label, omits buttons once a later
+   message exists or when there are no options, disables while sending.
+   Full suite: `pytest` 321 tests, `vitest` 28 tests, clean
+   `npm run build`.
+2. Live Playwright pass: seeded a real session via the pipeline (mocked
+   LLM calls) with a Response carrying two options, drove the built
+   frontend, confirmed both buttons rendered under the question,
+   clicked one, and confirmed it was sent as a real user message via the
+   same path as typing it -- and that the buttons then correctly
+   disappeared (a new turn now exists).
+3. Live 10+-turn dispatch of `worldstate-walkthrough.yml` against
+   `openai/gpt-4o-mini` (the actual production model, on commit ec154eb,
+   round 1 only -- round 2's real-buttons change hadn't been dispatched
+   live as of this entry) to check the compact-structure rule under real
+   model output, not just crafted test fixtures: **11/11 turns** produced
+   exactly the 2-sentence shape, and 10/11 carried exactly one question
+   mark; the one exception (turn 4) had Planner set
+   `planning_constraints: ["no direct questions in the response"]` and
+   the model correctly produced zero question marks with a declarative
+   closing instead -- the intended fallback, not a miss.
