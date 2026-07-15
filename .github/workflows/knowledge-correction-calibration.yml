@@ -1,0 +1,40 @@
+name: Knowledge correction calibration
+
+# Manual only -- each run makes real, billable calls (4 stages per turn,
+# 9 turns total across 5 short scenarios) to the configured LLM provider.
+# See scripts/run_knowledge_correction_calibration.py's module docstring
+# for why this exists: has_knowledge_correction (the correction round)
+# had exactly one live data point before this, on a model override, not
+# the one actually pinned in production (fly.toml: OPENROUTER_MODEL =
+# 'openai/gpt-4o-mini').
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  calibration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run knowledge correction calibration
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_knowledge_correction_calibration.py

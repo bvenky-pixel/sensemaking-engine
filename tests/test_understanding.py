@@ -14,7 +14,18 @@ from src.judgment.schema import Judgment
 from src.planner.engine import run_planner
 from src.planner.schema import Planner
 from src.response.engine import run_response_generator
-from src.state.world_state import Assumption, Claim, Decision, Fact, Goal, Inference, WorldState
+from src.state.world_state import (
+    Assumption,
+    Claim,
+    Decision,
+    Entity,
+    EntityAttribute,
+    Fact,
+    Goal,
+    Inference,
+    Unknown,
+    WorldState,
+)
 from src.understanding.engine import build_tier1_statements
 
 
@@ -57,8 +68,12 @@ def test_tier1_respects_status_filters():
     texts = {s.text for s in statements}
     assert "An active goal." in texts
     assert "An abandoned goal." not in texts
-    assert "An open option." in texts
-    assert "An expired option." not in texts
+    # Decision content is now wrapped in a sentence template (see
+    # test_tier1_decision_renders_as_a_full_sentence_not_a_bare_label),
+    # so status filtering is checked via substring containment rather
+    # than exact text equality.
+    assert any("An open option." in t for t in texts)
+    assert not any("An expired option." in t for t in texts)
 
 
 def test_tier1_empty_worldstate_produces_no_statements():
@@ -76,6 +91,107 @@ def test_tier1_ids_are_namespaced_by_kind():
     statements = build_tier1_statements(state)
     ids = [s.id for s in statements]
     assert len(ids) == len(set(ids))
+
+
+# --- Tier 1 completeness: Unknown/Entity/Assumption/Inference rendering
+# and the Decision bare-label fix (see engine/decisions.md "Tier 1
+# completeness + has_knowledge_correction calibration") ---
+
+
+def test_tier1_renders_unknown_as_uncertainty_kind():
+    state = WorldState()
+    state.unknowns.append(Unknown(content="What is the reason for the delay?"))
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].kind == "uncertainty"
+    assert statements[0].text == "What is the reason for the delay?"
+    assert statements[0].grounding_item_ids == [state.unknowns[0].id]
+
+
+def test_tier1_respects_unknown_status_filter():
+    """Unknown.status is never actually "resolved" in practice (builder.py
+    deletes a resolved Unknown rather than marking it), but the filter is
+    still tested defensively, same as every other kind's status filter."""
+    state = WorldState()
+    state.unknowns.append(Unknown(content="An open question.", status="open"))
+    state.unknowns.append(Unknown(content="A resolved question.", status="resolved"))
+    texts = {s.text for s in build_tier1_statements(state)}
+    assert "An open question." in texts
+    assert "A resolved question." not in texts
+
+
+def test_tier1_skips_entity_with_no_attributes_or_relationships():
+    """A bare Entity mention with nothing else to say would just
+    redundantly restate what a Fact already says -- deliberately skipped,
+    not a gap."""
+    state = WorldState()
+    state.entities.append(Entity(name="friend"))
+    assert build_tier1_statements(state) == []
+
+
+def test_tier1_renders_entity_with_attributes():
+    state = WorldState()
+    state.entities.append(Entity(
+        name="Sarah",
+        attributes=[EntityAttribute(attribute="role", value="Head of Product")],
+    ))
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].kind == "entity"
+    assert "Sarah" in statements[0].text
+    assert "Head of Product" in statements[0].text
+    assert statements[0].grounding_item_ids == [state.entities[0].id]
+
+
+def test_tier1_respects_entity_status_filter():
+    state = WorldState()
+    state.entities.append(Entity(
+        name="Active", status="active",
+        attributes=[EntityAttribute(attribute="role", value="X")],
+    ))
+    state.entities.append(Entity(
+        name="Retracted", status="retracted",
+        attributes=[EntityAttribute(attribute="role", value="Y")],
+    ))
+    texts = " ".join(s.text for s in build_tier1_statements(state))
+    assert "Active" in texts
+    assert "Retracted" not in texts
+
+
+def test_tier1_renders_assumption_items():
+    state = WorldState()
+    state.assumption_items.append(Assumption(content="User assumes the freeze is temporary."))
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].kind == "assumption"
+    assert statements[0].text == "You assume the freeze is temporary."
+    assert statements[0].grounding_item_ids == [state.assumption_items[0].id]
+
+
+def test_tier1_renders_inference_items():
+    state = WorldState()
+    state.inference_items.append(Inference(content="User seems anxious about the timeline.", confidence=0.6))
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].kind == "inference"
+    assert statements[0].text == "You seem anxious about the timeline."
+    assert statements[0].grounding_item_ids == [state.inference_items[0].id]
+
+
+def test_tier1_decision_renders_as_a_full_sentence_not_a_bare_label():
+    """Regression test for the bare-label bug: real Interpretation output
+    extracts decision_options as bare noun-phrase labels (e.g. "House",
+    "MBA" -- see experiments/confidant-validation/log.md case D01), and
+    to_second_person is a documented no-op on text with no "user"/"they"
+    token, so a naive passthrough rendered as an isolated single-word
+    bullet."""
+    state = WorldState()
+    state.decisions.append(Decision(content="House", status="open"))
+    statements = build_tier1_statements(state)
+    assert len(statements) == 1
+    assert statements[0].text != "House"
+    assert "House" in statements[0].text
+    assert len(statements[0].text.split()) > 1
 
 
 # --- Prompt hygiene regression guard: understanding/assumption_items/
