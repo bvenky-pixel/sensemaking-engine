@@ -27,16 +27,33 @@
   // treatment, same as situation/current_direction -- this is Judgment's
   // own assessed reading of what's going on, not still-open like
   // remaining_unknowns.
-  let { brief, deepeningClarityNote } = $props();
+  //
+  // Added 2026-07-15 (see engine/decisions.md "Tier 2 design"/
+  // "implementation"/frontend wiring): GET /sessions/{id}/understanding's
+  // tier2 statements, the first content this component gets from
+  // src/understanding/ rather than src/executor/'s Clarity Brief.
+  // Deliberately does NOT also render tier1 here -- Tier 1 is a raw,
+  // unranked, per-item render of WorldState that substantially
+  // duplicates what situation/key_insights/decisions/remaining_unknowns
+  // above already show via Judgment/Planner's own curation, and its own
+  // growth is confirmed unbounded with no prioritization design yet
+  // (see the validation report's Area 5/7 findings) -- surfacing it raw
+  // here would add repetition and an unbounded list, not new value.
+  // Tier 2 is different: LLM-synthesized, genuinely additive content
+  // (a connection across candidates, not a restatement of one), and
+  // naturally bounded by what synthesis produces rather than by turn
+  // count. Given the settled-card treatment, same as key_insights --
+  // this is a considered reading of the conversation, not open/pending.
+  let { brief, tier2 = [], deepeningClarityNote } = $props();
 </script>
 
-{#if brief}
+{#if brief || tier2?.length}
   <div class="understanding-region" aria-label="What we understand so far">
     {#if deepeningClarityNote}
       <p class="voice callout">{deepeningClarityNote}</p>
     {/if}
 
-    {#if brief.situation || brief.current_direction}
+    {#if brief?.situation || brief?.current_direction}
       <section class="card card-settled" aria-label="Where things stand">
         {#if brief.situation}
           <p>{brief.situation}</p>
@@ -47,7 +64,7 @@
       </section>
     {/if}
 
-    {#if brief.key_insights?.length}
+    {#if brief?.key_insights?.length}
       <section class="card card-settled card-secondary" aria-label="What matters here">
         <p class="ui-label">What matters here</p>
         <ul>
@@ -58,7 +75,18 @@
       </section>
     {/if}
 
-    {#if brief.remaining_unknowns.length}
+    {#if tier2?.length}
+      <section class="card card-settled card-secondary" aria-label="Putting it together">
+        <p class="ui-label">Putting it together</p>
+        <ul>
+          {#each tier2 as statement}
+            <li>{statement.text}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if brief?.remaining_unknowns?.length}
       <section class="card card-open" aria-label="Still uncertain">
         <p class="ui-label">Still uncertain</p>
         <ul>
@@ -69,7 +97,7 @@
       </section>
     {/if}
 
-    {#if brief.decisions.length}
+    {#if brief?.decisions?.length}
       <section class="card card-settled card-secondary" aria-label="In play">
         <p class="ui-label">In play</p>
         <ul>
@@ -80,10 +108,10 @@
       </section>
     {/if}
 
-    {#each brief.secondary_issues ?? [] as aside}
+    {#each brief?.secondary_issues ?? [] as aside}
       <p class="voice aside">{aside}</p>
     {/each}
-    {#each brief.stagnation_notes ?? [] as aside}
+    {#each brief?.stagnation_notes ?? [] as aside}
       <p class="voice aside">{aside}</p>
     {/each}
   </div>

@@ -54,6 +54,14 @@ export async function getClarityBrief(sessionId) {
   return _json(res);
 }
 
+// GET /sessions/{id}/understanding never 404s (unlike getClarityBrief
+// above) -- an empty tier1/tier2 list before any turn has completed is
+// a valid, correct response, not an error state.
+export async function getUnderstanding(sessionId) {
+  const res = await fetch(`/sessions/${sessionId}/understanding`);
+  return _json(res);
+}
+
 // Major update (2026-07-11, see engine/decisions.md): one Server-Sent
 // Event per pipeline stage that finishes during this session's next
 // sendMessage call (see src/api/server.py's GET /sessions/{id}/stream).

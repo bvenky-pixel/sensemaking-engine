@@ -106,6 +106,32 @@ class ClarityBriefResponse(BaseModel):
     stagnation_notes: List[str] = []
 
 
+class UnderstandingStatementOut(BaseModel):
+    """One row from GET /sessions/{id}/understanding -- see
+    src/understanding/schema.py::UnderstandingStatement, which this
+    directly mirrors field-for-field (a curated re-declaration, not a
+    re-export, matching this file's own convention -- see module
+    docstring). Tier 1 (src/understanding/engine.py) is a deterministic
+    template render of WorldState, computed and persisted every turn.
+    Tier 2 (src/understanding/tier2_engine.py) is LLM-synthesized and
+    computed only CONDITIONALLY (see that module's own docstring for
+    why) -- an empty or unchanged tier2 list on a given turn is the
+    common, expected case, not a gap. `grounding_item_ids` is exposed
+    for parity with the internal model; the frontend isn't expected to
+    render it (see Understanding.svelte)."""
+
+    id: str
+    tier: int
+    kind: str
+    text: str
+    grounding_item_ids: List[str] = []
+
+
+class UnderstandingResponse(BaseModel):
+    tier1: List[UnderstandingStatementOut]
+    tier2: List[UnderstandingStatementOut]
+
+
 class LearnedPatternOut(BaseModel):
     """One row from GET /patterns (see engine/specs/architecture-roadmap-v1.md
     Phase 1, src/learning/engine.py::Pattern) -- Learning's own,

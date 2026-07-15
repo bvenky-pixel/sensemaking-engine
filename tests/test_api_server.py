@@ -450,6 +450,48 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     assert body["stagnation_notes"] == ["No movement on this goal in 4 turns."]
 
 
+def test_understanding_empty_before_any_turn(client):
+    """Unlike /clarity-brief, this never 404s -- an empty tier1/tier2
+    list before any turn has completed is a valid, correct response."""
+    session_id = client.post("/sessions").json()["id"]
+    res = client.get(f"/sessions/{session_id}/understanding")
+    assert res.status_code == 200
+    assert res.json() == {"tier1": [], "tier2": []}
+
+
+def test_understanding_reflects_tier1_after_a_completed_turn(client, monkeypatch):
+    """Exercises the live endpoint end to end -- Tier 1 is computed
+    unconditionally every turn (src/orchestrator/engine.py::run_turn),
+    so a single completed turn already has real content."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    res = client.get(f"/sessions/{session_id}/understanding")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["tier1"]) == 1
+    statement = body["tier1"][0]
+    assert statement["kind"] == "fact"
+    assert statement["text"] == "You want to move to the Product team."
+    assert statement["tier"] == 1
+    assert statement["grounding_item_ids"]
+    # Tier 2 needs MIN_GROUNDING_ITEMS (2) real candidates and a real
+    # provider -- neither holds in this single-fact, no-API-key test
+    # environment, so it stays empty (the common, expected case, not a
+    # gap -- see src/understanding/tier2_engine.py's own module docstring).
+    assert body["tier2"] == []
+
+
+def test_understanding_unknown_session_returns_404(client):
+    res = client.get("/sessions/does-not-exist/understanding")
+    assert res.status_code == 404
+
+
 def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeypatch, tmp_path):
     """GET /sessions/{id}/stream, opened before the POST, must receive one
     SSE event per pipeline stage as run_turn's on_stage_complete callback

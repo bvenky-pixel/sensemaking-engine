@@ -57,4 +57,41 @@ describe('Understanding', () => {
     });
     expect(queryByText('What matters here')).toBeNull();
   });
+
+  // Added 2026-07-15 (see engine/decisions.md "Tier 2 design"/
+  // "implementation"/frontend wiring).
+  it('renders tier2 synthesis statements in their own card', () => {
+    const tier2 = [
+      { id: 'tier2:1', tier: 2, kind: 'synthesis', text: 'Your decision may hinge on an unexamined assumption.', grounding_item_ids: ['a', 'b'] },
+    ];
+    const { getByText } = render(Understanding, {
+      props: { brief, tier2, deepeningClarityNote: '' },
+    });
+    expect(getByText('Putting it together')).toBeTruthy();
+    expect(getByText('Your decision may hinge on an unexamined assumption.')).toBeTruthy();
+  });
+
+  it('omits the tier2 card entirely when the list is empty', () => {
+    const { queryByText } = render(Understanding, {
+      props: { brief, tier2: [], deepeningClarityNote: '' },
+    });
+    expect(queryByText('Putting it together')).toBeNull();
+  });
+
+  it('renders tier2 content even when there is no clarity brief yet', () => {
+    const tier2 = [
+      { id: 'tier2:1', tier: 2, kind: 'synthesis', text: 'A real synthesis statement.', grounding_item_ids: ['a', 'b'] },
+    ];
+    const { getByText } = render(Understanding, {
+      props: { brief: null, tier2, deepeningClarityNote: '' },
+    });
+    expect(getByText('A real synthesis statement.')).toBeTruthy();
+  });
+
+  it('renders nothing when there is no brief and no tier2 content', () => {
+    const { container } = render(Understanding, {
+      props: { brief: null, tier2: [], deepeningClarityNote: '' },
+    });
+    expect(container.textContent.trim()).toBe('');
+  });
 });

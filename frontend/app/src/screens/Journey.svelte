@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getMessages, sendMessage, getClarityBrief, openStageStream } from '../lib/api.js';
+  import { getMessages, sendMessage, getClarityBrief, getUnderstanding, openStageStream } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
   import Transcript from '../components/Transcript.svelte';
@@ -28,6 +28,7 @@
   let loaded = $state(false);
   let sending = $state(false);
   let brief = $state(null);
+  let tier2 = $state([]);
   let deepeningClarityNote = $state('');
   // Incremented once per real backend stage-completion event during a
   // turn (see AmbientPresence.svelte, engine/decisions.md "Major
@@ -44,10 +45,21 @@
     }
   }
 
+  // GET /understanding never 404s (unlike Clarity Brief above) -- Tier 1
+  // computes unconditionally every turn, but this component only renders
+  // tier2 (see Understanding.svelte's own docstring for why tier1 isn't
+  // surfaced here yet), which is often still empty (computed only
+  // conditionally -- see src/understanding/tier2_engine.py).
+  async function refreshUnderstanding() {
+    const next = await getUnderstanding(sessionId);
+    tier2 = next?.tier2 ?? [];
+  }
+
   onMount(async () => {
     messages = await getMessages(sessionId);
     loaded = true;
     await refreshBrief();
+    await refreshUnderstanding();
   });
 
   async function handleSend(content) {
@@ -68,6 +80,11 @@
       if (result.response_text) {
         await refreshBrief();
       }
+      // Unlike refreshBrief above, not gated behind response_text --
+      // Tier 2 (src/understanding/tier2_engine.py) runs before Planner/
+      // Response in the pipeline, so it can have updated even on a turn
+      // where Response Generator itself failed.
+      await refreshUnderstanding();
     } catch (err) {
       messages = [
         ...messages,
@@ -92,7 +109,7 @@
   {#if sending}<AmbientPresence {pulseCount} />{/if}
   <Composer disabled={sending} onSend={handleSend} />
 
-  <Understanding {brief} {deepeningClarityNote} />
+  <Understanding {brief} {tier2} {deepeningClarityNote} />
 </div>
 
 <style>

@@ -73,8 +73,19 @@ _VERB_INFLECTIONS = {
 }
 _VERB_ALTERNATION = "|".join(_VERB_INFLECTIONS)
 
-_USER_POSSESSIVE = re.compile(r"\b(?:the\s+)?[Uu]ser's\b")
-_USER_PLUS_VERB = re.compile(rf"\b(?:the\s+)?[Uu]ser\s+({_VERB_ALTERNATION})\b")
+# NOTE (found live, see engine/decisions.md "Tier 1 completeness +
+# has_knowledge_correction calibration" -- grammar regression follow-up):
+# `(?:the\s+)?` was case-sensitive on every one of these four regexes
+# except _AUX_PLUS_USER below, which already carries re.IGNORECASE.
+# A sentence-initial "The user hopes..." (capitalized "The") failed to
+# match the leading-article group at all -- only "user hopes" matched,
+# leaving a stray "The " in front of the replacement ("The you hope...").
+# _cased() already derives correct capitalization from the actual
+# match, so re.IGNORECASE alone fixes this: the whole "The user" is now
+# consumed as one match, and _cased sees the real leading "T" to
+# capitalize "You" correctly.
+_USER_POSSESSIVE = re.compile(r"\b(?:the\s+)?[Uu]ser's\b", re.IGNORECASE)
+_USER_PLUS_VERB = re.compile(rf"\b(?:the\s+)?[Uu]ser\s+({_VERB_ALTERNATION})\b", re.IGNORECASE)
 
 # Question-inversion form ("Does the user...?", "Has the user...?") --
 # the auxiliary precedes "user" instead of following it, so _USER_PLUS_VERB
@@ -94,7 +105,7 @@ _AUX_PLUS_USER = re.compile(
 # "gains", "identifies", "watches"). Runs only on whatever _USER_PLUS_VERB
 # left unmatched, so the explicit map above always takes priority for the
 # irregular forms (is/was/has/does) it exists specifically to handle.
-_USER_PLUS_UNKNOWN_VERB = re.compile(r"\b(?:the\s+)?[Uu]ser\s+(\w+s)\b")
+_USER_PLUS_UNKNOWN_VERB = re.compile(r"\b(?:the\s+)?[Uu]ser\s+(\w+s)\b", re.IGNORECASE)
 
 # A small number of verbs already ending in "ie" (die/lie/tie) form their
 # third-person-singular by adding a plain "s" ("dies"/"lies"/"ties"), which
@@ -104,7 +115,7 @@ _USER_PLUS_UNKNOWN_VERB = re.compile(r"\b(?:the\s+)?[Uu]ser\s+(\w+s)\b")
 # rewritten to "dy"/"ly"/"ty".
 _IE_VERBS = {"dies": "die", "lies": "lie", "ties": "tie", "vies": "vie"}
 
-_BARE_USER = re.compile(r"\b(?:the\s+)?[Uu]ser\b")
+_BARE_USER = re.compile(r"\b(?:the\s+)?[Uu]ser\b", re.IGNORECASE)
 _THEY = re.compile(r"\b[Tt]hey\b")
 _THEIR = re.compile(r"\b[Tt]heir\b")
 _THEM = re.compile(r"\b[Tt]hem\b")

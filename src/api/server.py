@@ -47,6 +47,8 @@ from src.api.schema import (
     SendMessageResponse,
     SessionSummary,
     SetBookmarkRequest,
+    UnderstandingResponse,
+    UnderstandingStatementOut,
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.executor.voice import to_second_person
@@ -255,6 +257,22 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
         rendered_markdown=render_clarity_brief(brief),
         secondary_issues=[to_second_person(s) for s in judgment.secondary_issues],
         stagnation_notes=[to_second_person(s) for s in judgment.stagnation_notes],
+    )
+
+
+@app.get("/sessions/{session_id}/understanding", response_model=UnderstandingResponse)
+def get_understanding(session_id: str) -> UnderstandingResponse:
+    """Unlike /clarity-brief, this never 404s -- Tier 1
+    (src/understanding/engine.py::build_tier1_statements) is computed
+    unconditionally every turn (src/orchestrator/engine.py::run_turn),
+    so even a brand-new session's first turn has SOME content. An empty
+    tier1/tier2 list (e.g. before any turn has completed) is a valid,
+    correct response -- nothing understood yet, not an error."""
+    _require_session(session_id)
+    state = db.load_state(session_id)
+    return UnderstandingResponse(
+        tier1=[UnderstandingStatementOut(**s.model_dump()) for s in state.understanding.tier1],
+        tier2=[UnderstandingStatementOut(**s.model_dump()) for s in state.understanding.tier2],
     )
 
 

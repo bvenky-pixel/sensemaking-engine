@@ -6962,3 +6962,101 @@ attempted here without further direction.
 Cost: 35 calls, 165,025 tokens, $0.0275 -- materially unchanged from
 the first run's $0.0275, as expected (same scenarios, same call
 pattern; the prompt-text change added negligible tokens).
+
+## Deploy-lag false alarm + a real, separate grammar bug found while investigating
+
+The user reported grammar regressions in the live app, matching the
+report format used earlier for `their friend`-style bugs. Investigated
+by re-running the reported phrase (`"their boss's behavior"`) through
+this repo's CURRENT `src/executor/voice.py` -- it already correctly
+rewrites to `"your boss's behavior"` (the Failure Mode #7 fix from
+earlier this session). Root cause: `.github/workflows/deploy.yml` is
+manual-only (`workflow_dispatch`, deliberately, per its own comment --
+"deployment is not something that should happen silently on every
+push"), and no deploy had happened since. Every commit this entire
+session -- the voice.py fix, emotional-signal work, Tier 1/Tier 2, the
+fix below -- had only reached the git repo, never the running
+`confidantsense.fly.dev` app. Not a regression; a deploy-lag false
+alarm, confirmed by direct reproduction rather than assumed.
+
+**While investigating, found a real, separate, pre-existing bug**
+(present since `voice.py` was first written, confirmed via `git log -p`
+showing these lines were never previously modified): `_USER_POSSESSIVE`,
+`_USER_PLUS_VERB`, `_USER_PLUS_UNKNOWN_VERB`, and `_BARE_USER` all used
+a case-SENSITIVE `(?:the\s+)?` leading-article group (only
+`_AUX_PLUS_USER` already had `re.IGNORECASE`). A sentence starting with
+capitalized "The user..." failed to consume "The" as part of the
+match, leaving a stray article: `"The user hopes their therapist can
+help them."` -> `"The you hope their therapist can help them."` No
+existing test caught this because `test_the_user_believes_pattern`
+only exercises "the user" mid-sentence (lowercase, non-sentence-initial).
+Fixed by adding `re.IGNORECASE` to all four regexes -- `_cased()`
+already derives correct capitalization from the real match, so this
+alone fixes it, no other logic change needed. Verified against a
+battery of the session's own real examples plus the new case; full
+`pytest` suite green (298 -> still 298, no new tests needed beyond this
+fix at the time, tests added later alongside the frontend wiring
+below).
+
+## Wiring Understanding (Tier 1/Tier 2) into the API and frontend
+
+Per the user's explicit request, following up on the earlier "no
+frontend changes yet" scope decision -- now doing that wiring,
+deployed together with the grammar fix above.
+
+**Backend (`src/api/schema.py`/`server.py`)**: new
+`UnderstandingStatementOut`/`UnderstandingResponse` (a curated
+re-declaration mirroring `src/understanding/schema.py::UnderstandingStatement`
+field-for-field, matching this file's own established convention of
+defining its own narrow shapes rather than re-exporting internal
+models) and `GET /sessions/{id}/understanding`. Unlike
+`/clarity-brief`, this never 404s -- Tier 1 computes unconditionally
+every turn, so even a fresh session's first turn has real content; an
+empty list is a valid, correct response, not an error. Reads directly
+from `db.load_state` (simpler than `/clarity-brief`'s `load_debug` +
+Judgment/Planner reconstruction, since Understanding needs nothing
+beyond WorldState itself).
+
+**Deliberate scope decision: only Tier 2 is rendered in the frontend,
+not raw Tier 1**, even though the API returns both. Reasoning: Tier 1
+is a raw, unranked, per-item render of WorldState that substantially
+duplicates what the Clarity Brief's `situation`/`key_insights`/
+`decisions`/`remaining_unknowns` already show (via Judgment/Planner's
+own curation of the same underlying content) -- showing it again raw
+would mostly be repetition. It's also the exact content the validation
+report's Area 5/7 confirmed grows unboundedly with no prioritization
+design yet -- dumping it in the UI now would recreate the "100+
+statement list, no ranking" problem that same report flagged as a
+known gap, not a solved one. Tier 2 is different: genuinely additive
+(a connection across candidates, not a restatement of one) and
+naturally bounded by what synthesis actually produces. The API still
+returns `tier1` in full (`GET /understanding`'s contract is honest and
+complete, per `frontend/app/src/lib/api.js`'s own stated "reflection of
+backend truth" principle) -- only the frontend's presentation choice is
+narrower, and reversible once Tier 1 gets its own prioritization design.
+
+**Frontend**: `getUnderstanding` in `api.js` (never treats a 404 as an
+error case, since there isn't one). `Understanding.svelte` -- the
+existing component, which despite its name has only ever rendered the
+Clarity Brief until now -- gained a `tier2` prop and a new "Putting it
+together" card, same settled-card treatment as `key_insights` (a
+considered reading, not open/pending). The outer render condition
+changed from `{#if brief}` to `{#if brief || tier2?.length}` so Tier 2
+content can render even on a turn where Response Generator itself
+failed (Tier 2 runs earlier in the pipeline, before Planner/Response,
+per `src/orchestrator/engine.py`'s wiring) -- every other `brief.X`
+access downstream of that changed `?.`-guarded accordingly.
+`Journey.svelte` fetches understanding alongside the Clarity Brief
+(`onMount` and after every `sendMessage`, the latter NOT gated behind
+`response_text` existing, unlike the brief refresh, since Tier 2 can
+update independent of whether Response succeeded).
+
+**Verification**: 3 new backend tests (`tests/test_api_server.py`:
+empty-before-any-turn, real Tier 1 content after one completed turn,
+404 for an unknown session) and 4 new frontend tests
+(`Understanding.test.js`: renders the tier2 card, omits it when empty,
+renders tier2 content with no brief at all, renders nothing with
+neither) -- full backend `pytest` (301 tests) and frontend `vitest`
+(17 tests) both green, plus a clean `npm run build` (production uses
+this exact build via the Dockerfile's multi-stage frontend-build
+step, not a committed `dist/`).
