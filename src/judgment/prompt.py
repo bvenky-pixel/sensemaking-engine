@@ -101,40 +101,19 @@ FIELD DEFINITIONS
   A conflict sitting in plain sight in supporting_evidence-worthy content
   is the single most commonly missed case -- do not skip this check just
   because nothing seemed contradictory at first read.
-- near_duplicates: reworded restatements of the SAME underlying Fact or
-  Claim -- different wording, same real-world content. This is NOT the
-  same check as contradictions above: contradictions only catches
-  conflicts where both sides CANNOT both be true; a reworded restatement
-  is not a contradiction (both sides ARE simultaneously true, just
-  redundant), so it will never show up there, and an empty
-  contradictions list is NOT evidence this check is also clear -- run
-  this as its own, separate pass.
-  BEFORE finalizing this field, actively cross-check: go through
-  WorldState.facts and WorldState.claims and compare each pair for a
-  near-duplicate -- do not rely on one jumping out at you unprompted.
-      Facts: ["User wants to move to the Product team.", "User wants to
-      move into the Product team.", "User is trying to move to the
-      Product team."] -> near_duplicates=["User wants to move to the
-      Product team." and "User wants to move into the Product team." are
-      reworded restatements of the same underlying fact."]
-  near_duplicates=[] is correct whenever every Fact/Claim in WorldState
-  is a genuinely distinct piece of content, not a rewording of another.
 - has_knowledge_correction: MANDATORY. Answer this FIRST, before writing
   knowledge_correction_target, knowledge_correction_kind,
-  knowledge_correction_corrected_content, or knowledge_corrections. This
-  field is a pure combination of the two checks you already did above --
-  no new judgment call, just a forced consequence of what you already
-  found:
-  has_knowledge_correction MUST be true if EITHER contradictions OR
-  near_duplicates above is non-empty -- a real conflict or duplicate you
-  just named there IS a stale Fact/Claim by definition, nothing further
-  to decide. `has_knowledge_correction: false` paired with a non-empty
-  contradictions or near_duplicates list is a direct contradiction of
-  your own answer, the same discipline as has_risk_signal/risks below.
-  has_knowledge_correction MUST be false whenever BOTH contradictions and
-  near_duplicates are empty -- there is nothing left to base a true
-  answer on. False is the common, correct answer most turns -- most
-  Facts/Claims are neither contradicted nor duplicated.
+  knowledge_correction_corrected_content, or knowledge_corrections.
+  has_knowledge_correction MUST be true whenever contradictions above is
+  non-empty -- a real contradiction you just named there IS a stale
+  Fact/Claim by definition, nothing further to decide.
+  `has_knowledge_correction: false` paired with a non-empty
+  contradictions list is a direct contradiction of your own answer one
+  field ago, the same discipline as has_risk_signal/risks below.
+  has_knowledge_correction MUST be false whenever contradictions is
+  empty -- there is nothing left to base a true answer on. False is the
+  common, correct answer most turns -- most Facts/Claims are not
+  contradicted by anything else in WorldState.
 - knowledge_correction_target / knowledge_correction_kind /
   knowledge_correction_corrected_content: MANDATORY if
   has_knowledge_correction is true. Quote the EXACT text of the
@@ -201,6 +180,25 @@ FIELD DEFINITIONS
   be corrected (or both are still true on their own, e.g. two claims from
   different points in time that don't actually rule each other out),
   leave has_knowledge_correction false and rely on contradictions alone.
+- near_duplicates: OBSERVATIONAL ONLY -- this field does NOT feed
+  has_knowledge_correction above; that decision is already final by this
+  point in the schema, based on contradictions alone. Reworded
+  restatements of the SAME underlying Fact or Claim -- different
+  wording, same real-world content. This is NOT the same check as
+  contradictions: contradictions only catches conflicts where both sides
+  CANNOT both be true; a reworded restatement is not a contradiction
+  (both sides ARE simultaneously true, just redundant), so it will never
+  show up there.
+  BEFORE finalizing this field, actively cross-check: go through
+  WorldState.facts and WorldState.claims and compare each pair for a
+  near-duplicate -- do not rely on one jumping out at you unprompted.
+      Facts: ["User wants to move to the Product team.", "User wants to
+      move into the Product team.", "User is trying to move to the
+      Product team."] -> near_duplicates=["User wants to move to the
+      Product team." and "User wants to move into the Product team." are
+      reworded restatements of the same underlying fact."]
+  near_duplicates=[] is correct whenever every Fact/Claim in WorldState
+  is a genuinely distinct piece of content, not a rewording of another.
 - has_decision_resolution: MANDATORY. Answer this FIRST, before writing
   decision_resolution_option/decision_resolution_status/
   decision_resolutions: does anything in WorldState.facts/claims reveal

@@ -6241,3 +6241,48 @@ can then only mechanically depend on `contradictions`, with
 via a downstream note rather than an upstream input; or revert the
 near_duplicates addition entirely and accept the near-duplicate pathway
 as an unobserved gap for now) rather than another blind attempt.
+
+**User picked the restructure option.** Moved `near_duplicates`
+(`src/judgment/schema.py`) to after `knowledge_corrections` -- i.e.
+after `has_knowledge_correction`'s ENTIRE block -- instead of between
+`contradictions` and `has_knowledge_correction`. This restores
+`contradictions -> has_knowledge_correction` to the exact zero-distance
+adjacency (in both schema declaration order and prompt narrative order)
+that was the one confirmed cause of the 2/4 -> 3/4 improvement two
+rounds ago, undoing this round's accidental regression of it.
+
+In `src/judgment/prompt.py`, `has_knowledge_correction`'s bullet was
+reverted to depend on `contradictions` alone (matching the exact
+wording live at the 3/4 checkpoint) -- the two-check
+(contradictions-OR-near_duplicates) version is gone. `near_duplicates`
+is now its own bullet placed after `knowledge_corrections`, explicitly
+labeled "OBSERVATIONAL ONLY -- this field does NOT feed
+has_knowledge_correction above" -- both because it structurally can't
+(the model has already committed to has_knowledge_correction several
+fields earlier in generation order) and to avoid telling the model two
+different, inconsistent things about what drives the gate.
+
+Explicit tradeoff accepted going in: `near_duplicate_rewording` cannot
+score a HIT under this design -- `has_knowledge_correction` no longer
+has any path to `true` from a near-duplicate alone. What this design
+buys instead is a clean, isolated read on whether `gpt-4o-mini`
+demonstrably runs a near-duplicate check at all (previously
+unknowable), collected without risking the contradictions pathway
+that's now confirmed to matter. A later round can decide how to route
+a real near-duplicate hit into `knowledge_corrections` -- e.g.
+mechanically in `src/state/builder.py` once `near_duplicates` is
+populated, rather than through a second sequential LLM boolean gate,
+avoiding the exact fragility this round's attempt exposed.
+
+Verified before commit: full `pytest` suite (266 tests) green, and the
+standalone doubled-word regression check clean. Schema and prompt
+field order re-confirmed to match exactly: `contradictions ->
+has_knowledge_correction -> knowledge_correction_target/kind/content ->
+knowledge_corrections -> near_duplicates -> has_decision_resolution ->
+... -> has_risk_signal` in both files.
+
+Not yet measured live: whether this restructure both (a) restores
+`contradiction_explicit` to a HIT and (b) gives a first real read on
+whether `near_duplicates` gets populated at all now that it's
+decoupled. Needs a fresh dispatch against `gpt-4o-mini` -- see the
+follow-up entry for the result.

@@ -119,27 +119,6 @@ class Judgment(BaseModel):
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
 
-    # v1.8 (added 2026-07-15, see engine/decisions.md "Tier 1
-    # completeness + has_knowledge_correction calibration" -- the
-    # near_duplicate_rewording calibration miss): a dedicated,
-    # observable counterpart to contradictions for the OTHER half of
-    # has_knowledge_correction's job. Added specifically because live
-    # calibration on openai/gpt-4o-mini showed the model reliably
-    # escalates a contradictions hit into has_knowledge_correction (once
-    # the two were prompt-adjacent -- see the has_knowledge_correction
-    # field's own comment below) but never demonstrably ran the
-    # near-duplicate check at all: unlike contradictions, near-duplicate
-    # detection had no field of its own to be observed in, only a
-    # sub-point buried inside has_knowledge_correction's own instruction
-    # -- there was no way to tell "the model checked and found nothing"
-    # from "the model never actually ran this check." Giving it the
-    # same structural treatment as contradictions (own field, own
-    # cross-check instruction, own worked example) both restores
-    # observability and, per the contradictions-adjacency fix, is the
-    # one prompt-structure change already confirmed to matter for this
-    # model.
-    near_duplicates: List[str] = Field(default_factory=list)
-
     # v1.7 (added 2026-07-12, see engine/decisions.md "Fact/Claim
     # correction and near-duplicate consolidation"): the structured,
     # WorldState-mutating counterpart to contradictions just above --
@@ -172,6 +151,32 @@ class Judgment(BaseModel):
     knowledge_correction_kind: Literal["", "retracted", "superseded"]
     knowledge_correction_corrected_content: str  # required only when kind == "superseded"; "" otherwise
     knowledge_corrections: List[KnowledgeCorrection] = Field(default_factory=list)
+
+    # v1.9 (added 2026-07-15, see engine/decisions.md "Tier 1
+    # completeness + has_knowledge_correction calibration" -- the
+    # near_duplicate_rewording calibration miss, and its own restructure
+    # after v1.8 measurably regressed has_knowledge_correction): a
+    # PURELY OBSERVATIONAL field, deliberately placed AFTER
+    # has_knowledge_correction's whole block rather than before it (v1.8
+    # placed it between contradictions and has_knowledge_correction and
+    # a live re-run showed has_knowledge_correction's contradictions-
+    # adjacency compliance -- the one confirmed, measured fix from the
+    # prior round -- regressed as a direct result: contradictions was
+    # correctly populated but has_knowledge_correction stayed False in
+    # the same response, the exact "detected but didn't transcribe"
+    # failure the adjacency fix had eliminated). has_knowledge_correction
+    # MUST NOT depend on this field's value -- it cannot, structurally:
+    # by the time the model generates near_duplicates, it has already
+    # committed to has_knowledge_correction several fields back. This
+    # field exists solely to observe, independent of the correction
+    # gate, whether the model demonstrably runs a near-duplicate check
+    # at all (empty vs. absent was previously indistinguishable). Once
+    # live data confirms whether/how reliably the model populates this,
+    # a future round can decide how to fold a real near-duplicate hit
+    # into knowledge_corrections -- e.g. mechanically in builder.py
+    # rather than via a second LLM-side boolean gate, avoiding the
+    # sequential-boolean-gate fragility this round's attempt ran into.
+    near_duplicates: List[str] = Field(default_factory=list)
 
     # v1.4 (see engine/decisions.md "decision lifecycle, round 3"):
     # Interpretation's decision_events (even after its own boolean-gate
