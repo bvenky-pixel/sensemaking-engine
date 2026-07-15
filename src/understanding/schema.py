@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 UnderstandingStatementKind = Literal[
     "fact", "claim", "goal", "decision", "uncertainty", "inference", "entity", "assumption",
-    "emotion",
+    "emotion", "synthesis",
 ]
 UnderstandingTier = Literal[1, 2]
 
@@ -49,16 +49,44 @@ class UnderstandingStatement(BaseModel):
 
 class UnderstandingState(BaseModel):
     """
-    Tier 1 populates every turn (see src/orchestrator/engine.py::run_turn).
-    Tier 2 fields exist so this schema doesn't need to change shape when
-    that tier is picked up later -- they stay empty/None this round; see
-    the plan's "Deferred design -- Tier 2" section for tier2_grounding_signature's
-    intended future use (a hash of (id, status, content) per grounding
-    item, not bare ids -- keying on the id set alone under-invalidates a
-    status-only change like a Decision resolving).
+    Tier 1 populates every turn, unconditionally (see
+    src/orchestrator/engine.py::run_turn). Tier 2 (see
+    src/understanding/tier2_engine.py) populates CONDITIONALLY -- only
+    when the candidate pool actually changed or the staleness backstop
+    trips (see tier2_engine.py's own module docstring and
+    engine/decisions.md "Tier 2 design" for why) -- so `tier2`,
+    `tier2_grounding_signature`, and `tier2_computed_at_turn` can all
+    stay unchanged across many turns in a row; that's the intended,
+    cost-saving common case, not staleness.
+
+    `tier2_grounding_signature`: a hash of the CURRENT CANDIDATE POOL
+    (id + status + text per candidate, see
+    tier2_engine.py::compute_tier2_grounding_signature), not just the
+    ids a Tier 2 statement already cites -- see engine/decisions.md
+    "Tier 2 design" for why hashing only already-cited items misses a
+    new near-duplicate item arriving.
     """
 
     tier1: List[UnderstandingStatement] = Field(default_factory=list)
     tier2: List[UnderstandingStatement] = Field(default_factory=list)
     tier2_grounding_signature: Optional[str] = None
     tier2_computed_at_turn: Optional[int] = None
+
+
+class Tier2Statement(BaseModel):
+    """
+    Raw LLM output for one synthesized Tier 2 statement -- NOT the
+    stored shape (see UnderstandingStatement). `grounding_item_ids` is
+    never trusted uncritically (see tier2_engine.py::_enforce_grounding,
+    same discipline as src/insight/engine.py's own session-id
+    filtering): filtered down to ids actually offered as candidates,
+    and any statement with zero surviving ids after filtering is
+    dropped entirely, never kept ungrounded.
+    """
+
+    text: str
+    grounding_item_ids: List[str] = Field(default_factory=list)
+
+
+class Tier2Batch(BaseModel):
+    statements: List[Tier2Statement] = Field(default_factory=list)

@@ -6587,3 +6587,93 @@ adjacent opportunity, not decided.
 
 No code changed in this pass -- design only, per the user's explicit
 request to resolve these two questions before writing Tier 2.
+
+## Tier 2 implementation (per the user's explicit "start implementing" request)
+
+Built directly on the design above, mirroring `src/insight/engine.py`'s
+existing "one call, one schema, engine-level grounding enforcement"
+pattern -- the Area 7 finding that called that pattern sound and
+reusable.
+
+**New files**:
+- `src/understanding/schema.py`: added `"synthesis"` to
+  `UnderstandingStatementKind` (every Tier 2 statement's kind -- it
+  doesn't map to one Tier 1 category by construction), plus the raw
+  LLM-facing `Tier2Statement`/`Tier2Batch` (distinct from the STORED
+  `UnderstandingStatement` shape, same "LLM schema, then converted"
+  split as `Insight`/`InsightBatch`).
+- `src/understanding/tier2_prompt.py`: `SYSTEM_PROMPT` + `build_messages`,
+  same shape as every other layer. Core instruction: a synthesis must
+  connect TWO OR MORE candidates into something neither states alone --
+  a single-candidate restatement is explicitly a paraphrase, not a
+  synthesis, and rejected both by prompt instruction and by
+  `MIN_GROUNDING_ITEMS = 2` downstream.
+- `src/understanding/tier2_engine.py`: the real implementation of both
+  design answers above --
+  - `select_tier2_candidates`: reuses `build_tier1_statements` (its
+    status filters, its text templates) rather than duplicating
+    rendering logic, then narrows by kind per the Q2 design: thread
+    kinds (`goal`/`decision`/`uncertainty`) kept while non-terminal
+    regardless of recency (`_TIER2_OPEN_STATUSES_BY_KIND`, stricter
+    than Tier 1's own visibility filters -- a completed Goal is
+    excluded here even though Tier 1 still shows it); detail kinds
+    recency-windowed by `TIER2_RECENCY_WINDOW_TURNS` (first-cut = 10).
+  - `compute_tier2_grounding_signature`: hashes the CURRENT candidate
+    pool (id + real status + text), not just previously-cited ids --
+    the Q1 fix. `should_recompute_tier2`: signature mismatch, never-
+    computed, or the `TIER2_STALENESS_TURNS` (first-cut = 5) backstop.
+  - `_enforce_grounding`: filters `Tier2Statement.grounding_item_ids` to
+    the real candidate-id intersection, drops anything below
+    `MIN_GROUNDING_ITEMS` after filtering -- never trusts the model's
+    ids uncritically, same discipline as Insight.
+  - `update_tier2`: the single call site. Computes the pool + signature
+    UNCONDITIONALLY (cheap, no LLM call) every turn; only calls the LLM
+    when `should_recompute_tier2` says so. NON-BLOCKING: wraps
+    `run_tier2_synthesis` in a bare `except Exception` and returns
+    `state` completely unchanged on any failure -- a Tier 2 problem
+    must never abort the turn or regress WorldState, unlike
+    Interpretation/Judgment/Planner/Response.
+- `src/orchestrator/engine.py`: `update_tier2(state, tracker=tracker)`
+  called once, right after `apply_knowledge_corrections` and before
+  Planner -- Tier 2 only needs WorldState (already fully corrected by
+  that point), not Planner/Response's output, so it still gets a
+  chance to update on a turn where one of those two later fails.
+
+**Cost**: this is a real 5th LLM-call TYPE added to the live pipeline
+(previously deferred specifically over CLAUDE.md's 4-calls/turn vs.
+50-req/day free-tier ceiling), but `should_recompute_tier2`'s gating is
+exactly the mitigation the design pass argued for -- most turns are
+expected to skip the actual call entirely (candidate pool unchanged,
+staleness backstop not yet due), not add a call every turn. Defaults to
+`openrouter/free` like every other stage, consistent with `CLAUDE.md`'s
+standing model-selection policy -- no new paid-model default introduced.
+
+**Verification**: 24 new tests --
+`tests/test_tier2.py` (23: candidate-pool selection per kind/status/
+recency including exact-boundary cases, signature determinism and
+sensitivity to both new-item-arrival and status-only changes,
+`should_recompute_tier2`'s four branches, grounding enforcement against
+hallucinated ids, the below-floor short-circuit, `update_tier2`'s
+skip-vs-recompute behavior, and its non-blocking failure mode with a
+real invalid-JSON provider response) plus one wiring guard in
+`tests/test_orchestrator.py` (`update_tier2` is actually called, with
+the state it receives already reflecting Interpretation's update --
+confirming placement in the real turn sequence, not just isolated unit
+behavior). Full `pytest` suite green (298 tests, up from 274).
+
+Confirmed empirically, not just by inspection: `call_provider` raises
+immediately when `OPENROUTER_API_KEY` isn't set (`src/llm/providers.py`),
+so every existing orchestrator/pipeline test that now incidentally
+reaches `update_tier2` with 2+ real candidates still runs in
+milliseconds, not real network time -- the non-blocking design degrades
+safely by construction, not by accident of test environment.
+
+**Not done in this pass**: no live LLM dispatch/calibration yet (this
+round shipped the mechanism -- candidate selection, caching,
+non-blocking wiring -- all deterministically testable; whether the
+actual synthesis prompt produces genuinely useful statements on a real
+model is real-data calibration work, the same next step every other
+LLM-facing addition in this codebase has needed, e.g.
+`has_knowledge_correction` above). No frontend changes -- nothing in
+`frontend/app/src` reads `understanding.tier2` yet, matching the same
+"backend foundation first" sequencing as Tier 1's own original round.

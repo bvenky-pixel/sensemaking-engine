@@ -54,6 +54,7 @@ from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
 from src.understanding.engine import build_tier1_statements
+from src.understanding.tier2_engine import update_tier2
 
 
 def run_turn(
@@ -163,6 +164,18 @@ def run_turn(
     behavioral_events += diff_behavioral_events(
         pre_correction_state, state, session_id=session_id, turn=state.turn_count
     )
+
+    # Added 2026-07-15 (see engine/decisions.md "Tier 2 design" and
+    # src/understanding/tier2_engine.py's own module docstring): unlike
+    # Tier 1 above, this is CONDITIONAL (most turns skip the LLM call
+    # entirely -- see should_recompute_tier2) and NON-BLOCKING (any
+    # failure inside update_tier2 is already caught there; it returns
+    # state unchanged rather than raising). Placed here, not after
+    # Planner/Response, because Tier 2 only depends on WorldState
+    # (already fully updated by the corrections above) -- it doesn't
+    # need Planner/Response to have run, so it still gets a chance to
+    # update even on a turn where one of those two later fails.
+    state = update_tier2(state, tracker=tracker)
 
     try:
         plan = run_planner(state, judgment, tracker=tracker)

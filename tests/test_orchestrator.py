@@ -117,6 +117,37 @@ def test_run_turn_full_success_populates_every_field(monkeypatch):
     assert any(g.content == "Move to the Product team." for g in result.state.goals)
 
 
+def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatch):
+    """Wiring regression guard for engine/decisions.md "Tier 2 design":
+    update_tier2 must run as part of the real turn sequence, after
+    WorldState is fully updated (including Judgment-driven corrections)
+    but the actual recompute decision/LLM call is update_tier2's own
+    responsibility (see tests/test_tier2.py), not asserted here."""
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None: _RESPONSE,
+    )
+
+    calls = []
+
+    def _fake_update_tier2(state, tracker=None):
+        calls.append(state)
+        return state
+
+    monkeypatch.setattr("src.orchestrator.engine.update_tier2", _fake_update_tier2)
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert len(calls) == 1
+    # The state update_tier2 saw already has the goal from Interpretation
+    # -- i.e. it ran after update_state, not before.
+    assert any(g.content == "Move to the Product team." for g in calls[0].goals)
+    assert result.failed_stage is None
+
+
 def test_run_turn_interpretation_failure_leaves_state_genuinely_unchanged(monkeypatch):
     def _raise(message, tracker=None):
         raise InterpretationError("all providers failed")
