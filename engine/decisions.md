@@ -6003,3 +6003,83 @@ needed real calibration data to surface and fix -- this round supplies
 that data; the fix itself (likely a prompt-side compliance issue, same
 class as those earlier fields, though not yet diagnosed which specific
 part of the instruction isn't landing) is follow-up work, not done here.
+
+**Diagnosis, done with real evidence, not speculation.** Added
+diagnostic printing of `primary_problem`/`contradictions` per turn
+(previously only printed when the gate fired) and re-ran against
+`gpt-4o-mini`. Two distinct root causes, not one:
+
+1. **Contradiction case**: `contradictions` DID correctly catch it --
+   `['User was informed by Sarah that they are not getting a raise this
+   year, but user received confirmation from HR about the raise.']` --
+   yet `has_knowledge_correction` stayed `false` on the same call. Unlike
+   `has_risk_signal`/`risks` (which has an explicit "if has_risk_signal
+   is true, that SAME signal MUST also appear in risks -- a direct
+   contradiction of your own answer" forcing rule),
+   `has_knowledge_correction`'s instruction only asked the model to
+   independently re-examine the contradictions check, with no hard rule
+   that a contradictions hit should force the gate true.
+2. **Near-duplicate case**: `contradictions=[]` across all three turns
+   -- correctly so (a reworded restatement is not a contradiction, both
+   sides are simultaneously true) -- but `has_knowledge_correction` never
+   ran a genuinely separate check for near-duplicates either; the
+   instruction only mentioned it in the same breath as the contradictions
+   re-check, and the model appears to treat the whole field as
+   subordinate to whatever `contradictions` already found.
+
+**Attempted fix**: split the instruction (`src/judgment/prompt.py`) into
+two explicit, separately-cued checks -- (1) a hard forcing rule
+mirroring `has_risk_signal`'s pattern exactly (non-empty `contradictions`
+now MUST imply `has_knowledge_correction=true`, framed as "a direct
+contradiction of your own answer" if violated), and (2) an explicit
+near-duplicate check required to run independently of check (1), with an
+explicit warning that an empty `contradictions` list is not evidence
+this second check is also clear.
+
+**Re-ran calibration against `gpt-4o-mini` after the fix -- it did not
+work.** Scored compliance unchanged at 2/4, both positive-trigger
+scenarios still missed. Most tellingly: on the SAME contradiction
+scenario, `contradictions` was again correctly populated
+(`['User was informed by Sarah that they are not getting a raise this
+year, but HR told user they are getting a raise.']`) while
+`has_knowledge_correction` stayed `false` -- directly violating the new,
+explicit "MUST be true" rule in the same model response that produced
+the non-empty `contradictions` list. This is a stronger, more concerning
+finding than the original miss: even an unambiguous, hard forcing rule,
+phrased in exactly the pattern that already works for
+`has_risk_signal`/`risks`, was not honored by `gpt-4o-mini` here.
+
+**What this actually tells us**: the problem isn't merely "the
+instruction wasn't explicit enough" (that hypothesis is now falsified by
+direct evidence) -- something about how this specific model handles
+cross-field consistency for this specific new field isn't responding to
+prompt-level nudges the way `has_risk_signal` did when it was first
+calibrated. Plausible contributing factors, none yet confirmed: (a)
+`has_knowledge_correction` sits between two other MANDATORY boolean gates
+(`has_decision_resolution` before it, `has_risk_signal` after) in the
+same schema, a longer sequential-compliance burden than any single
+earlier field carried alone when it was first calibrated; (b) whatever
+structured-output/JSON-mode path OpenRouter uses for `gpt-4o-mini` may
+generate fields in a way that doesn't actually enforce the kind of
+backward-reference reasoning ("check what you already wrote three fields
+ago") the instruction assumes. Both are hypotheses, not confirmed causes
+-- distinguishing them needs further live evidence (e.g. a variant
+prompt with `has_knowledge_correction` moved earlier/adjacent to
+`contradictions` with nothing else between them), not more blind
+prompt-wording changes.
+
+**Left as-is, not reverted**: the two-part instruction split is a
+genuine improvement in clarity and correctly documents the intended
+behavior even though it didn't change `gpt-4o-mini`'s output this round
+-- reverting it would just return to the original, less-precise
+wording with no evidence that's better. Recommendation: do not attempt a
+third prompt-wording tweak without a new hypothesis backed by evidence:
+the two-round pattern here (explicit ask, then explicit hard rule, both
+ineffective) suggests the ceiling on what prompt-only changes can fix
+for this specific field on this specific model may have been reached,
+and the next real lever is either (a) testing hypothesis (a)/(b) above
+directly, or (b) accepting this as a genuine capability gap and
+deciding whether `has_knowledge_correction` needs a stronger model tier
+than the rest of Judgment, a decision with real cost implications
+(`CLAUDE.md`'s standing free/paid-tier policy) that should be made
+deliberately, not silently.
