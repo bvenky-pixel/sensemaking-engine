@@ -133,14 +133,28 @@ FIELD DEFINITIONS
   because nothing seemed contradictory at first read.
 - has_knowledge_correction: MANDATORY. Answer this FIRST, before writing
   knowledge_correction_target, knowledge_correction_kind,
-  knowledge_correction_corrected_content, or knowledge_corrections: does
-  the contradictions check you just did (or a closer look at
-  WorldState.facts/WorldState.claims) reveal that one specific ACTIVE
-  Fact or Claim is now stale -- either directly contradicted by a later
-  one, or a near-duplicate/reworded restatement of another Fact or Claim
-  already in WorldState? Just true or false. False is the common,
-  correct answer most turns -- most Facts/Claims are neither contradicted
-  nor duplicated.
+  knowledge_correction_corrected_content, or knowledge_corrections. TWO
+  SEPARATE checks feed this field -- run both, not just whichever one
+  happens to catch your attention first:
+  (1) Contradiction check: if contradictions above is non-empty,
+  has_knowledge_correction MUST be true -- a real contradiction you just
+  named there IS a stale Fact/Claim by definition, nothing further to
+  decide. `has_knowledge_correction: false` paired with a non-empty
+  contradictions list is a direct contradiction of your own answer one
+  field ago, the same discipline as has_risk_signal/risks below.
+  (2) Near-duplicate check -- run this independently of (1), even when
+  contradictions is empty. contradictions only catches conflicts where
+  both sides CANNOT both be true; a reworded restatement of the SAME
+  underlying fact is not a contradiction (both sides are simultaneously
+  true), so it will never appear there, and an empty contradictions list
+  is NOT evidence this check is also clear. BEFORE finalizing this
+  field, separately go through WorldState.facts and WorldState.claims
+  looking for near-duplicate/reworded restatements of the same
+  underlying content (different wording, same real-world fact) -- do not
+  rely on one jumping out at you unprompted.
+  Just true or false overall, from either check firing. False is the
+  common, correct answer most turns -- most Facts/Claims are neither
+  contradicted nor duplicated.
 - knowledge_correction_target / knowledge_correction_kind /
   knowledge_correction_corrected_content: MANDATORY if
   has_knowledge_correction is true. Quote the EXACT text of the
