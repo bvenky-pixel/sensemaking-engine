@@ -204,11 +204,20 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     frontend/decisions.md "Build the real Confidant frontend") --
     Information Architecture specifies Home as a list of a person's
     Journeys, which no endpoint could previously support (every prior
-    one is scoped to a single, already-known session id). No schema
-    migration needed -- `surface_complaint` is extracted from the same
-    `world_state_json` blob every other endpoint already reads.
-    Ordered most-recently-updated first, matching how a calm "recent
-    Journeys" list should read.
+    one is scoped to a single, already-known session id). Ordered
+    most-recently-updated first, matching how a calm "recent Journeys"
+    list should read.
+
+    `preview_text` (see engine/decisions.md "Frontend UX pass"): sourced
+    from the session's FIRST user message (a single extra query, joined
+    via a session_id -> content dict, same "no ORM, separate query
+    joined in Python" style already used for insight_theme/insight_detail
+    below) -- NOT `state.surface_complaint`, which is overwritten every
+    turn and would make a session's own Home-screen label change on
+    every message rather than staying a stable "what this Journey is
+    about." Falls back to `state.surface_complaint` (empty string for a
+    brand-new session) only for a session with zero messages yet, which
+    the frontend already renders as "A new Journey".
 
     `bookmarked_only` (added for the Home redesign): filters to
     `bookmarked = 1` rows. `has_stagnation_signal` (also added then) is
@@ -240,9 +249,16 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
             "FROM insight_sessions JOIN insights ON insights.id = insight_sessions.insight_id "
             "ORDER BY insights.id ASC"
         ).fetchall()
+        first_message_rows = conn.execute(
+            "SELECT m.session_id, m.content FROM messages m "
+            "INNER JOIN (SELECT session_id, MIN(id) AS first_id FROM messages "
+            "WHERE role = 'user' GROUP BY session_id) first_msg "
+            "ON m.session_id = first_msg.session_id AND m.id = first_msg.first_id"
+        ).fetchall()
     # Later rows win on conflict (ORDER BY insights.id ASC, dict overwrite) --
     # "most-recently-computed insight" per the docstring above.
     session_insight = {session_id: (theme, detail) for session_id, theme, detail in insight_rows}
+    first_message = {session_id: content for session_id, content in first_message_rows}
 
     summaries = []
     for session_id, world_state_json, updated_at, bookmarked in rows:
@@ -251,7 +267,7 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
         summaries.append(
             SessionSummary(
                 id=session_id,
-                surface_complaint=state.surface_complaint,
+                preview_text=first_message.get(session_id) or state.surface_complaint,
                 updated_at=updated_at,
                 bookmarked=bool(bookmarked),
                 has_stagnation_signal=bool(compute_stagnation_signals(state)),

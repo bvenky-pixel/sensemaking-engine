@@ -7060,3 +7060,88 @@ neither) -- full backend `pytest` (301 tests) and frontend `vitest`
 (17 tests) both green, plus a clean `npm run build` (production uses
 this exact build via the Dockerfile's multi-stage frontend-build
 step, not a committed `dist/`).
+
+## Frontend UX pass
+
+Per the user's report ("the frontend experience is odd and not user
+friendly") and their explicit follow-up request to actually LOOK at the
+app rather than guess -- launched the real backend (uvicorn, a scratch
+SQLite db) and the real built frontend, seeded a realistic 2-turn
+session directly through `run_turn` (mocked LLM calls, real
+Interpretation/Judgment/Planner/Response/Tier2 content, no hand-typed
+JSON), and drove it with headless Chromium (Python Playwright,
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` -- the pre-installed
+revision; the default `p.chromium.launch()` resolves to a different,
+NOT-installed revision number, so needed an explicit `executable_path`).
+Found four real, confirmed issues from actual screenshots + rendered
+HTML, not speculation, then fixed all four (talked through the design
+for two of them with the user first):
+
+1. **Bare decision labels ("In play: House / MBA")** --
+   `src/executor/engine.py::build_clarity_brief`'s `decisions` field was
+   a bare `to_second_person(d.content)` passthrough. `Decision.content`
+   is a bare noun-phrase label, not a sentence, so this rendered as an
+   isolated single-word bullet -- the EXACT bug already fixed in
+   `src/understanding/engine.py::build_tier1_statements` (Failure Mode
+   #6), but that fix never touched this second, independent
+   decision-rendering code path. Same sentence template
+   (`f"You're weighing {to_second_person(d.content)} as an option."`)
+   applied here now.
+2. **"Where things stand" card had no visible heading** -- only an
+   `aria-label` (screen-reader only), while every other card
+   ("What matters here", "Putting it together", "In play") has a
+   visible `ui-label` paragraph. Confirmed via rendered HTML dump: next
+   to three labeled cards, this one looked like a stray, disconnected
+   paragraph. Added the missing `<p class="ui-label">Where things
+   stand</p>`.
+3. **Situation echoes the last chat message.** `situation`
+   (`WorldState.surface_complaint`) is, BY CONSTRUCTION, always a light
+   paraphrase of whatever was said most recently -- confirmed live: a
+   real Journey's "Where things stand" card repeated the person's own
+   last message almost verbatim, directly beneath the actual chat
+   bubble showing the same sentence. Talked through the design with the
+   user before fixing: rejected reorganizing the whole card taxonomy
+   (bigger, separate design question) in favor of a narrow, targeted
+   fix -- `build_clarity_brief` gained an optional `last_user_message`
+   parameter and blanks `situation` when it's a near-duplicate (word-
+   overlap >= 0.6, first-cut/uncalibrated) of that message.
+   Deliberately DUPLICATES `_word_overlap` rather than importing
+   `src/state/builder.py`'s copy -- same "separate frozen layers"
+   reasoning `src/interpretation/engine.py`'s own independent copy and
+   `GoalUpdateStatus` already give for their own duplication (see
+   `src/interpretation/schema.py`'s comment). `src/api/server.py`'s
+   `get_clarity_brief` fetches the session's messages and passes the
+   last `role="user"` one in.
+4. **Home screen's session preview text is unstable.** Confirmed via
+   screenshot: the Home list showed whatever was said MOST RECENTLY
+   (`state.surface_complaint`, overwritten every turn by design for
+   Judgment/Planner's own internal reasoning), not a stable "what is
+   this Journey about" label -- a session's own preview line could jump
+   between unrelated-sounding phrases turn to turn. Talked through with
+   the user: rejected inventing a new WorldState field in favor of
+   reusing data already stored -- `SessionSummary.surface_complaint`
+   renamed to `preview_text` (the internal `WorldState.surface_complaint`
+   field itself is UNCHANGED and untouched everywhere else in the
+   codebase; only this one API-facing, Home-screen-specific field was
+   renamed and re-sourced), now populated from the session's FIRST user
+   message via one extra query in `src/api/db.py::list_sessions`
+   (session_id -> first message content, joined in Python, same "no
+   ORM, separate query" style already used for `insight_theme`/
+   `insight_detail` in that same function) rather than the live,
+   mutable WorldState field. Falls back to `state.surface_complaint`
+   only for a session with zero messages yet (matches what the
+   frontend already renders as "A new Journey" for an empty string).
+
+**Verified twice**: once via targeted unit/API/component tests (9 new
+backend tests across `tests/test_executor.py`/`tests/test_api_server.py`,
+1 new frontend test in `Understanding.test.js`), and a SECOND time by
+actually re-running the live app end to end after all four fixes --
+rebuilt the frontend, reseeded the same scenario, re-screenshotted both
+Home and the Journey view, and confirmed all four issues visibly gone
+in the real rendered output (not just passing tests): "In play" now
+reads "You're weighing House as an option." / "You're weighing MBA as
+an option."; "Where things stand" has its heading and no longer repeats
+the last chat message (correctly suppressed, since `current_direction`
+alone still renders); Home shows the stable opening message across both
+turns. Full `pytest` (307 tests), `vitest` (18 tests), and a clean
+`npm run build` all green.

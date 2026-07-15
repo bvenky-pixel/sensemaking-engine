@@ -44,6 +44,12 @@
   // naturally bounded by what synthesis produces rather than by turn
   // count. Given the settled-card treatment, same as key_insights --
   // this is a considered reading of the conversation, not open/pending.
+  //
+  // Fixed 2026-07-15 (see engine/decisions.md "Frontend UX pass"): the
+  // "Where things stand" card had no visible heading (only an
+  // aria-label, screen-reader-only) -- every other card here has a
+  // plain-text ui-label, so this one looked like a stray, disconnected
+  // paragraph rather than a labeled section, confirmed live.
   let { brief, tier2 = [], deepeningClarityNote } = $props();
 </script>
 
@@ -55,6 +61,7 @@
 
     {#if brief?.situation || brief?.current_direction}
       <section class="card card-settled" aria-label="Where things stand">
+        <p class="ui-label">Where things stand</p>
         {#if brief.situation}
           <p>{brief.situation}</p>
         {/if}

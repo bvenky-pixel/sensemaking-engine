@@ -75,7 +75,41 @@ def test_build_clarity_brief_maps_each_field_from_the_documented_source():
     ]
     assert brief.current_direction == to_second_person(_PLANNER.desired_outcome)
     assert brief.remaining_unknowns == [to_second_person(u) for u in _JUDGMENT.open_unknowns]
-    assert brief.decisions == ["Wait until Q3"]
+    # Regression test for the bare-label bug (see engine/decisions.md
+    # "Frontend UX pass"): Decision.content is a bare noun-phrase label,
+    # not a sentence -- wrapped in a template, same fix already applied
+    # to src/understanding/engine.py::build_tier1_statements.
+    assert brief.decisions == ["You're weighing Wait until Q3 as an option."]
+
+
+def test_build_clarity_brief_suppresses_situation_that_echoes_the_last_message():
+    """Regression test for a real, live-observed issue (see
+    engine/decisions.md "Frontend UX pass"): situation is, by
+    construction, always a light paraphrase of the most recent message
+    -- rendering it as its own card directly under the actual chat
+    transcript just repeats the person's own words back to them."""
+    state = WorldState(surface_complaint="You want to move to the Product team.")
+    brief = build_clarity_brief(
+        state, _JUDGMENT, _PLANNER, last_user_message="I want to move teams."
+    )
+    assert brief.situation == ""
+
+
+def test_build_clarity_brief_keeps_situation_when_it_does_not_echo_the_last_message():
+    state = WorldState(surface_complaint="You want to move to the Product team.")
+    brief = build_clarity_brief(
+        state, _JUDGMENT, _PLANNER, last_user_message="Ugh, today was a rough day."
+    )
+    assert brief.situation == "You want to move to the Product team."
+
+
+def test_build_clarity_brief_keeps_situation_when_no_last_user_message_given():
+    """Callers that don't pass last_user_message (e.g. every other test
+    in this file) get the old, unconditional behavior -- the parameter
+    is additive, not a breaking change to the existing mapping."""
+    state = WorldState(surface_complaint="You want to move to the Product team.")
+    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
+    assert brief.situation == "You want to move to the Product team."
 
 
 def test_build_clarity_brief_never_touches_judgment_key_blockers_or_active_decisions():
@@ -104,7 +138,7 @@ def test_render_clarity_brief_produces_all_five_sections():
     assert "## Remaining Unknowns" in rendered
     assert "## Decisions" in rendered
     assert "x" in rendered
-    assert "- y" in rendered
+    assert "- You're weighing y as an option." in rendered
 
 
 def test_render_clarity_brief_shows_none_for_empty_sections_not_a_blank_gap():

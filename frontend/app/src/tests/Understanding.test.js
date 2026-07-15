@@ -34,6 +34,16 @@ describe('Understanding', () => {
     expect(container.textContent.trim()).toBe('');
   });
 
+  // Added 2026-07-15 (see engine/decisions.md "Frontend UX pass"): this
+  // card previously had no visible heading (only an aria-label), which
+  // looked like a stray paragraph next to every other labeled card.
+  it('renders a visible heading for the "Where things stand" card', () => {
+    const { getByText } = render(Understanding, {
+      props: { brief, deepeningClarityNote: '' },
+    });
+    expect(getByText('Where things stand')).toBeTruthy();
+  });
+
   it('surfaces the deepening-clarity callout when present', () => {
     const { getByText } = render(Understanding, {
       props: { brief, deepeningClarityNote: 'Something has become clearer since last time.' },

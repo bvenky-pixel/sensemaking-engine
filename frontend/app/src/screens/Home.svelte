@@ -77,7 +77,7 @@
         <li>
           <button type="button" class="journey-card" onclick={() => onOpen(session.id)}>
             <div class="journey-row">
-              <span>{session.surface_complaint || 'A new Journey'}</span>
+              <span>{session.preview_text || 'A new Journey'}</span>
               <span
                 type="button"
                 role="button"

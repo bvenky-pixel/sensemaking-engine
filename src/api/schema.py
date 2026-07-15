@@ -46,8 +46,18 @@ class MessageOut(BaseModel):
 class SessionSummary(BaseModel):
     """One row for the real frontend's Home screen (a list of a
     person's Journeys) -- see frontend/decisions.md "Build the real
-    Confidant frontend". `surface_complaint` is plain language already
-    (WorldState's own working-memory field), not a backend label.
+    Confidant frontend".
+
+    `preview_text` (renamed from `surface_complaint` 2026-07-15, see
+    engine/decisions.md "Frontend UX pass"): previously this field WAS
+    literally `WorldState.surface_complaint`, which is overwritten every
+    turn with a paraphrase of whatever was said MOST RECENTLY -- fine
+    for Judgment/Planner's internal reasoning (which wants the freshest
+    framing), wrong for a stable session-list label, which should read
+    as "what this Journey is about," not "what did they say last." Now
+    sourced from the session's FIRST user message instead (see
+    src/api/db.py::list_sessions) -- plain language either way, still
+    not a backend label, just a different and more stable source.
 
     `bookmarked`/`has_stagnation_signal` added for the Home redesign
     (see frontend/decisions.md) -- `has_stagnation_signal` is
@@ -58,7 +68,7 @@ class SessionSummary(BaseModel):
     own "mechanical signal only" precedent for a first pass."""
 
     id: str
-    surface_complaint: str
+    preview_text: str
     updated_at: str
     bookmarked: bool = False
     has_stagnation_signal: bool = False

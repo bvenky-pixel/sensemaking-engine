@@ -243,7 +243,13 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
     state = WorldState.model_validate(debug["state"])
     judgment = Judgment.model_validate(debug["judgment"])
     planner = Planner.model_validate(debug["planner"])
-    brief = build_clarity_brief(state, judgment, planner)
+    # Added 2026-07-15 (see engine/decisions.md "Frontend UX pass"): the
+    # last real user message, so build_clarity_brief can suppress
+    # `situation` when it's just an echo of what the person literally
+    # just said -- see that function's own docstring for why.
+    messages = db.get_messages(session_id)
+    last_user_message = next((m.content for m in reversed(messages) if m.role == "user"), "")
+    brief = build_clarity_brief(state, judgment, planner, last_user_message=last_user_message)
 
     # secondary_issues/stagnation_notes bypass build_clarity_brief's
     # mapping (they're not part of Executor's documented template -- see

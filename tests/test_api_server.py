@@ -227,7 +227,46 @@ def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch)
     assert ids_in_order[0] == session_a
     assert session_b in ids_in_order
     matching = [s for s in summaries if s["id"] == session_a][0]
-    assert matching["surface_complaint"] == "User wants to move to the Product team."
+    # preview_text is the session's first RAW user message (see
+    # engine/decisions.md "Frontend UX pass") -- not the mocked
+    # surface_complaint ("User wants to move to the Product team."),
+    # which is a separate, Interpretation-derived paraphrase.
+    assert matching["preview_text"] == "I want to move teams."
+
+
+def test_preview_text_stays_stable_across_later_turns(client, monkeypatch):
+    """Regression test for a real, live-observed issue (see
+    engine/decisions.md "Frontend UX pass"): previously this field was
+    literally the live WorldState.surface_complaint, overwritten every
+    turn -- a session's Home-screen label would change on every message
+    instead of staying a stable "what this Journey is about." Fixed by
+    sourcing it from the FIRST user message instead."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns([
+            _minimal_interp("User wants to move to the Product team."),
+            _minimal_interp("User is now unsure about the move."),
+        ]),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    client.post(f"/sessions/{session_id}/messages", json={"content": "Actually, I'm not so sure anymore."})
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["preview_text"] == "I want to move teams."
+
+
+def test_preview_text_falls_back_to_surface_complaint_before_any_message(client):
+    """A session with zero messages yet (just created) has nothing in
+    the messages table to source a preview from -- falls back to
+    WorldState.surface_complaint, which is also empty for a fresh
+    session, matching what the frontend already renders as "A new
+    Journey" for an empty preview_text."""
+    session_id = client.post("/sessions").json()["id"]
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["preview_text"] == ""
 
 
 def test_sessions_default_unbookmarked(client):
@@ -418,7 +457,13 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(populated_planner))
 
     session_id = client.post("/sessions").json()["id"]
-    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    # Deliberately worded NOT to overlap with the mocked surface_complaint
+    # below ("User wants to move to the Product team.") -- see
+    # test_clarity_brief_suppresses_situation_when_it_echoes_the_last_message
+    # for the dedicated test of that separate behavior; this test's own
+    # purpose is the field MAPPING, which the echo-suppression would
+    # otherwise interfere with.
+    client.post(f"/sessions/{session_id}/messages", json={"content": "Ugh, today was a rough day."})
 
     res = client.get(f"/sessions/{session_id}/clarity-brief")
 
@@ -448,6 +493,27 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     # is the correct, expected behavior here, not a bug.
     assert body["secondary_issues"] == ["Strained relationship with their current manager."]
     assert body["stagnation_notes"] == ["No movement on this goal in 4 turns."]
+
+
+def test_clarity_brief_suppresses_situation_when_it_echoes_the_last_message(client, monkeypatch):
+    """Regression test for a real, live-observed issue (see
+    engine/decisions.md "Frontend UX pass"): `situation` is, by
+    construction, always a light paraphrase of the most recent message
+    -- surfacing it as its own card directly below the actual chat
+    transcript just repeats the person's own words back to them."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT))
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
+
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    res = client.get(f"/sessions/{session_id}/clarity-brief")
+    assert res.status_code == 200
+    assert res.json()["situation"] == ""
 
 
 def test_understanding_empty_before_any_turn(client):
