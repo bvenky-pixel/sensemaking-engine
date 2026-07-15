@@ -7635,3 +7635,41 @@ than the abstract instruction did -- noting honestly that some residual
 convergence may be structurally unavoidable given Response's
 turn-to-turn memorylessness is a deliberate design property of this
 layer, not a bug to fix away.
+
+## Counseling modes -- Realign round four: deterministic rotation via turn_count
+
+Round three's re-verification (a live 11-turn `gpt-4o-mini` run) showed
+the "pick one of 5 concrete templates" approach only moved the problem
+again: 2 of the 5 templates were never sampled at all; the 3 that were
+got reused verbatim (one 3x, one 2x back-to-back); and on the 2 turns
+where the model went off-template entirely, it independently re-derived
+the exact "vision"/"trajectory" language just banned, unprompted. Free
+choice among alternatives, even concrete ones, still collapses --
+because nothing in a memoryless generator's input actually forces a
+different answer turn to turn.
+
+**Fix**: stopped relying on the model to notice and diversify its own
+output, and instead made the rotation a deterministic function of data
+it already sees. `WorldState.turn_count` is a plain integer, visible in
+Response's own prompt (confirmed: not in `PROMPT_EXCLUDED_FIELDS`) --
+`turn_count % 5` now selects which of 5 underlying CONCEPTS (cost/
+tradeoff, year-from-now retrospective, wanted-vs-expected, priorities,
+professional identity) sentence 2 draws on this turn, with an explicit
+instruction to write an ORIGINAL sentence around that concept rather
+than quote a template verbatim -- this needs no memory of prior turns,
+just this turn's own visible number, which is exactly what a
+memoryless-by-design layer can actually use reliably. Also broadened the
+word-level ban from the two specific retired phrases to the whole
+"vision"/"trajectory"/"envision(ing)"/"aspiration(s)" family, since the
+model kept re-deriving that family under new wording even when the two
+originally-named phrases themselves stopped appearing.
+
+**Verified via unit tests only, per explicit user instruction** ("make
+the prompt change no verification" -- after this round's live-dispatch
+costs, further paid-model re-checks are opt-in only, not automatic):
+new regression test
+(`test_realign_response_focus_uses_turn_count_for_deterministic_rotation`)
+confirming the `turn_count % 5` mechanism and the broadened word-family
+ban are both present in the prompt text. Full suite green: `pytest` 347.
+This round's actual real-model behavior has NOT been re-checked live --
+that's deliberately deferred until explicitly requested.

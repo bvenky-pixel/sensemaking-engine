@@ -116,6 +116,22 @@ def test_realign_response_focus_flags_overused_phrases_and_gives_concrete_altern
     question templates to sample from, not just an abstract instruction
     to vary wording."""
     assert "long-term career aspirations" in RESPONSE_MODE_FOCUS["realign"]
+
+
+def test_realign_response_focus_uses_turn_count_for_deterministic_rotation():
+    """Regression guard for a THIRD live-dispatch round on Realign: given
+    a free-choice list of 5 templates, the model still converged --
+    verbatim reuse of whichever 2-3 templates it favored (3x "year from
+    now", 2x "cost you" back-to-back), while 2 of 5 templates were never
+    sampled at all, and off-template turns re-derived the exact banned
+    "vision"/"trajectory" language unprompted. Fixed by keying rotation to
+    WorldState.turn_count (visible, deterministic, no memory required)
+    instead of leaving the choice free, and banning the whole
+    "vision"/"trajectory"/"envision"/"aspiration" word family rather than
+    just the two specific retired phrases."""
+    assert "turn_count % 5" in RESPONSE_MODE_FOCUS["realign"]
+    assert "trajectory" in RESPONSE_MODE_FOCUS["realign"]
+    assert "envision" in RESPONSE_MODE_FOCUS["realign"]
     assert "vision for your career" in RESPONSE_MODE_FOCUS["realign"]
     assert "no memory" in RESPONSE_MODE_FOCUS["realign"].lower()
     # At least a few concrete alternative question templates present.

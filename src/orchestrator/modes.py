@@ -55,6 +55,14 @@ actually does with it:
   content the buttons already carry. Fixed by explicitly disallowing
   that once `options` is populated.
 - Explore had no live-dispatch defect found this round.
+- Realign took THREE further live-dispatch rounds after that (see the
+  "realign" entry's own internal comments are in engine/decisions.md,
+  not duplicated here): each fix chased the model to a new narrow
+  fallback rather than producing real variety, until rotation was keyed
+  to WorldState.turn_count (visible, deterministic, no memory needed)
+  instead of left to free choice among alternatives -- a free "pick one
+  of these" list still collapses onto whichever one or two feel most
+  natural, repeated verbatim.
 
 Planner and Response get SEPARATE focus notes per mode (below) --
 Planner's own job (deciding what to prioritize) and Response's (deciding
@@ -237,27 +245,31 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "can be the same one every turn, that's fine, it's real -- but you "
         "have NO memory of how you phrased earlier turns' questions (you "
         "never see prior responses, only this turn's WorldState/Judgment/ "
-        "Planner), so left to the single most natural-sounding phrasing "
-        "you will independently converge on the same words turn after turn "
-        "even without meaning to. Counter that by picking a DIFFERENT one "
-        "of these concrete question shapes each turn, not a family of "
-        "synonyms for the same one (treat 'vision for your career,' "
-        "'long-term career aspirations,' and 'who you see yourself "
-        "becoming' as ALL the same overused shape, not three different "
-        "ones):\n"
-        "  - 'Does this still serve the kind of professional you're trying "
-        "to become?'\n"
-        "  - 'If you looked back on this a year from now, what would you "
-        "want to have done?'\n"
-        "  - 'What would choosing this path actually cost you?'\n"
-        "  - 'Is this the choice you actually want, or the one that feels "
-        "expected of you?'\n"
-        "  - 'What would it mean about your priorities if you chose this?'\n"
-        "Adapt the wording to fit the actual goal/situation, but keep to a "
-        "genuinely different question SHAPE than whichever one feels most "
-        "obvious to reach for by default -- and never assert a values/ "
-        "identity frame more specific than what WorldState actually "
-        "supports."
+        "Planner), so left to free choice you will independently converge "
+        "on the same words turn after turn even without meaning to, and "
+        "even a list of alternatives to 'pick from' tends to collapse onto "
+        "whichever one or two feel most natural, repeated verbatim.\n"
+        "\n"
+        "Resolve this WITHOUT needing memory: WorldState includes "
+        "`turn_count`, a plain integer you already see this turn. Compute "
+        "`turn_count % 5` and let the result select which underlying "
+        "CONCEPT sentence 2 draws on this turn (0=cost/tradeoff of this "
+        "path, 1=looking back on this a year from now, 2=whether this is "
+        "genuinely wanted vs. expected of them, 3=what it says about their "
+        "priorities, 4=what kind of professional/person they're trying to "
+        "become) -- a deterministic rotation needs no memory of past turns, "
+        "just this turn's own visible number. Write an ORIGINAL sentence "
+        "around whatever concept that index points to; do not quote a fixed "
+        "template verbatim turn after turn even when the same index recurs "
+        "later in a long Journey (turn_count % 5 repeats every 5 turns) -- "
+        "rephrase it fresh each time using this turn's own specific details.\n"
+        "\n"
+        "Regardless of which concept you land on, never phrase it as "
+        "'vision,' 'trajectory,' 'envision(ing),' or 'aspiration(s)' for "
+        "your career -- that whole family of words is overused and banned "
+        "here, not just the two exact phrases 'vision for your career' and "
+        "'long-term career aspirations.' Never assert a values/identity "
+        "frame more specific than what WorldState actually supports."
     ),
 }
 
