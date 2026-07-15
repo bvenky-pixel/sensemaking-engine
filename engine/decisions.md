@@ -5707,3 +5707,135 @@ frontend surfacing of Tier 1 statements, and corrigibility (a
 "that's not right" affordance -- a new write path into WorldState that
 doesn't exist today, since every current mutation originates from
 Interpretation reading the user's own words, never a direct UI action).
+
+---
+
+**2026-07-12 — Fact/Claim correction and near-duplicate consolidation**
+
+Follow-up to a comprehensive validation exercise of the Tier 1
+Understanding layer (see `experiments/confidant-validation/tier1-validation-report.md`,
+committed `66a4d54`), explicitly scoped to make WorldState itself
+trustworthy enough for Tier 2 to safely inherit from -- not a Tier 2
+build. Two of that report's ranked failure modes, chosen deliberately as
+the minimum needed for "trustworthy state, not expanded state model":
+near-duplicate Fact/Claim accumulation (confirmed in real live-pipeline
+data and a 100-turn synthetic stress test -- exact-match dedup never
+catches reworded restatements of the same fact), and no correction/
+retraction pathway for Facts/Claims at all (`FactStatus`/`ClaimStatus`
+already define `"superseded"`/`"retracted"` but nothing in
+`src/state/builder.py` ever assigned them -- only `Goal`/`Decision` had
+working status-transition machinery).
+
+**Rejected approach, with a concrete counterexample**: a word-overlap
+fuzzy merge (the same bidirectional `_word_overlap`/`_is_resolved_by`
+mechanism already used for Unknown resolution) was evaluated for the
+near-duplicate problem first, and ruled unsafe using this codebase's own
+existing test fixture: `"Boss denied the transfer."` vs `"Boss approved
+the transfer."` score 0.67 overlap under that exact formula -- well
+within a plausible near-duplicate threshold, which would silently
+conflate two opposite-meaning facts. Short factual sentences are exactly
+the shape where a single antonym flips meaning while leaving word
+overlap high; a mechanical merge has no way to tell the difference.
+
+**What shipped instead**: one new typed Judgment signal,
+`has_knowledge_correction`/`knowledge_correction_target`/`_kind`/
+`_corrected_content`/`knowledge_corrections: List[KnowledgeCorrection]`
+(`src/judgment/schema.py`), modeled directly on the existing
+`has_decision_resolution`/`DecisionResolution` quadruple and its
+`apply_judgment_resolutions` consumer. `kind` is `"retracted"` (no
+replacement known) or `"superseded"` (a replacement is created) --
+reusing `FactStatus`/`ClaimStatus`'s existing enum values, no schema
+expansion. This rides the Judgment call that already runs every turn --
+no 5th LLM call -- and reuses Judgment's own already-existing
+contradiction cross-check instruction and full-WorldState visibility,
+extended in `src/judgment/prompt.py` with a mandatory-boolean-first
+block mirroring Interpretation's DECISION EVENT section (anchoring rule,
+GOOD/BAD worked examples, one for contradiction, one for near-duplicate
+consolidation).
+
+`src/state/builder.py::apply_knowledge_corrections` (called immediately
+after `apply_judgment_resolutions` in `run_turn`) applies it, with one
+deliberate deviation from a literal mirror of `apply_judgment_resolutions`:
+target lookup (`_find_active_correction_target`) tries an EXACT
+case-insensitive match across every ACTIVE Fact/Claim before ever
+falling back to fuzzy `_is_resolved_by` -- the same antonym-collision
+risk applies to *locating* the target as to auto-merging, so a pure
+fuzzy scan could retract the wrong (fuzzy-similar) item even when
+Judgment quoted the correct one exactly. Restricting matches to
+`status=="active"` also prevents a chain: Judgment sees the full,
+unfiltered WorldState every turn (including already-corrected items), so
+without this guard a re-flagged already-superseded item could fabricate
+a second duplicate "consolidated" fact each time it's re-noticed -- the
+correction mechanism becoming a new source of the exact problem it
+exists to fix. Within one call, multiple corrections consolidating into
+the same `corrected_content` (including content that already matches a
+pre-existing active item) produce exactly one surviving active item, not
+one per correction.
+
+`Provenance.source` can now be `"judgment"` as well as `"interpretation"`
+for a newly-created "superseded" replacement -- its own docstring updated
+accordingly, since this is the one other place besides Interpretation
+that ever creates a new `KnowledgeItem`.
+
+**Verification**: 258 tests passing (up from 241) -- 17 new in
+`tests/test_world_state_evolution.py` covering auto-repair (including
+the deliberately-not-fabricated blank-`corrected_content` case), the
+Boss denied/approved retraction, multi-fact consolidation into exactly
+one surviving item, no-duplicate-on-pre-existing-match, no-match drop,
+the chain-prevention guard (re-applying the same correction twice is a
+no-op the second time), Claim type-preservation, deep-copy discipline,
+provenance stamping, the antonym-collision regression test (exact match
+wins regardless of list order), a negative control (two lexically
+similar but genuinely distinct facts are never conflated absent an
+explicit correction), and an end-to-end Tier 1 exclusion check.
+`test_contradiction_is_not_detected_known_gap`'s assertions were left
+unchanged (it tests `update_state` alone, which this mechanism never
+touches -- only its docstring was updated to point at the new fix, one
+layer up).
+
+**Live-run verification, both a real success and an honest miss**:
+dispatched `.github/workflows/worldstate-walkthrough.yml` against
+`openai/gpt-4o` (the free-tier default run failed outright on rate
+limits across the pipeline's ~44 calls, unrelated to this round's code --
+gpt-4o was the real test), with the existing 10-turn career transcript
+extended by an 11th turn designed to reverse an earlier fact ("Actually,
+I just found out Sarah's promotion fell through -- she's not moving to
+Head of Product after all"). Two real findings, not synthetic:
+- **A genuine, organic success the transcript didn't even engineer**: on
+  turn 10, gpt-4o's own Judgment call fired `has_knowledge_correction=true`
+  on its own initiative, consolidating a near-duplicate restatement --
+  `knowledge_correction_target: "The team is frozen for new transfers
+  until Q3."`, `kind: "superseded"`, `corrected_content: "There is a
+  freeze currently in place."` -- confirmed in the actual WorldState
+  render: the original fact and its matching Claim both flipped to
+  `status=superseded`, the new consolidated Fact appeared active, and
+  Tier 1's rendered output correctly showed only the new phrasing. The
+  full mechanism -- detection, matching, status mutation, new-item
+  creation, Tier 1 exclusion -- worked end to end on live, unscripted
+  model output.
+- **A real miss on the engineered case**: on turn 11, the specific
+  contradiction this transcript turn was built to test, Judgment's
+  `has_knowledge_correction` stayed `false` even though `primary_problem`
+  in that same Judgment call correctly named "Sarah's promotion to Head
+  of Product fell through" as the issue -- the model registered the fact
+  narratively but didn't extend that recognition into the correction
+  fields. Confirmed in WorldState: both "Sarah is being promoted to Head
+  of Product in Q3." and "Sarah's promotion to Head of Product fell
+  through." remained separate, active Facts, and both appeared side by
+  side in Tier 1's rendered output -- a real, visible contradiction a
+  person would actually see in Understanding today. This is a
+  live-compliance gap, not a mechanism defect (the same class of gap
+  `has_assumption`/`has_risk_signal` needed a boolean gate to
+  substantially close, before their own live calibration); it means this
+  field's real-world firing rate needs the same kind of tracked
+  attention those fields got, not a one-time live check treated as
+  sufficient proof.
+
+Net assessment: the mechanism is real and provably works when it fires
+-- the turn-10 result is direct evidence, not an assumption -- but this
+round should not be read as "contradictions are now reliably caught,"
+only "WorldState now has a working pathway for Judgment to act on a
+contradiction it notices, proven to work end to end at least once live,
+with calibration of how often it actually fires left as follow-up work,
+the same trajectory every other boolean-gate field in this codebase has
+gone through."
