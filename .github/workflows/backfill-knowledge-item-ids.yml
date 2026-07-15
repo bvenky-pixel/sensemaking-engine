@@ -1,0 +1,43 @@
+name: Production KnowledgeItem id backfill
+
+# Manual only, deliberately -- runs scripts/backfill_knowledge_item_ids.py
+# directly against the production Fly.io machine (confidantsense) via
+# `flyctl ssh console`, executing inside the already-deployed container
+# (script, dependencies, and CONFIDANT_DB_PATH are already there -- see
+# Dockerfile). Same runner/secret pattern as deploy.yml. Requires a
+# FLY_API_TOKEN repo secret (Settings -> Secrets and variables -> Actions).
+#
+# Why this migration is required, not optional cleanup: see
+# scripts/backfill_knowledge_item_ids.py's own module docstring and
+# engine/decisions.md "Understanding layer -- Journey-scoped identity" --
+# KnowledgeItem.id's default_factory masks a missing id rather than
+# raising, so a pre-existing session's items get a DIFFERENT id on every
+# deserialization until this actually runs and persists them.
+#
+# dry_run defaults to true -- the safe default reports what WOULD change
+# without writing anything. Re-run with dry_run=false to actually apply
+# the backfill, then dry_run=true once more to confirm it now reports
+# zero missing ids (idempotency check).
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (report missing ids, write nothing)"
+        required: false
+        default: "true"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run backfill against production
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            flyctl ssh console --app confidantsense --command "python scripts/backfill_knowledge_item_ids.py"
+          else
+            flyctl ssh console --app confidantsense --command "python scripts/backfill_knowledge_item_ids.py --dry-run"
+          fi
