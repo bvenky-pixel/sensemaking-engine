@@ -6179,3 +6179,65 @@ Not yet measured: whether this actually changes `gpt-4o-mini`'s
 behavior on `near_duplicate_rewording`. That requires a live dispatch
 against `gpt-4o-mini` and reading the real `near_duplicates` output --
 see the follow-up entry below for the result.
+
+**Measured result: did not help, and appears to have regressed the
+already-fixed contradiction pathway.** Re-ran calibration against
+`gpt-4o-mini` (run 29408567603, commit `d1f076c`). Scored compliance
+dropped back to 2/4 -- WORSE than the prior round's 3/4:
+
+```
+[MISS] contradiction_explicit: expected=True, actual=False
+[MISS] near_duplicate_rewording: expected=True, actual=False
+[HIT ] negative_control_distinct_facts: expected=False, actual=False
+[HIT ] negative_control_fresh_conversation: expected=False, actual=False
+```
+
+Two distinct findings, both real:
+
+1. **`near_duplicates` gave no new signal.** It printed `[]` on every
+   single turn across all five scenarios, including all three turns of
+   `near_duplicate_rewording` itself. The original observability gap
+   this fix was meant to close -- "checked and found nothing" vs. "never
+   ran the check" -- is still unresolved: an empty list is consistent
+   with either. Giving the check its own field did not, by itself, make
+   the model visibly exercise it.
+
+2. **`contradiction_explicit` regressed from a HIT back to a MISS**,
+   and via the exact same failure signature diagnosed and fixed two
+   rounds ago: turn 2 correctly populated `contradictions=['User was
+   informed by Sarah that they are not getting a raise this year, but
+   HR told the user they are getting a raise.']`, and
+   `has_knowledge_correction` stayed `False` in the same response --
+   a direct violation of the (still-present) MUST-be-true rule.
+
+The likely mechanism: the confirmed fix from two rounds ago worked
+specifically because `has_knowledge_correction` had *nothing* between
+it and `contradictions`, in both schema declaration order and prompt
+narrative order. This round's change inserted the entire `near_duplicates`
+field -- a new schema field plus a full prompt bullet with its own
+definition, distinction-from-contradictions text, and worked example --
+directly between them, in both places. That very likely reintroduced
+the same "distance" problem the reordering fix eliminated: `contradictions`
+is no longer the field immediately preceding `has_knowledge_correction`
+in either order. Adding `near_duplicates` for observability and
+preserving `contradictions`-adjacency are in direct tension, and this
+change picked observability at adjacency's expense without realizing
+the tradeoff at the time.
+
+Caveat on confidence: `TEMPERATURE = 0.15` (`src/judgment/engine.py`)
+is low but non-zero, so a single run cannot fully rule out stochastic
+noise rather than a true regression. But the specific failure mode
+recurring verbatim -- contradictions populated, gate not following --
+makes the adjacency-distance mechanism a strong, evidence-consistent
+hypothesis, not just a guess.
+
+**Not yet acted on.** No prompt/schema change has been made in
+response to this result yet -- this needs a deliberate design decision
+(e.g., re-run once more to check reproducibility before concluding;
+or restructure so `near_duplicates` sits after `has_knowledge_correction`'s
+whole block instead of before it, accepting that `has_knowledge_correction`
+can then only mechanically depend on `contradictions`, with
+`near_duplicates` becoming a purely observational field re-asserted
+via a downstream note rather than an upstream input; or revert the
+near_duplicates addition entirely and accept the near-duplicate pathway
+as an unobserved gap for now) rather than another blind attempt.
