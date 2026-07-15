@@ -135,6 +135,12 @@ def main() -> int:
         print("\n--- RESPONSE (user-facing) ---")
         print(result.response.response_text)
         print(f"[confidence={result.response.confidence}]")
+        if result.response.options:
+            print("[options]")
+            for option in result.response.options:
+                print(f"  - {option.label}: {option.description}")
+        else:
+            print("[options] (none)")
 
         if is_tracking_enabled():
             print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
