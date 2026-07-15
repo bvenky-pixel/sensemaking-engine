@@ -241,9 +241,14 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "anchor it. That example illustrates the REGISTER only: if "
         "WorldState never states an explicit value/identity description "
         "(only a goal), anchor honestly on that goal itself rather than "
-        "dressing it up in the same 'vision for your career'/'who you see "
-        "yourself becoming' phrasing every turn -- vary the actual wording "
-        "turn to turn, and don't assert a values/identity frame more "
+        "dressing it up in a fixed identity phrase repeated every turn -- "
+        "'vision for your career,' 'who you see yourself becoming,' and "
+        "'long-term career aspirations' are each just ONE possible angle, "
+        "not a phrase to fall back on by default once you've used it once. "
+        "Rotate which facet of identity you draw on turn to turn instead -- "
+        "sometimes priorities, sometimes values, sometimes what kind of "
+        "professional they're trying to be, sometimes what they'd regret "
+        "not doing -- and don't assert a values/identity frame more "
         "specific than what WorldState actually supports."
     ),
 }

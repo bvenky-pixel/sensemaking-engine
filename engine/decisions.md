@@ -7546,3 +7546,43 @@ Full suite green: `pytest` 345. All four fixes are logged with the exact
 verbatim defect quoted from the live run they came from, not just
 asserted -- see the commit history for the raw per-turn output that
 motivated each one.
+
+## Counseling modes -- re-verification results, and a second Realign fix
+
+Re-dispatched all four fixed modes live (same 11-turn transcript,
+`openai/gpt-4o-mini`) to confirm the round-three fixes actually changed
+behavior, not just the prompt text:
+
+- **Vent: FIXED.** Closing question genuinely varies every turn now
+  ("How does it feel when you hear her say it's not the right time?" /
+  "What's been the most challenging part of this situation for you
+  lately?" / "How are you coping with the wait until Q3?") -- no
+  verbatim recurrence of the old fixed example across 11 turns.
+- **Commit: FIXED.** The stagnation callout's count now climbs
+  turn-over-turn exactly as stagnation_notes actually grows (3 -> 4 ->
+  5 -> 6 -> 7 -> 8 -> 9 -> 10 turns with no movement, one number per
+  turn) instead of freezing on "third time."
+- **Strategize: FIXED.** `options` stayed populated with real, distinct
+  labels/descriptions across all 11 turns, and sentence 2 shrank to a
+  short framing question ("Which of these feels closer to the right
+  call?") with no re-description of option specifics in prose.
+- **Realign: PARTIALLY FIXED, then fixed a second time.** The exact
+  illustrative phrases were gone, but the model substituted its OWN
+  narrow fallback instead -- "long-term career aspirations" recurred
+  verbatim in 3 of 11 turns (turns 1, 4, 11), with "aspiration"-flavored
+  language in nearly every other turn too. Classic whack-a-mole: telling
+  the model not to repeat one specific phrase just pushed it onto
+  the nearest synonym as its new go-to. Fixed by naming this exact
+  phrase in the prompt as one option among several (not a phrase to
+  fall back on by default) and explicitly instructing it to rotate
+  across different facets of identity turn to turn -- priorities,
+  values, what kind of professional they're trying to be, what they'd
+  regret not doing -- rather than converging on any single recurring
+  angle.
+
+**Verified**: new regression test
+(`test_realign_response_focus_flags_the_specific_fallback_phrase_found_live`)
+naming the exact phrase found live, plus the existing repetition-warning
+test updated to match the rewritten note. Full suite green: `pytest`
+346. Re-dispatched Realign a third time against the same live transcript
+to confirm this second fix actually breaks the new fallback pattern.
