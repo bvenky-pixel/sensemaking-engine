@@ -6677,3 +6677,54 @@ LLM-facing addition in this codebase has needed, e.g.
 `has_knowledge_correction` above). No frontend changes -- nothing in
 `frontend/app/src` reads `understanding.tier2` yet, matching the same
 "backend foundation first" sequencing as Tier 1's own original round.
+
+## Tier 2 calibration harness
+
+New `scripts/run_tier2_calibration.py` + `.github/workflows/tier2-calibration.yml`,
+same "real pipeline, real billable LLM calls, manual/workflow_dispatch
+only" discipline as `scripts/run_knowledge_correction_calibration.py`.
+
+Four short (1-2 turn) scenarios, each starting from a fresh
+`WorldState()`, deliberately shaped to reach Tier 2's `MIN_GROUNDING_ITEMS`
+floor cheaply: thread kinds (Goal/Decision/Unknown) qualify as Tier 2
+candidates regardless of recency, so a single "deciding between X or Y"
+turn already produces two Decision candidates without needing multiple
+turns.
+
+- `synthesis_decision_and_assumption` / `synthesis_goal_and_blocking_fact`
+  (expected non-empty): genuine synthesis opportunities -- a shared
+  resource constraint across two Decision options, and a Goal
+  complicated by an ostensibly-unrelated organizational Fact.
+- `negative_control_unrelated` (expected empty): two genuinely unrelated
+  candidates -- tests the mirror-image failure mode to
+  `has_knowledge_correction`'s under-firing problem: OVER-synthesis,
+  the model inventing a connection that isn't really there. This is a
+  real, distinct risk for a synthesis-shaped prompt that a correction-
+  detection prompt never had to worry about.
+  `single_candidate_floor_check` (expected empty): one turn, at most one
+  Decision-shaped candidate -- checks `MIN_GROUNDING_ITEMS`'s
+  short-circuit end-to-end through the real pipeline, not just the
+  isolated unit test.
+
+After each scenario's turns, the script also calls `update_tier2` a
+SECOND time on the final state with no new turn, to confirm the
+caching/staleness gate actually skips a redundant recompute against
+real pipeline data (signature and `tier2_computed_at_turn` both stay
+unchanged), not just the synthetic cases in `tests/test_tier2.py`.
+
+Verified structurally before committing (no `OPENROUTER_API_KEY` set,
+same discipline as every prior calibration script's pre-dispatch
+check): the script runs to completion without crashing, every turn
+correctly reports `[FAIL] ... interpretation -- ... API_KEY ... is not
+set` rather than raising, the summary and exit code (1, reflecting
+pipeline failure) render correctly, and the repeat-call caching check
+correctly reports a "change" on this specific run for the right
+reason -- `tier2_computed_at_turn` was still `None` (Tier 2 never
+successfully ran, since every turn failed upstream at Interpretation)
+-- not a real cache-invalidation bug. Full `pytest` suite still green
+(298 tests, unaffected -- this round added no application code, only
+the calibration script/workflow).
+
+Not yet dispatched live against a real model -- that's the next step,
+same as this codebase's other freshly-shipped calibration harnesses
+before their first real run.
