@@ -97,25 +97,29 @@ def test_realign_focus_notes_anchor_in_a_specific_worldstate_value():
     assert "specific" in RESPONSE_MODE_FOCUS["realign"].lower()
 
 
-def test_vent_and_realign_response_focus_warn_against_verbatim_repetition():
+def test_vent_response_focus_warns_against_verbatim_repetition():
     """Regression guard for a live-dispatch finding: the model was
-    quoting this file's own illustrative examples verbatim every turn
-    (Vent's check-in question, Realign's "vision for your career"
-    phrasing) instead of treating them as register examples. Both notes
-    must now explicitly say the example isn't literal text to reuse."""
+    quoting Vent's illustrative check-in-question example verbatim every
+    turn instead of treating it as a register example."""
     assert "not literal text to reuse" in RESPONSE_MODE_FOCUS["vent"]
-    assert "not a phrase to fall back on by default" in RESPONSE_MODE_FOCUS["realign"]
 
 
-def test_realign_response_focus_flags_the_specific_fallback_phrase_found_live():
-    """Regression guard for a SECOND live-dispatch finding: after the
-    fix above, the literal illustrative phrases were gone, but the model
-    substituted its own narrow fallback ("long-term career aspirations")
-    verbatim in 3 of 11 turns. The note must name that specific phrase
-    as just one option among several, not ban repetition in the abstract
-    only."""
+def test_realign_response_focus_flags_overused_phrases_and_gives_concrete_alternatives():
+    """Regression guard for TWO live-dispatch rounds on Realign: round
+    one found the model quoting the illustrative "vision for your
+    career"/"long-term career aspirations" phrasing verbatim; round two
+    (after telling it to just "vary" wording) found it converged on
+    ANOTHER narrow synonym family instead of real variety, since Response
+    has no memory of its own prior turns' phrasing and abstract "vary it"
+    instructions don't survive that memorylessness. The note must name
+    the overused phrases explicitly AND give concrete alternative
+    question templates to sample from, not just an abstract instruction
+    to vary wording."""
     assert "long-term career aspirations" in RESPONSE_MODE_FOCUS["realign"]
-    assert "Rotate which facet of identity" in RESPONSE_MODE_FOCUS["realign"]
+    assert "vision for your career" in RESPONSE_MODE_FOCUS["realign"]
+    assert "no memory" in RESPONSE_MODE_FOCUS["realign"].lower()
+    # At least a few concrete alternative question templates present.
+    assert RESPONSE_MODE_FOCUS["realign"].count("'") >= 8
 
 
 def test_commit_focus_notes_use_stagnation_notes_current_wording_not_a_fixed_phrase():

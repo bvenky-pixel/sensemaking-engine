@@ -7586,3 +7586,52 @@ naming the exact phrase found live, plus the existing repetition-warning
 test updated to match the rewritten note. Full suite green: `pytest`
 346. Re-dispatched Realign a third time against the same live transcript
 to confirm this second fix actually breaks the new fallback pattern.
+
+## Counseling modes -- Realign round three: concrete templates, not abstract variety
+
+The second fix's re-verification showed the "long-term career
+aspirations" repeat dropped from 3 turns to 1 -- but the model
+substituted ANOTHER narrow synonym family instead ("vision for your
+career," verbatim in turns 4, 10, 11), plus "aspiration"/"goals" word-
+stems in most other turns. All 11 turns' identity framing stayed within
+one conceptual family (career ambition) despite the prompt explicitly
+listing "priorities," "values," "who they're becoming," and "regret" as
+alternative facets to rotate through -- none of those ever showed up in
+the actual Response output, even though Planner's own rationale
+generated "values" as a topic in roughly half the turns.
+
+**Root cause, named explicitly in the prompt now**: Response has no
+memory of its own prior turns' phrasing (per this layer's own design --
+it only ever sees the current turn's WorldState/Judgment/Planner, never
+past responses), so a memoryless generator independently re-deriving
+"the most natural phrasing" from the SAME unchanged WorldState content
+will keep converging on the same words even when explicitly told to
+"vary" in the abstract -- there's nothing in the input pushing it toward
+a different answer. Abstract category names ("sometimes values,
+sometimes priorities...") gave the model a concept to reach for, not an
+actual different sentence to produce, so it kept collapsing back to
+career-ambition language it could express without needing a concrete
+values/self-description signal that isn't actually in this transcript's
+WorldState.
+
+**Fix**: named the specific overused phrases explicitly (both "vision
+for your career" AND "long-term career aspirations," now treated
+explicitly as the SAME overused shape, not different ones) and replaced
+the abstract facet list with five CONCRETE, literal alternative question
+templates to sample from directly (e.g. "What would choosing this path
+actually cost you?", "Is this the choice you actually want, or the one
+that feels expected of you?") -- giving the model real alternative
+sentences increases output diversity in a way that abstract category
+names apparently didn't.
+
+**Verified**: two tests rewritten
+(`test_vent_response_focus_warns_against_verbatim_repetition`,
+`test_realign_response_focus_flags_overused_phrases_and_gives_concrete_
+alternatives`) to check for both overused phrases named explicitly, the
+no-memory rationale stated, and multiple quoted alternative templates
+present. Full suite green: `pytest` 346. Re-dispatched Realign once more
+to check whether concrete templates actually produce more real variety
+than the abstract instruction did -- noting honestly that some residual
+convergence may be structurally unavoidable given Response's
+turn-to-turn memorylessness is a deliberate design property of this
+layer, not a bug to fix away.
