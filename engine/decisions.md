@@ -7461,3 +7461,32 @@ the same mode are never identical strings). Full suite green: `pytest`
 `openai/gpt-4o-mini` for `mode=vent`, `mode=strategize`, and
 `mode=explore` -- see below for the actual per-mode output read
 against each mode's own bar.
+
+## Counseling modes -- Commit and Realign to the same bar
+
+Direct "what about the other two" follow-up: Commit and Realign hadn't
+been sharpened with the same concrete-example treatment as Vent/
+Strategize/Explore -- their focus notes still just nudged emphasis
+("push for specifics", "connect to values") without a real behavioral
+mechanism.
+
+- **Commit** (Planner + Response): reframed as an accountability coach,
+  not softly exploratory. Both notes now explicitly reference
+  `stagnation_notes` -- if Judgment's stagnation_notes shows this same
+  goal/intention has resurfaced before without action, the plan/response
+  names that pattern directly ("This is the third time this has come up
+  without a next step") rather than treating it as a fresh ask. Grounded
+  only in what stagnation_notes actually says, never an invented
+  characterization of the person.
+- **Realign** (Planner + Response): reframed to anchor in a SPECIFIC
+  goal/value/self-description already present in WorldState -- e.g.
+  "You've said becoming [X] matters to you -- does this choice move you
+  toward that, or away from it?" -- rather than a generic "what matters
+  most to you" question with nothing concrete to hold the situation up
+  against.
+
+**Verified**: two new regression tests
+(`test_commit_focus_notes_reference_stagnation_pattern_not_just_deadlines`,
+`test_realign_focus_notes_anchor_in_a_specific_worldstate_value`),
+matching the pattern already established for Strategize/Explore. Full
+suite green: `pytest` 342.

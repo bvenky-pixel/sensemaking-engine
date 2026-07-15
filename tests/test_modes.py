@@ -78,3 +78,20 @@ def test_explore_response_focus_frames_a_challenge_not_a_neutral_question():
     request -- Explore's Response focus must instruct an actual
     challenge, not just an open-ended question."""
     assert "challenge" in RESPONSE_MODE_FOCUS["explore"].lower()
+
+
+def test_commit_focus_notes_reference_stagnation_pattern_not_just_deadlines():
+    """Regression guard for round two ("what about the other two") --
+    Commit must do more than ask for a deadline; it should name a
+    resurfacing pattern when stagnation_notes actually shows one, same
+    accountability-coach character in both Planner and Response."""
+    assert "stagnation_notes" in PLANNER_MODE_FOCUS["commit"]
+    assert "stagnation_notes" in RESPONSE_MODE_FOCUS["commit"]
+
+
+def test_realign_focus_notes_anchor_in_a_specific_worldstate_value():
+    """Regression guard for round two -- Realign must connect to a
+    SPECIFIC already-present goal/value, not a generic "what matters to
+    you" question with nothing concrete to anchor it."""
+    assert "specific" in PLANNER_MODE_FOCUS["realign"].lower()
+    assert "specific" in RESPONSE_MODE_FOCUS["realign"].lower()

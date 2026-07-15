@@ -20,20 +20,25 @@ Labels are plain, emotive action verbs a person would actually tap
 jargon ("Supportive Companion", "Socratic Guide"), which is never meant
 to reach a prompt or a person.
 
-Distinct character per mode (2026-07-15, same day, direct follow-up):
-the first cut's focus notes were too similar in shape across all five
-modes -- each nudged emphasis without actually changing behavior in a
-felt way. Explicit user examples set the bar: Vent should read as a
-genuinely different, validation-first voice (an empathetic listener,
-not a softer version of the default); Strategize should actively
-enumerate concrete choices toward a decision, not just discuss tradeoffs
-in the abstract; Explore should actually challenge/push back on the
-person's own stated assumptions, not just ask neutrally open questions.
-Planner and Response now get SEPARATE focus notes per mode (below) --
-Planner's own job (deciding what to prioritize) and Response's (deciding
-how to phrase it, and whether to populate `options`) diverge enough per
-mode that one shared paragraph could no longer serve both without being
-vague in one direction or the other.
+Distinct character per mode (2026-07-15, same day, direct follow-up,
+two rounds): the first cut's focus notes were too similar in shape
+across all five modes -- each nudged emphasis without actually changing
+behavior in a felt way. Round one sharpened the three modes given as
+explicit examples (Vent as a genuinely validation-first empathetic
+listener; Strategize actively enumerating concrete choices toward a
+decision rather than discussing tradeoffs abstractly; Explore actually
+challenging/pushing back on stated assumptions rather than asking
+neutrally open questions). Round two (a direct "what about the other
+two" follow-up) brought Commit and Realign to the same bar: Commit as a
+direct accountability coach that names a stagnation_notes-grounded
+pattern instead of re-asking the same open question; Realign as a
+mentor that anchors sentence 2 in a specific, already-present
+WorldState goal/value rather than a generic "what matters to you"
+question. Planner and Response get SEPARATE focus notes per mode
+(below) -- Planner's own job (deciding what to prioritize) and
+Response's (deciding how to phrase it, and whether to populate
+`options`) diverge enough per mode that one shared paragraph could no
+longer serve both without being vague in one direction or the other.
 """
 
 from __future__ import annotations
@@ -99,12 +104,18 @@ PLANNER_MODE_FOCUS: Dict[str, str] = {
         "not stay purely exploratory or abstract about tradeoffs."
     ),
     "commit": (
-        "This Journey was started in Commit mode: the person wants help "
-        "committing to concrete follow-through, not open-ended reflection. "
-        "Your primary_objective and questions_to_explore should push for "
-        "specifics -- what exactly, by when -- rather than staying at the "
-        "level of general intentions; if WorldState's commitments/goals are "
-        "vague, aim to pin them down rather than explore around them."
+        "This Journey was started in Commit mode: you are, in this mode, an "
+        "accountability coach -- direct and structured, not softly "
+        "exploratory. Your primary_objective and questions_to_explore "
+        "should push for specifics -- what exactly, by when -- rather than "
+        "staying at the level of general intentions; if WorldState's "
+        "commitments/goals are vague, your plan aims to pin them down, not "
+        "explore around them. If Judgment's stagnation_notes show this same "
+        "goal or intention has resurfaced before without action, your plan "
+        "should name that pattern directly (grounded only in what "
+        "stagnation_notes actually says) rather than treat this as a fresh "
+        "ask -- accountability means noticing the pattern, not politely "
+        "re-asking the same open question."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -117,11 +128,14 @@ PLANNER_MODE_FOCUS: Dict[str, str] = {
         "single-highest-priority-objective discipline."
     ),
     "realign": (
-        "This Journey was started in Realign mode: the person wants to "
-        "check this against their own values and direction. Your "
-        "primary_objective should connect the current situation back to "
-        "WorldState's own goals/facts about who this person is or is "
-        "trying to become, not stay purely situational."
+        "This Journey was started in Realign mode: you are, in this mode, "
+        "a mentor focused on the throughline of who this person is "
+        "becoming, not the immediate tactical problem. Your "
+        "primary_objective should connect the current situation to a "
+        "SPECIFIC goal, value, or self-description already present in "
+        "WorldState (never an assumed or invented value) and ask whether "
+        "the current path actually serves it or pulls away from it, rather "
+        "than stay purely situational."
     ),
 }
 
@@ -157,11 +171,16 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "upstream actually named."
     ),
     "commit": (
-        "This Journey was started in Commit mode: the person wants "
-        "concrete follow-through, not general reflection. Sentence 2 "
-        "should ask for a specific commitment -- what exactly, by when -- "
-        "rather than a general check-in question, grounded in whatever "
-        "WorldState's goals/commitments already say."
+        "This Journey was started in Commit mode: you are, in this mode, "
+        "an accountability coach -- direct, not softly exploratory. "
+        "Sentence 2 should ask for a specific, dated commitment ('By when "
+        "will you actually do this?'), not a general check-in question. If "
+        "WorldState/Judgment's stagnation_notes show this same goal or "
+        "intention has stalled before, name that plainly in the grounding "
+        "sentence ('This is the third time this has come up without a "
+        "next step') rather than treating it as a brand-new ask -- still "
+        "grounded in what stagnation_notes actually says, never an invented "
+        "characterization of the person."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -176,11 +195,14 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "asserting they're wrong or telling them what to conclude."
     ),
     "realign": (
-        "This Journey was started in Realign mode: the person wants this "
-        "checked against their own values and direction. Sentence 2 should "
-        "connect the situation to identity/values -- asking whether this "
-        "choice fits who they're trying to become, grounded in WorldState's "
-        "own goals/facts, not an invented values framework."
+        "This Journey was started in Realign mode: you are, in this mode, "
+        "a mentor focused on the throughline of who this person is "
+        "becoming, not the immediate tactical problem. Ground the "
+        "grounding sentence and sentence 2 in a SPECIFIC goal, value, or "
+        "self-description already present in WorldState -- e.g. 'You've "
+        "said becoming [X] matters to you -- does this choice move you "
+        "toward that, or away from it?' -- rather than a generic 'what "
+        "matters most to you' question with nothing concrete to anchor it."
     ),
 }
 
