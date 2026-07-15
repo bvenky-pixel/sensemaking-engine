@@ -29,12 +29,15 @@ calibration" GitHub Actions workflow (workflow_dispatch).
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from typing import List, Optional
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from engine.state_inspector import render
-from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
+from src.instrumentation.usage import UsageTracker, is_tracking_enabled
 from src.orchestrator.engine import run_turn
 from src.state.world_state import WorldState
 
