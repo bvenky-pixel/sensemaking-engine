@@ -45,28 +45,35 @@ since that's what's actually in scope right now.
 
 ## 2. Mapping the vision's 12 layers to what exists today
 
+**Updated 2026-07-15** -- this table was stale against actual code
+(previously claimed 6/12 built; Learning, Insight Engine, and Memory
+Store were all already real by the time this was checked, and Retrieval
+has since been added). Corrected here rather than left to mislead the
+next planning pass.
+
 | # | Vision layer | Current status | Current equivalent |
 |---|---|---|---|
 | 1 | Interpretation | **Built** | `src/interpretation/` |
-| 2 | Learning | **Reserved, not built** | Named in `system-architecture-v2-specification.md`, deliberately unimplemented |
-| 3 | Memory Store | **Not built** | No durable, cross-conversation, evidence-only store exists |
+| 2 | Learning | **Built** | `src/learning/engine.py` -- offline, evidence-gated (`MIN_EVIDENCE=3`) behavioral pattern detection |
+| 3 | Memory Store | **Built** | `behavioral_events` table (`src/api/db.py`) -- append-only per-user log Learning reads from |
 | 4 | Personal Operating Model | **Not built** | — |
 | 5 | World State | **Built** | `src/state/world_state.py` |
-| 6 | Insight Engine | **Not built as a separate layer** | Judgment does some of this informally, scoped to one WorldState |
+| 6 | Insight Engine | **Built** | `src/insight/engine.py` -- offline, evidence-gated (`MIN_EVIDENCE_SESSIONS=2`) cross-session theme detection |
 | 7 | Need State Inference | **Not built** | Planner infers priority implicitly; no scored need-state vector exists |
-| 8 | Retrieval | **Not built** | No memory to retrieve from yet |
+| 8 | Retrieval | **Built, scoped narrow** | `src/retrieval/engine.py` -- unfiltered surfacing of Learning/Insight output into Judgment, not need-aware selective retrieval (needs #7 first) |
 | 9 | Judgement | **Built, single-perspective** | `src/judgment/` — one reasoning pass, not the vision's 5-persona fusion |
-| 10 | Synthesis | **Not built** | No multi-perspective output to synthesize yet |
+| 10 | Synthesis | **Not built** | No multi-perspective output to synthesize yet. Counseling modes (`src/orchestrator/modes.py`) is a scoped-down preview -- one fixed lens per Journey, not the vision's multi-lens fusion per turn |
 | 11 | Planning | **Built** | `src/planner/` |
 | 12 | Response | **Built** | `src/response/` |
 
-Six of twelve layers exist. The six that don't — Learning, Memory Store,
-Personal Operating Model, Insight Engine, Need State Inference, Retrieval
-— are exactly the layers that require **persistent, cross-conversation
-understanding**, which this codebase has correctly refused to build
-before Instrumentation had any real operational history to build it
-from. That refusal was right at the time. It's worth revisiting now
-specifically because real usage has started (see the Learning
+Nine of twelve layers exist. The three that don't — Personal Operating
+Model, Need State Inference, Synthesis — are exactly the layers that
+require **inventing a scored model** (psychological dimensions, a
+need-state vector, or a fusion of multiple reasoning perspectives) with
+no evidence yet to calibrate it against, which this codebase has
+correctly refused to build before real usage existed to learn from. That
+refusal was right at the time. It's worth revisiting now specifically
+because real usage has started (see the Learning
 discussion this document formalizes).
 
 ---
@@ -143,20 +150,32 @@ Concretely:
    frontend design work needed beyond wiring it to real data once it
    exists.
 
-### Phase 2 — gated on Phase 1's real results
-Insight Engine / Need State Inference — worth attempting only if Phase
-1's patterns turn out to be accurate and useful on real data. No
-scoping work yet; revisit once Phase 1 has run for real.
+### Phase 2 — done for Insight Engine + Retrieval; Need State Inference still open
+Insight Engine (`src/insight/engine.py`) shipped and is now wired live
+via Retrieval (`src/retrieval/engine.py`, `engine/decisions.md`
+"Retrieval"). Need State Inference has not been attempted -- it's the
+one Phase 2 item that requires inventing a scored need-state vector with
+no evidence yet to calibrate it against, the same risk this document
+warns against everywhere else. Until it exists, Retrieval stays
+unfiltered/surface-everything rather than need-aware, by design (see its
+own module docstring).
 
-### Phase 3 — gated on Phase 1 and 2
+### Phase 3 — Counseling modes shipped a scoped preview; full fusion still gated
 Multi-perspective Judgement + Synthesis (the vision's five coaching
 lenses — Strategic Advisor, Accountability Coach, Mentor, Supportive
-Companion, Socratic Guide). Directly attacks the original "sounds like a
-regular LLM" complaint, and is honestly testable against the existing
-eval harness (`experiments/confidant-validation/`) — run single-pass
-Judgment against fusion Judgment on the same transcripts and compare,
-mirroring the vision doc's own "Fusion Cost Tracking" idea (quality
-lift vs. added cost, measured, not assumed).
+Companion, Socratic Guide) remains unbuilt as originally envisioned (a
+per-turn fusion across lenses). Counseling modes
+(`src/orchestrator/modes.py`) shipped a deliberately narrower version --
+one fixed lens chosen once per Journey, biasing Planner/Response prompts
+-- not per-turn multi-perspective fusion. Full fusion directly attacks
+the original "sounds like a regular LLM" complaint, and is honestly
+testable against the existing eval harness
+(`experiments/confidant-validation/`) — run single-pass Judgment against
+fusion Judgment on the same transcripts and compare, mirroring the
+vision doc's own "Fusion Cost Tracking" idea (quality lift vs. added
+cost, measured, not assumed). Unlike Need State Inference/Personal
+Operating Model, this doesn't require inventing an unevidenced scoring
+system first -- it can be attempted and measured directly.
 
 ### Explicitly not scoped by this roadmap
 The sponsor/organization layer, SOC2/ISO27001/SAML/investor-dashboard
