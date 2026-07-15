@@ -6428,3 +6428,57 @@ Tier 1 completeness fixes, so unlike the has_knowledge_correction
 work above it doesn't require live calibration to validate -- pytest +
 the manual E03 replay are the appropriate verification here, same
 reasoning applied to the original Part A completeness fixes).
+
+## Failure Mode #7 (to_second_person third-party false positive) and #8 (Assumption confidence constant)
+
+Per the user's explicit request, picked up the two remaining validation
+report failure modes after #4 above.
+
+**#7 (`src/executor/voice.py`)**: the conservative "suppress they/their/
+them globally the moment ANY third-party marker appears in the string"
+bailout has a confirmed false-positive, replayed from the report's
+captured case R02: "User thinks their friend is angry with them."
+rewrote to "You think their friend is angry with them." -- "their" left
+unrewritten even though it plainly means the user's friend. Fix:
+factored the marker word list into a shared `_THIRD_PARTY_MARKER_WORDS`
+constant and added `_POSSESSIVE_BEFORE_THIRD_PARTY_MARKER`, a narrow,
+unconditional rewrite for a possessive "their" immediately followed by
+the SAME marker noun that would otherwise suppress it -- a person can't
+simultaneously possess and BE the noun phrase that follows ("their
+friend" can't mean "the friend's own friend"), so within this
+codebase's own convention that these strings only narrate the user's
+beliefs/feelings (never a third party's independent actions), this
+adjacency reliably means "the user's `<marker>`." Runs BEFORE, and
+independently of, the broader bailout, which is otherwise UNCHANGED --
+a bare "them"/"they" elsewhere in the same string (e.g. the "them" in
+R02 itself) remains conservatively unrewritten, since that's genuinely
+ambiguous without real coreference resolution, and going further risked
+new misattribution false positives, which this module's own docstring
+already prioritizes avoiding over grammatical polish. Result: R02 now
+rewrites to "You think your friend is angry with them." -- a real,
+verified improvement, not a full fix (the "them" residual is a known,
+accepted, documented limitation, not a new gap). Both pre-existing
+protected-behavior tests (genuine third-party pronoun references that
+must NOT be rewritten) still pass unchanged; added 2 new tests for the
+fixed case and a "fix doesn't overreach to unrelated `their`" guard.
+
+**#8 (`src/state/builder.py` / `src/state/world_state.py`)**: confirmed
+by grep that nothing in this codebase currently sorts, filters, or
+otherwise treats `Assumption.confidence` as differentiating signal --
+the report's own risk ("will silently mislead any future consumer") is
+still latent, not yet active. The report offered two fixes: document it
+explicitly as non-signal, or give it a real per-item source (would
+require an Interpretation schema change -- a new LLM output field plus
+prompt work and a live calibration campaign, the same order of effort
+as the `has_knowledge_correction` arc above). Chose the former,
+consistent with the user's "fix and move on" framing and this report's
+own first-listed option: strengthened `ASSUMPTION_TIER_CONFIDENCE`'s
+comment and `Assumption`'s own docstring with an explicit "NOT A REAL
+SIGNAL" callout -- every Assumption gets the identical value regardless
+of content, it's an epistemic-TIER placement only, and any future
+consumer must not rank/filter by it without first giving Assumption a
+real per-item signal. No behavior change; this closes the report's
+actual named risk (silent misleading of a future reader) without
+opening a new, unrequested LLM calibration workstream.
+
+Full `pytest` suite green (274 tests, up from 272).

@@ -240,7 +240,14 @@ class Assumption(KnowledgeItem):
     id to cite; nothing here changes what Judgment/Planner/Response see.
     confidence is populated with the flat ASSUMPTION_TIER_CONFIDENCE
     constant (src/state/builder.py) -- Interpretation's assumptions field
-    is plain List[str], no per-item signal exists to use instead.
+    is plain List[str], no per-item signal exists to use instead. NOT A
+    REAL SIGNAL (see validation report Failure Mode #8, engine/decisions.md
+    "Tier 1 completeness + has_knowledge_correction calibration"): every
+    Assumption gets the identical value regardless of content -- it is
+    an epistemic-TIER placement only, not a per-item quality score. Do
+    not sort, filter, or rank Assumptions by `.confidence`; see
+    ASSUMPTION_TIER_CONFIDENCE's own comment for what a real fix would
+    require.
     """
 
     content: str

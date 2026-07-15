@@ -71,6 +71,23 @@ FACT_TIER_CONFIDENCE = 1.0
 GOAL_TIER_CONFIDENCE = 1.0
 DECISION_TIER_CONFIDENCE = 1.0
 CLAIM_TIER_CONFIDENCE = 0.7
+
+# NOT A REAL SIGNAL (see engine/decisions.md "Tier 1 completeness +
+# has_knowledge_correction calibration" -- validation report Failure
+# Mode #8): every Assumption gets this exact same value, every time,
+# regardless of content -- Interpretation's `assumptions` field is
+# plain `List[str]`, so there is no per-item confidence to draw from
+# (unlike Inference, see below). Confirmed by grep: nothing in this
+# codebase currently sorts, filters, or otherwise treats
+# Assumption.confidence as differentiating signal -- this constant is
+# ONLY a fixed epistemic-tier placement (Assumption sits below Claim,
+# above nothing), not a per-item quality score. Any future consumer
+# that ranks or filters Assumptions by `.confidence` would silently be
+# ranking by a constant, not a real judgment about that specific
+# assumption -- do not add such a consumer without first giving
+# Assumption a real per-item signal (would require an Interpretation
+# schema change, the same kind of live-LLM addition + calibration
+# campaign as has_knowledge_correction above, not attempted here).
 ASSUMPTION_TIER_CONFIDENCE = 0.3
 
 # Inferences below this confidence don't get promoted into state. See

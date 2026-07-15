@@ -24,11 +24,38 @@ from __future__ import annotations
 
 import re
 
-_THIRD_PARTY_MARKERS = re.compile(
-    r"\b(manager|partner|friend|colleague|parent|parents|spouse|boss|"
+_THIRD_PARTY_MARKER_WORDS = (
+    r"manager|partner|friend|colleague|parent|parents|spouse|boss|"
     r"co-founder|cofounder|family|therapist|doctor|sibling|sister|brother|"
-    r"mother|father|mom|dad|coworker|teammate|roommate|landlord)\b",
-    re.IGNORECASE,
+    r"mother|father|mom|dad|coworker|teammate|roommate|landlord"
+)
+_THIRD_PARTY_MARKERS = re.compile(rf"\b({_THIRD_PARTY_MARKER_WORDS})\b", re.IGNORECASE)
+
+# Confirmed live false-positive (see engine/decisions.md "Tier 1
+# completeness + has_knowledge_correction calibration" -- validation
+# report Failure Mode #7, replaying captured case R02): "User thinks
+# their friend is angry with them." rewrites to "You think their friend
+# is angry with them." -- "their" is left unrewritten even though it
+# clearly refers to the user here ("their friend" = the user's friend),
+# because the third-party marker bailout below suppresses they/their/
+# them globally the moment ANY marker appears anywhere in the string.
+#
+# A possessive "their" immediately followed by the SAME third-party-
+# marker noun it would otherwise be suppressed for is a narrower, safe
+# case to fix on its own: a person cannot simultaneously possess and BE
+# the noun phrase that follows ("their friend" can never mean "the
+# friend's own friend"), so this specific adjacency can only be the
+# user's possessive -- given this codebase's own convention that these
+# template strings only ever narrate the user's beliefs/feelings
+# (see module docstring), never a third party's independent actions,
+# "their <marker>" reliably means "the user's <marker>" every time it's
+# been observed. Rewritten unconditionally, BEFORE the broader bailout
+# below (which still applies, unchanged, to every other they/their/them
+# in the string -- e.g. the "them" in the same R02 sentence remains
+# conservatively unrewritten, since it's genuinely ambiguous whether it
+# refers to the user or the friend without real coreference resolution).
+_POSSESSIVE_BEFORE_THIRD_PARTY_MARKER = re.compile(
+    rf"\b[Tt]heir(?=\s+(?:{_THIRD_PARTY_MARKER_WORDS})\b)", re.IGNORECASE
 )
 
 # Third-person singular -> second-person verb forms, only rewritten when
@@ -148,6 +175,11 @@ def to_second_person(text: str) -> str:
     text = _AUX_PLUS_USER.sub(_aux_repl, text)
     text = _USER_PLUS_UNKNOWN_VERB.sub(_unknown_verb_repl, text)
     text = _BARE_USER.sub(lambda m: _cased(m.group(0), "you"), text)
+    # Runs unconditionally, ahead of the broader they/their/them bailout
+    # below -- see _POSSESSIVE_BEFORE_THIRD_PARTY_MARKER's own comment
+    # for why this specific adjacency is always safe to rewrite even
+    # though a bare they/their/them elsewhere in the same string isn't.
+    text = _POSSESSIVE_BEFORE_THIRD_PARTY_MARKER.sub(lambda m: _cased(m.group(0), "your"), text)
 
     if not _THIRD_PARTY_MARKERS.search(text):
         text = _THEY.sub(lambda m: _cased(m.group(0), "you"), text)

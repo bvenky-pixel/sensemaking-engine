@@ -122,6 +122,31 @@ def test_third_party_marker_suppresses_their_and_them_globally_in_string():
     assert result == "You assume the co-founder doesn't trust them."
 
 
+def test_possessive_their_immediately_before_third_party_marker_is_rewritten():
+    # Regression test for validation report Failure Mode #7 (real
+    # captured case R02, see engine/decisions.md "Tier 1 completeness +
+    # has_knowledge_correction calibration"): "their friend" can only
+    # mean "the user's friend" -- a person can't possess-and-be their own
+    # "friend" noun phrase -- so this specific adjacency is rewritten
+    # even though a third-party marker ("friend") is present. The
+    # trailing "them" remains conservatively unrewritten (genuinely
+    # ambiguous whether it refers to the user or the friend), same
+    # accepted trade-off as the test above.
+    assert (
+        to_second_person("User thinks their friend is angry with them.")
+        == "You think your friend is angry with them."
+    )
+
+
+def test_possessive_before_marker_fix_does_not_affect_unrelated_their():
+    # A "their" NOT immediately adjacent to a third-party marker noun
+    # still falls under the broader, unchanged conservative bailout.
+    assert (
+        to_second_person("User believes their manager doubts their own judgment.")
+        == "You believe your manager doubts their own judgment."
+    )
+
+
 # Regression tests for a live bug (see engine/decisions.md "Major
 # update"): the original fallback for a verb not in _VERB_INFLECTIONS
 # naively stripped one trailing "s", which is only correct for the plain
