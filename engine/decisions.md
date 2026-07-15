@@ -7673,3 +7673,81 @@ confirming the `turn_count % 5` mechanism and the broadened word-family
 ban are both present in the prompt text. Full suite green: `pytest` 347.
 This round's actual real-model behavior has NOT been re-checked live --
 that's deliberately deferred until explicitly requested.
+
+## Retrieval -- Layer 8, scoped honestly narrow
+
+First concrete step toward `engine/specs/architecture-roadmap-v1.md`'s
+12-layer vision, picked deliberately over the alternative of jumping
+straight to multi-perspective Judgement/Synthesis: Learning
+(`src/learning/engine.py`) and Insight Engine (`src/insight/engine.py`)
+were both already fully implemented and computing real output --
+offline, into the `learned_patterns`/`insights` tables -- but nothing
+in the live per-turn pipeline ever read either table back. The roadmap
+doc itself was stale on this point (it listed both as "Not built" /
+"Reserved, not built"); corrected that understanding before picking
+Retrieval as the right next slice, since wiring already-computed output
+into a live call is a much smaller, better-evidenced step than building
+a new inference layer with no data behind it yet.
+
+**Scope, deliberately narrow**: the vision doc's own description of
+Retrieval is need-aware (Decision Retrieval, Accountability Retrieval,
+Reflection Retrieval, each pulling different context per an inferred
+need) -- that depends on Layer 7 Need State Inference, which doesn't
+exist in this codebase. Building selective retrieval logic ahead of
+that would mean inventing a relevance model with no evidence behind it,
+exactly the mistake this codebase has refused to make everywhere else
+(Learning's own `MIN_EVIDENCE` discipline, Planner's "resist tuning
+until real samples exist"). What v1 actually does: surface everything
+Learning + Insight Engine have already, offline, evidence-gated
+computed, unfiltered -- correct at this project's single-user MVP
+scale, where "everything currently known" is still a handful of short
+entries. Revisit once either real usage volume grows enough that
+unfiltered surfacing stops being cheap, or Need State Inference exists
+to make genuinely selective retrieval possible.
+
+**Feeds Judgment only**, not Interpretation/Planner/Response directly --
+the vision doc's own pipeline has Judgement as the first layer
+downstream of Retrieval, and Judgment already owns synthesizing "what's
+true" (WorldState) into "what it means"; cross-session patterns/themes
+are additional input to that synthesis, not a new pipeline stage with
+its own independent LLM reasoning. `src/retrieval/engine.py`'s
+`build_retrieved_context(patterns, insights)` is a pure formatting
+function, no I/O, no LLM call of its own -- same "mechanical, not a
+call" category as `compute_stagnation_signals`. New `src/judgment/
+prompt.py` "Retrieved Context" section explicitly frames this as raw
+input, not Judgment's own conclusion, and states the grounding rule
+plainly: if Retrieved Context and this turn's WorldState point in
+different directions, THIS WorldState wins -- Retrieved Context
+describes a past tendency, not a fact about what's happening right now.
+
+**Dependency direction**: `src/retrieval/engine.py` imports the
+internal `Pattern` (`src.learning.engine`) / `Insight`
+(`src.insight.schema`) types, not the API's `LearnedPatternOut`/
+`InsightOut` mirror types -- engine packages never import from
+`src.api`. `src/api/server.py::send_message` is the one place that
+reads `db.get_learned_patterns()`/`db.get_insights()` and converts each
+row into the engine-internal type before calling
+`build_retrieved_context`.
+
+**Threading**: `retrieved_context: str = ""` added to `run_judgment`
+(`src/judgment/engine.py`) and `run_turn` (`src/orchestrator/engine.py`)
+-- default "" is a true no-op for every existing caller
+(`conversation_runner.py`, the walkthrough script, every pre-existing
+test), same discipline as `mode`'s own rollout. Threaded only to
+`run_judgment`; Interpretation never sees it (per its own "no memory
+across turns" scope) and Planner/Response only ever see it indirectly,
+through whatever Judgment itself chooses to surface in
+`supporting_evidence`.
+
+Verified via `pytest` only (359 passed) -- new `tests/test_retrieval.py`
+(pure `build_retrieved_context` cases), `tests/test_judgment_prompt.py`
+(the new "Retrieved Context" section appears/is omitted correctly in
+`build_messages`), threading tests in `tests/test_orchestrator.py`
+(`retrieved_context` reaches `run_judgment` and defaults to "" for every
+other caller), and an api-server-level test in `tests/test_api_server.py`
+using a `call_provider` spy confirming patterns/insights actually stored
+in the DB reach Judgment's real prompt payload on the next live turn.
+**No live LLM dispatch was run for this feature**, per the standing "test
+only when I say so" instruction -- this is wiring/plumbing work with
+deterministic unit-test coverage, not a prompt-behavior change that
+needs live-model verification to trust.

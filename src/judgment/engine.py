@@ -119,7 +119,9 @@ class JudgmentError(Exception):
         self.raw_output = raw_output
 
 
-def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> Judgment:
+def run_judgment(
+    state: WorldState, tracker: Optional[UsageTracker] = None, retrieved_context: str = ""
+) -> Judgment:
     """
     Calls an LLM to produce a Judgment from the given WorldState. Tries
     each configured provider in order (see src/llm/providers.py --
@@ -135,10 +137,17 @@ def run_judgment(state: WorldState, tracker: Optional[UsageTracker] = None) -> J
     token/cost/latency into. Defaults to the shared default_tracker if not
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
+
+    retrieved_context: optional, already-formatted Retrieval output (see
+    src/retrieval/engine.py::build_retrieved_context) -- cross-session
+    patterns/themes about this person from past Journeys, or "" when
+    there's nothing yet. This module has no db dependency of its own;
+    the caller (src/api/server.py) is responsible for reading Learning/
+    Insight Engine's stored output and formatting it before this call.
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     stagnation_signals = compute_stagnation_signals(state)
-    system_prompt, messages = build_messages(world_state_json, stagnation_signals)
+    system_prompt, messages = build_messages(world_state_json, stagnation_signals, retrieved_context)
     schema = Judgment.model_json_schema()
     tracker = tracker or default_tracker
 

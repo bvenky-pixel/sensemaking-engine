@@ -98,7 +98,7 @@ _RESPONSE = Response(response_text="It sounds like this has been unclear for a w
 
 def test_run_turn_full_success_populates_every_field(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
@@ -133,7 +133,7 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
         return _RESPONSE
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
     monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
 
@@ -141,6 +141,53 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
 
     assert seen["planner_mode"] == "vent"
     assert seen["response_mode"] == "vent"
+
+
+def test_run_turn_threads_retrieved_context_to_judgment_only(monkeypatch):
+    """Retrieval v1 (see engine/decisions.md "Retrieval",
+    src/retrieval/engine.py): run_turn's own `retrieved_context` parameter
+    must reach run_judgment, the one stage whose prompt references it --
+    Planner/Response never receive it directly."""
+    seen = {}
+
+    def _judgment(state, tracker=None, retrieved_context=""):
+        seen["judgment_retrieved_context"] = retrieved_context
+        return _JUDGMENT
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", _judgment)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+    )
+
+    run_turn("I want to move teams.", WorldState(), retrieved_context="Known pattern: reopens closed decisions.")
+
+    assert seen["judgment_retrieved_context"] == "Known pattern: reopens closed decisions."
+
+
+def test_run_turn_defaults_retrieved_context_to_empty_string(monkeypatch):
+    """Every existing caller that doesn't pass `retrieved_context` at all
+    must still work, seeing "" -- same no-op default discipline as
+    `mode` above."""
+    seen = {}
+
+    def _judgment(state, tracker=None, retrieved_context=""):
+        seen["judgment_retrieved_context"] = retrieved_context
+        return _JUDGMENT
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", _judgment)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+    )
+
+    run_turn("I want to move teams.", WorldState())
+
+    assert seen["judgment_retrieved_context"] == ""
 
 
 def test_run_turn_defaults_mode_to_none(monkeypatch):
@@ -154,7 +201,7 @@ def test_run_turn_defaults_mode_to_none(monkeypatch):
         return _PLANNER
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
@@ -173,7 +220,7 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     but the actual recompute decision/LLM call is update_tier2's own
     responsibility (see tests/test_tier2.py), not asserted here."""
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
@@ -221,7 +268,7 @@ def test_run_turn_judgment_failure_still_reports_the_real_updated_state(monkeypa
     conversation_runner.py used to print "State unchanged" here even
     though WorldState HAD already been updated with Interpretation's
     content before Judgment ran and failed."""
-    def _raise(state, tracker=None):
+    def _raise(state, tracker=None, retrieved_context=""):
         raise JudgmentError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
@@ -244,7 +291,7 @@ def test_run_turn_planner_failure_still_reports_judgment_and_updated_state(monke
         raise PlannerError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", _raise)
 
     result = run_turn("I want to move teams.", WorldState())
@@ -262,7 +309,7 @@ def test_run_turn_response_failure_still_reports_planner_and_updated_state(monke
         raise ResponseGeneratorError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
-    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None: _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _raise)
 

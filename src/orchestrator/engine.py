@@ -64,6 +64,7 @@ def run_turn(
     session_id: str = "",
     on_stage_complete: Optional[Callable[[str], None]] = None,
     mode: Optional[str] = None,
+    retrieved_context: str = "",
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -105,6 +106,15 @@ def run_turn(
     reference it; Interpretation and Judgment are unaffected, same
     reasoning as `phase` staying entirely their own concern elsewhere.
     Default None is a true no-op for every existing caller.
+
+    retrieved_context: optional, already-formatted Retrieval output (see
+    src/retrieval/engine.py::build_retrieved_context and
+    engine/decisions.md "Retrieval") -- Orchestrator threads it ONLY to
+    run_judgment, the one stage whose prompt references it; Interpretation
+    never sees it (per its own "no memory across turns" scope), and
+    Planner/Response only ever see it indirectly, through whatever
+    Judgment itself chooses to surface in supporting_evidence. Default ""
+    is a true no-op for every existing caller.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -143,7 +153,7 @@ def run_turn(
     state.understanding.tier1 = build_tier1_statements(state)
 
     try:
-        judgment = run_judgment(state, tracker=tracker)
+        judgment = run_judgment(state, tracker=tracker, retrieved_context=retrieved_context)
     except JudgmentError as exc:
         return TurnResult(
             state=state, interpretation=interp, failed_stage="judgment", error=str(exc),

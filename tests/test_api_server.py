@@ -30,6 +30,8 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 from src.api import db, server
+from src.insight.schema import Insight
+from src.learning.engine import Pattern
 
 _MINIMAL_JUDGMENT = {
     "primary_problem": "",
@@ -222,6 +224,65 @@ def test_send_message_omits_mode_focus_note_when_no_mode_was_chosen(client, monk
 
     _, planner_messages = seen["planner"]
     assert "This Journey was started in" not in planner_messages[0]["content"]
+
+
+def test_send_message_threads_retrieved_context_into_judgment_prompt(client, monkeypatch):
+    """Retrieval v1 (see engine/decisions.md "Retrieval",
+    src/retrieval/engine.py): patterns/insights already stored in the DB
+    by Learning/Insight Engine must actually reach Judgment's own prompt
+    on the next live turn -- not just be readable via GET /learned-patterns
+    and GET /insights."""
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    db.replace_learned_patterns([
+        Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
+    ])
+    db.replace_insights([
+        Insight(theme="Career anxiety", detail="Recurring worry about job security", evidence_session_ids=[])
+    ])
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, judgment_messages = seen["judgment"]
+    content = judgment_messages[0]["content"]
+    assert "Often reopens closed decisions" in content
+    assert "Career anxiety" in content
+
+
+def test_send_message_omits_retrieved_context_when_nothing_learned_yet(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, judgment_messages = seen["judgment"]
+    assert "Retrieved Context" not in judgment_messages[0]["content"]
 
 
 def test_send_message_returns_response_text(client, monkeypatch):

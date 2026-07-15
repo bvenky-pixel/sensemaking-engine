@@ -55,11 +55,14 @@ from src.api.schema import (
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.executor.voice import to_second_person
+from src.insight.schema import Insight
 from src.instrumentation.usage import UsageTracker
 from src.judgment.schema import Judgment
+from src.learning.engine import Pattern
 from src.orchestrator.engine import run_turn
 from src.orchestrator.modes import MODE_COPY
 from src.planner.schema import Planner
+from src.retrieval.engine import build_retrieved_context
 from src.state.world_state import WorldState
 
 # Real frontend (see frontend/decisions.md "Build the real Confidant
@@ -224,9 +227,28 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
             stage_queue, loop = stream_entry
             loop.call_soon_threadsafe(stage_queue.put_nowait, stage)
 
+    # Retrieval v1 (see src/retrieval/engine.py, engine/decisions.md
+    # "Retrieval") -- Learning/Insight Engine already compute these
+    # offline, into the learned_patterns/insights tables; this is the
+    # first live turn that actually reads them back. Converts the API's
+    # own LearnedPatternOut/InsightOut rows into the engine-internal
+    # Pattern/Insight types build_retrieved_context expects, keeping the
+    # src.api -> engine dependency direction (engine packages never
+    # import from src.api).
+    patterns = [
+        Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
+        for p in db.get_learned_patterns()
+    ]
+    insights = [
+        Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
+        for i in db.get_insights()
+    ]
+    retrieved_context = build_retrieved_context(patterns, insights)
+
     result = run_turn(
         body.content, state, tracker=tracker, session_id=session_id,
         on_stage_complete=_push, mode=db.get_session_mode(session_id),
+        retrieved_context=retrieved_context,
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 
