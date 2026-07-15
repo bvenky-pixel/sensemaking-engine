@@ -32,6 +32,20 @@ jobs:
     steps:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Wake the machine
+        # fly.toml sets auto_stop_machines/min_machines_running=0 -- the
+        # app scales to zero when idle. `flyctl ssh console` connects
+        # directly over Fly's private network and does NOT go through
+        # the HTTP proxy's auto_start_machines wake-up, so a stopped
+        # machine must be started explicitly first.
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          MACHINE_ID=$(flyctl machine list --app confidantsense --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          echo "machine_id=$MACHINE_ID" >> "$GITHUB_ENV"
+          flyctl machine start "$MACHINE_ID" --app confidantsense
+          flyctl machine wait "$MACHINE_ID" --app confidantsense --timeout 60
+
       - name: Run backfill against production
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
