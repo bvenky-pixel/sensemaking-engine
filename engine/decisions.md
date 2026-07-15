@@ -6083,3 +6083,55 @@ deciding whether `has_knowledge_correction` needs a stronger model tier
 than the rest of Judgment, a decision with real cost implications
 (`CLAUDE.md`'s standing free/paid-tier policy) that should be made
 deliberately, not silently.
+
+**Hypothesis (a) tested directly, and it worked -- partially, for a
+real, specific reason.** Confirmed by reading both files precisely: the
+Judgment *schema* (`src/judgment/schema.py`) already generates
+`has_knowledge_correction` immediately after `contradictions` (only a
+code comment sits between them, invisible to the model). But the
+*prompt's own FIELD DEFINITIONS prose* explained `has_decision_resolution`
+FIRST (before `contradictions`/`has_knowledge_correction` were even
+introduced), even though the model must actually generate
+`has_decision_resolution`'s fields AFTER `has_knowledge_correction`'s in
+the real output -- a mismatch between the order the model was told about
+fields and the order it had to produce them in.
+
+Moved `has_decision_resolution`'s whole prose block (the field itself
+plus `decision_resolution_option`/`decision_resolution_status`/
+`decision_resolutions`) to sit after `knowledge_corrections`, so the
+prompt narrative now matches the schema's actual generation order
+exactly: `contradictions -> has_knowledge_correction block ->
+has_decision_resolution block -> has_risk_signal`.
+
+**Re-ran calibration against `gpt-4o-mini` -- real, measurable
+improvement**: scored compliance went from 2/4 to 3/4.
+`contradiction_explicit` now correctly fires:
+```
+[HIT ] contradiction_explicit: expected=True, actual=True
+  target='User is not getting a raise this year.'
+  kind='superseded'
+  corrected_content='User is getting a raise.'
+```
+`contradictions` again correctly named the conflict, and this time
+`has_knowledge_correction` followed through with a correct target/kind/
+corrected_content, all anchored to real WorldState text.
+
+`near_duplicate_rewording` is still a miss (`contradictions=[]`,
+`has_knowledge_correction=false` across all three turns) -- expected,
+not a partial failure of this fix: the reordering specifically closed
+the "contradictions found something, but the boolean gate downstream of
+it didn't follow through" pathway. Near-duplicate detection is a
+structurally separate check that never touches `contradictions` at all
+(a reworded restatement isn't a contradiction), so it was never going to
+be affected by fixing contradictions/knowledge_correction adjacency.
+That gap remains open, still needs its own diagnosis and fix, separate
+from this one.
+
+**Updated recommendation**: the narrative/generation-order mismatch was
+a real, confirmed, fixable cause for the contradiction pathway
+specifically -- prompt structure DOES matter for this model, contrary to
+the more pessimistic read after the forcing-rule attempt alone failed.
+The near-duplicate pathway is the next thing to diagnose with the same
+evidence-first discipline (what does the model actually produce when
+given a near-duplicate scenario, verbatim, before guessing at another
+prompt change) rather than assuming the same fix generalizes.
