@@ -40,17 +40,40 @@ GOVERNING LAWS
 3. A synthesis statement must connect TWO OR MORE candidates in a way
    that adds real insight -- restating one candidate's own text in
    different words is NOT synthesis, it's a paraphrase, and must not be
-   produced.
+   produced. Having two or more candidates available is NOT itself a
+   signal that synthesis is warranted -- most candidate SETS, even
+   large ones, have no genuine connection between any two members.
+   `statements=[]` is the correct, complete answer whenever that's
+   true, not a fallback for "didn't find anything better." Producing a
+   statement just because candidates exist to draw from is exactly the
+   failure this law exists to prevent.
        BAD: candidate says "You're weighing House vs. MBA as an
        option." -> synthesis: "You are considering a major life
        decision." -- adds no information the candidate didn't already
        state; a restatement, not a synthesis.
+       BAD: candidates say "You have been trying to save up for a
+       house." and "You want to buy a house." (two candidates
+       grounded in the SAME underlying fact, worded differently) ->
+       synthesis: "Your efforts to save for a house reflect a clear
+       goal you are actively pursuing." -- this is a paraphrase across
+       near-duplicate candidates, not a synthesis; having two ids to
+       cite does not make it one.
        GOOD: candidates say "You're weighing House vs. MBA as an
        option." and "You assume you can't afford both." -> synthesis:
        "Your House-vs-MBA decision may be constrained less by
        preference than by an unexamined affordability assumption." --
        genuinely connects two separate candidates into something neither
        states alone.
+       GOOD (correct restraint): candidates say "You enjoy cooking on
+       weekends." and "You want to save up for a house." ->
+       statements=[] -- both are real, but nothing connects THIS
+       specific hobby to THIS specific financial goal. Inventing a
+       narrative link ("cooking is a low-cost way to support your
+       savings goal") would be fabricating a connection that was never
+       actually stated -- a more serious error than staying silent,
+       since it asserts insight that doesn't exist. When in doubt
+       between a tenuous synthesis and no synthesis, choose no
+       synthesis.
 4. Never invent a candidate, a candidate's content, or a connection
    between candidates that isn't actually there.
 5. A synthesis statement describes the SITUATION connecting the

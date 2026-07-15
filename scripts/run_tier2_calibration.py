@@ -95,15 +95,25 @@ SCENARIOS = [
              "of has_knowledge_correction's under-firing.",
     ),
     Scenario(
-        name="single_candidate_floor_check",
+        name="same_decision_two_options",
         turns=[
             "I'm deciding whether to ask my manager for a raise or not.",
         ],
-        expected_tier2_nonempty=False,
-        note="A single turn expected to produce at most one Decision-shaped "
-             "candidate -- below MIN_GROUNDING_ITEMS, so this checks the "
-             "deterministic short-circuit end-to-end (real pipeline, not "
-             "just the isolated unit test) rather than model compliance.",
+        expected_tier2_nonempty=None,
+        note="Originally designed as a below-the-floor check (expecting "
+             "one Decision-shaped candidate); the first live run (see "
+             "engine/decisions.md 'Tier 2 first live calibration run') "
+             "confirmed Interpretation reliably extracts BOTH sides of an "
+             "'X or not X' framing as two separate Decision options, "
+             "clearing MIN_GROUNDING_ITEMS every time -- the floor itself "
+             "is already fully covered deterministically in "
+             "tests/test_tier2.py, so this doesn't need to re-test it "
+             "live. Repurposed as an observation: two candidates that ARE "
+             "genuinely the same underlying choice (not unrelated, not a "
+             "real cross-topic connection either) -- does the model "
+             "produce a real restatement-as-synthesis here, a different "
+             "compliance question than the unrelated-candidates control "
+             "above.",
     ),
 ]
 

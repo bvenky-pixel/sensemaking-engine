@@ -6832,3 +6832,51 @@ pool, so every turn recomputed) -- the gating's cost benefit shows up
 on REPEATED turns with an unchanged pool (confirmed working via the
 caching checks above), not on this kind of short, always-novel
 calibration scenario.
+
+## Testing the abstention-example hypothesis (`src/understanding/tier2_prompt.py`)
+
+Per the user's explicit request, testing the one specific,
+evidence-backed hypothesis named above rather than a blind rewording:
+law 3's existing worked examples showed only cases where synthesis
+SHOULD fire; none showed a case where the floor is met but the correct
+answer is `statements=[]`. Added two things to law 3, not a rewrite of
+the whole prompt:
+
+1. An explicit statement that meeting `MIN_GROUNDING_ITEMS` is NOT
+   itself a signal synthesis is warranted -- "producing a statement
+   just because candidates exist to draw from is exactly the failure
+   this law exists to prevent."
+2. A second BAD example, directly modeling the paraphrase-across-
+   near-duplicates pattern actually observed on both scored HITs'
+   first turn (two candidates grounded in literally the same
+   underlying fact, worded differently -- "trying to save up for a
+   house" / "want to buy a house").
+3. A new GOOD (correct restraint) example -- deliberately NOT the exact
+   pottery-classes/house-savings pair the live run produced (to avoid
+   just teaching the model to recognize that one literal case rather
+   than the general principle): "You enjoy cooking on weekends." / "You
+   want to save up for a house." -> `statements=[]`, with explicit
+   framing that fabricating a link is a MORE serious error than
+   staying silent, and "when in doubt... choose no synthesis."
+
+Also fixed the `single_candidate_floor_check` scenario, confirmed to be
+a calibration-script bug (not a Tier 2 finding) in the prior run:
+renamed to `same_decision_two_options`, `expected_tier2_nonempty`
+changed from `False` to `None` (observation-only) -- Interpretation
+reliably extracts BOTH sides of an "X or not X" framing as two
+correlated Decision options, so this was never actually testing the
+floor (`tests/test_tier2.py` already covers `MIN_GROUNDING_ITEMS`
+deterministically). Repurposed as an observation of a DIFFERENT
+compliance question: does the model paraphrase across two candidates
+that are genuinely the same underlying choice, distinct from the
+unrelated-candidates negative control.
+
+Verified before commit: full `pytest` suite (298 tests, unaffected --
+prompt/script text only) and a structural smoke test of the updated
+calibration script (no API key set, confirms it still runs to
+completion and exits 1 without crashing).
+
+Not yet measured: whether the new worked example actually changes
+`gpt-4o-mini`'s behavior on `negative_control_unrelated` and the
+first-turn paraphrase pattern. Needs a fresh dispatch -- see the
+follow-up entry for the result.
