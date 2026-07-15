@@ -6135,3 +6135,47 @@ The near-duplicate pathway is the next thing to diagnose with the same
 evidence-first discipline (what does the model actually produce when
 given a near-duplicate scenario, verbatim, before guessing at another
 prompt change) rather than assuming the same fix generalizes.
+
+**Near-duplicate pathway: the real diagnostic gap was observability,
+not (yet) wording.** Unlike `contradictions`, near-duplicate detection
+had no field of its own -- it was a sub-point buried inside
+`has_knowledge_correction`'s own instruction. That means every prior
+`near_duplicate_rewording` miss was structurally ambiguous: there was no
+way to tell "the model ran the check and correctly found nothing" from
+"the model never attempted this check at all." Given that the
+contradictions-adjacency fix above just confirmed prompt/schema
+structural alignment measurably matters for this model, the next step
+is to give near-duplicate detection the exact same structural treatment
+`contradictions` already has, both to close the observability gap and
+to apply the one intervention already proven to help.
+
+Added `near_duplicates: List[str] = Field(default_factory=list)` to
+`Judgment` (`src/judgment/schema.py`), positioned immediately after
+`contradictions` (mirroring its exact placement). In
+`src/judgment/prompt.py`, replaced the old two-check
+`has_knowledge_correction` bullet (which crammed a contradictions-
+forcing-rule and an independent near-duplicate sub-check into one
+field's instructions) with two bullets: a new, dedicated
+`near_duplicates` bullet with the same structure as `contradictions`
+(definition, explicit "NOT the same check as contradictions"
+distinction, an "actively cross-check WorldState.facts/claims" mandate,
+and a worked example), followed by a simplified `has_knowledge_correction`
+bullet that is now a pure mechanical combination rule: MUST be true if
+EITHER `contradictions` OR `near_duplicates` is non-empty, MUST be false
+if both are empty. Also added `near_duplicates` to the "OBSERVATIONS VS
+ASSESSMENTS" list (alongside `contradictions`) and a
+`print(f"near_duplicates={j.near_duplicates!r}")` line to the
+calibration script, so the new field's live output is actually visible
+in the next run.
+
+Verified before commit: full `pytest` suite (266 tests) still green --
+`near_duplicates` has `default_factory=list`, so no existing fixture
+needed updating. Also re-ran the standalone doubled-word regression
+check (`_adapt_judgment_prompt`, the same check that caught two close
+calls earlier in this prompt.py's edit history) -- clean, no `"in in"`
+or `"the the"` introduced.
+
+Not yet measured: whether this actually changes `gpt-4o-mini`'s
+behavior on `near_duplicate_rewording`. That requires a live dispatch
+against `gpt-4o-mini` and reading the real `near_duplicates` output --
+see the follow-up entry below for the result.

@@ -141,6 +141,7 @@ def run_scenario(scenario: Scenario, tracker: UsageTracker) -> tuple[Optional[bo
         # has_assumption/has_risk_signal's own calibration history).
         print(f"    primary_problem={j.primary_problem!r}")
         print(f"    contradictions={j.contradictions!r}")
+        print(f"    near_duplicates={j.near_duplicates!r}")
         print(f"    has_knowledge_correction={j.has_knowledge_correction}")
         if j.has_knowledge_correction:
             print(f"    target={j.knowledge_correction_target!r}")

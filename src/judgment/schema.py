@@ -119,6 +119,27 @@ class Judgment(BaseModel):
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
 
+    # v1.8 (added 2026-07-15, see engine/decisions.md "Tier 1
+    # completeness + has_knowledge_correction calibration" -- the
+    # near_duplicate_rewording calibration miss): a dedicated,
+    # observable counterpart to contradictions for the OTHER half of
+    # has_knowledge_correction's job. Added specifically because live
+    # calibration on openai/gpt-4o-mini showed the model reliably
+    # escalates a contradictions hit into has_knowledge_correction (once
+    # the two were prompt-adjacent -- see the has_knowledge_correction
+    # field's own comment below) but never demonstrably ran the
+    # near-duplicate check at all: unlike contradictions, near-duplicate
+    # detection had no field of its own to be observed in, only a
+    # sub-point buried inside has_knowledge_correction's own instruction
+    # -- there was no way to tell "the model checked and found nothing"
+    # from "the model never actually ran this check." Giving it the
+    # same structural treatment as contradictions (own field, own
+    # cross-check instruction, own worked example) both restores
+    # observability and, per the contradictions-adjacency fix, is the
+    # one prompt-structure change already confirmed to matter for this
+    # model.
+    near_duplicates: List[str] = Field(default_factory=list)
+
     # v1.7 (added 2026-07-12, see engine/decisions.md "Fact/Claim
     # correction and near-duplicate consolidation"): the structured,
     # WorldState-mutating counterpart to contradictions just above --
