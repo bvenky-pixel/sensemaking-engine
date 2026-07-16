@@ -1,0 +1,41 @@
+name: Personal Operating Model computation
+
+# Manual only -- each run makes one real, billable LLM call (the
+# InferredPOMBatch call in src/pom/engine.py::run_inferred_pom) against
+# whatever sessions exist in the given --db-path. See
+# scripts/run_pom_computation.py and engine/decisions.md "Personal
+# Operating Model".
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default)"
+        required: false
+        default: ""
+      db_path:
+        description: "SQLite DB path to read sessions from / write the computed POM to"
+        required: false
+        default: "pom_computation.db"
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Personal Operating Model computation
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_pom_computation.py --db-path "${{ github.event.inputs.db_path }}"

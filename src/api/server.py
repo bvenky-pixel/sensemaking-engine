@@ -63,6 +63,7 @@ from src.need_state.engine import infer_need_state
 from src.orchestrator.engine import run_turn
 from src.orchestrator.modes import MODE_COPY
 from src.planner.schema import Planner
+from src.pom.schema import PersonalOperatingModel
 from src.retrieval.engine import build_retrieved_context
 from src.state.world_state import WorldState
 
@@ -250,7 +251,12 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
     # Retrieval, which feeds Judgment before this turn's own
     # Interpretation has even run.
     need_state = infer_need_state(state)
-    retrieved_context = build_retrieved_context(patterns, insights, need_state=need_state)
+    # Personal Operating Model (see src/pom/engine.py, engine/decisions.md
+    # "Personal Operating Model") -- a cheap, read-only DB read of
+    # whatever scripts/run_pom_computation.py last computed offline;
+    # never computed live. None until that script has run at least once.
+    pom = db.get_personal_operating_model()
+    retrieved_context = build_retrieved_context(patterns, insights, need_state=need_state, pom=pom)
 
     result = run_turn(
         body.content, state, tracker=tracker, session_id=session_id,
@@ -368,6 +374,24 @@ def get_insights() -> list[InsightOut]:
     the frontend (Home.svelte session cards), so its theme text is real,
     already-grounded content, not raw internal cognition."""
     return db.get_insights()
+
+
+@app.get("/personal-operating-model", response_model=Optional[PersonalOperatingModel])
+def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
+    """Personal Operating Model's own output (see src/pom/engine.py,
+    engine/decisions.md "Personal Operating Model"). Read-only -- serves
+    whatever scripts/run_pom_computation.py last computed offline; never
+    computes anything live. Returns null (not a 404) until that script
+    has been run at least once -- a brand-new deployment has no POM yet,
+    a correct state, not an error. Returned as the actual internal
+    PersonalOperatingModel type directly, unlike /patterns'/insights'
+    "Out" mirror types -- POM is stored and read back as one whole JSON
+    blob (src/api/db.py::get_personal_operating_model), never assembled
+    field-by-field from separate SQL columns, so a separate mirror type
+    would just copy identical fields with no actual decoupling benefit.
+    Not yet consumed by the frontend -- same "not-yet-done design pass"
+    status as /patterns."""
+    return db.get_personal_operating_model()
 
 
 if _FRONTEND_DIR.exists():

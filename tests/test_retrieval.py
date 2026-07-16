@@ -8,6 +8,15 @@ from __future__ import annotations
 
 from src.insight.schema import Insight
 from src.learning.engine import Pattern
+from src.pom.schema import (
+    IdentitySystem,
+    MotivationSystem,
+    NarrativeSystem,
+    PersonalOperatingModel,
+    StressSystem,
+    TheoryOfMindEntry,
+    TheoryOfMindSystem,
+)
 from src.retrieval.engine import build_retrieved_context
 
 
@@ -93,3 +102,68 @@ def test_need_state_label_is_label_only_never_filters_patterns_or_insights():
     text = build_retrieved_context(patterns, insights, need_state="decision")
     assert "unrelated_pattern_type" in text
     assert "Unrelated theme" in text
+
+
+def test_default_pom_produces_no_additional_content():
+    """Personal Operating Model (see engine/decisions.md "Personal
+    Operating Model"): a fresh PersonalOperatingModel() with everything
+    at its default ("unclear"/empty) must not add any lines -- same
+    "omit rather than show a hollow signal" discipline as need_state."""
+    assert build_retrieved_context([], [], pom=PersonalOperatingModel()) == ""
+
+
+def test_pom_with_beliefs_and_relationships_renders_both_sections():
+    pom = PersonalOperatingModel(
+        belief={"beliefs": ["The market is competitive."]},
+        relationship={"relationships": ["Manager -- role is manager."]},
+    )
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Beliefs" in text
+    assert "The market is competitive." in text
+    assert "Relationships" in text
+    assert "Manager -- role is manager." in text
+
+
+def test_pom_identity_only_renders_when_self_concept_is_set():
+    pom = PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Identity" in text
+    assert "Values independence at work." in text
+
+
+def test_pom_motivation_only_renders_when_at_least_one_dimension_is_not_unclear():
+    pom = PersonalOperatingModel(motivation=MotivationSystem(autonomy="high"))
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Motivation" in text
+    assert "autonomy=high" in text
+
+
+def test_pom_stress_only_renders_when_not_unclear():
+    pom = PersonalOperatingModel(stress=StressSystem(level="high"))
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Stress level: high" in text
+
+
+def test_pom_narrative_only_renders_when_arc_is_not_unclear():
+    pom = PersonalOperatingModel(narrative=NarrativeSystem(arc="redemptive", summary="Grew from a hard year."))
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Narrative arc: redemptive" in text
+    assert "Grew from a hard year." in text
+
+
+def test_pom_theory_of_mind_renders_each_entry():
+    pom = PersonalOperatingModel(theory_of_mind=TheoryOfMindSystem(entries=[
+        TheoryOfMindEntry(entity_name="Manager", inferred_perspective="Wants the transfer approved quickly."),
+    ]))
+    text = build_retrieved_context([], [], pom=pom)
+    assert "Theory of mind" in text
+    assert "Manager: Wants the transfer approved quickly." in text
+
+
+def test_pom_renders_alongside_patterns_insights_and_need_state():
+    pom = PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence."))
+    text = build_retrieved_context([_pattern()], [_insight()], need_state="decision", pom=pom)
+    assert "Known behavioral patterns" in text
+    assert "Recurring cross-session themes" in text
+    assert "This turn's inferred need: decision" in text
+    assert "Identity" in text

@@ -7952,3 +7952,142 @@ confirms "This turn's inferred need: decision" actually reaches
 Judgment's real prompt). **No live LLM dispatch was run for this
 feature** -- deterministic function plus prompt-text wiring, verifiable
 without a real model call, same reasoning as Retrieval and Synthesis.
+
+## Personal Operating Model -- Layer 4, all 8 remaining systems, at the user's explicit direction
+
+Fourth and final step toward the 12-layer vision's first pass, per the
+user's own stated sequencing ("after finishing synthesis, I would want
+to build need state inference and POM anyway").
+
+**The scoping conversation, in full, for the record.** Before writing
+any code, the same two-question pattern used for Retrieval/Synthesis/
+Need State Inference was offered: build only Belief + Relationship (the
+two systems that reduce to verbatim aggregation of already-extracted
+WorldState data -- Claims/Assumptions, Entities -- with zero invented
+scoring), or attempt all 8 remaining systems (Identity, Motivation,
+Belief, Relationship, Learning Style, Stress, Narrative, Theory of Mind)
+including the 6 that genuinely require inventing a psychological score
+with nothing real to calibrate it against. The user's answer, verbatim:
+"All 8 remaining systems now." This is a deliberate, explicit override of
+this project's own default caution (recommended in the same turn), not
+something arrived at by accident -- recorded here so it's clearly
+attributable as the user's call, not a quiet erosion of the discipline
+this codebase has otherwise held to throughout this session.
+
+**No original vision docx in this repo.** The founder's
+`Confidant_Personal_Operation_Model.docx` was shared as uploaded context
+earlier in this session's history, not committed to the repository --
+it is not available to consult for this round. Motivation and Narrative
+below therefore use the STANDARD, textbook operationalizations of the
+two named frameworks (Self-Determination Theory's autonomy/competence/
+relatedness; Narrative Identity Theory's redemption/contamination
+sequences, McAdams), not necessarily the founder's own specific
+formulation. Flagged prominently in `src/pom/schema.py`'s own module
+docstring too -- worth the founder verifying/correcting against the
+actual source document before this is treated as final.
+
+**Split, same "don't invent a mechanism where a cheaper, trusted one
+exists" discipline as every other layer this session**:
+- **Mechanical (no LLM call)** -- Belief (`src/pom/engine.py::compute_belief_system`,
+  verbatim deduplicated Claims + Assumptions across every session) and
+  Relationship (`compute_relationship_system`, verbatim Entity
+  descriptions, reusing the same rendering convention as
+  `src/understanding/engine.py`'s own `_render_entity_text`, duplicated
+  rather than imported per this codebase's small-utility convention).
+  Pure restatement of already-trusted data, zero invented scoring.
+- **LLM-inferred, ONE call, ONE schema** (`InferredPOMBatch`, same "one
+  call, no hybrid complexity" discipline as Judgment/Planner/Insight
+  Engine, not six separate calls) -- Identity, Motivation, Learning
+  Style, Stress, Narrative, Theory of Mind. This is where the accepted
+  risk actually lives.
+
+**Mitigations applied to the accepted risk** (real, but explicitly NOT a
+substitute for actual calibration against real usage):
+1. Coarse categorical scales (`"low"`/`"moderate"`/`"high"`/`"unclear"`
+   for Motivation's 3 SDT dimensions and Stress; a 4-value
+   `NarrativeArc`), never a float. A number like `0.63` implies a
+   precision this data cannot support -- nothing here has been
+   calibrated against ground truth the way even Judgment's own
+   `confidence` field at least has some real usage behind it.
+2. Every inferred field carries its own grounding evidence -- same
+   discipline as Judgment's `supporting_evidence`/Insight's
+   `evidence_session_ids`.
+3. **Engine-level grounding enforcement**, not just prompt wording
+   (mirroring Insight Engine's own evidence_session_ids filtering,
+   adapted to free-text evidence instead of ids):
+   `src/pom/engine.py::_ground_batch` checks each evidence string for
+   real word overlap against the aggregated content actually sent
+   (`_is_evidence_grounded`, duplicated word-overlap logic, same
+   category as `src/interpretation/engine.py`'s own
+   `_word_overlap`/`_is_option_grounded`) -- evidence with none is
+   dropped, and a field whose evidence is entirely stripped this way is
+   downgraded to `"unclear"` (or emptied, for free-text fields) rather
+   than left asserting an ungrounded score.
+4. `"unclear"`/empty is the correct DEFAULT answer for thin evidence,
+   stated explicitly in `src/pom/prompt.py`'s own SYSTEM_PROMPT --
+   "the common, correct answer for a new or sparse person, not a gap to
+   fill by guessing."
+
+**Aggregation is cross-SESSION, all-history** (not per-Journey like
+WorldState, and not recency-capped like Insight Engine's
+`MAX_SESSIONS_FOR_INSIGHT`) -- POM is meant to be one standing profile
+for the single person this MVP serves, so
+`src/api/db.py::get_aggregated_knowledge_for_pom` reads every session's
+WorldState uncapped, matching `get_all_sessions_raw`'s own precedent.
+
+**Storage**: new `personal_operating_model` table, single row
+(`CHECK (id = 1)`, same "one profile for the single user this MVP
+serves" simplification already stated for `behavioral_events`) storing
+the whole `PersonalOperatingModel` as one JSON blob --
+`replace_personal_operating_model`/`get_personal_operating_model`
+mirror `replace_insights`/`get_insights`'s truncate-and-replace,
+offline-only precedent. New `GET /personal-operating-model` returns the
+actual internal `PersonalOperatingModel` type directly (not a separate
+"Out" mirror like `LearnedPatternOut`/`InsightOut`) -- since it's
+already assembled as one whole object from JSON, not reconstructed
+field-by-field from independent SQL columns, a mirror type would just
+copy identical fields with no real decoupling benefit.
+
+**Feeds Judgment via Retrieval, same integration point as
+patterns/insights/need_state** -- `src/retrieval/engine.py::build_retrieved_context`
+gained an optional `pom` parameter, rendered as a COMPACT summary
+(top-level values only, never re-dumping every underlying evidence
+quote -- that grounding already lives in `src/pom/engine.py`, and
+repeating it in the prompt would bloat Judgment's context without
+giving it anything new to act on). A field left at its default
+(`"unclear"`/empty) is omitted entirely, same "omit rather than show a
+hollow signal" discipline as everywhere else in this module.
+`src/api/server.py::send_message` reads POM via a cheap, read-only
+`db.get_personal_operating_model()` call -- POM itself is NEVER computed
+live, same "operates asynchronously, never inside a live conversation
+turn" boundary Learning/Insight Engine already established.
+
+**Offline computation**: `scripts/run_pom_computation.py` (mirrors
+`scripts/run_insight_detection.py`'s own structure) and
+`.github/workflows/pom-computation.yml` (mirrors `learning-walkthrough.yml`'s
+manual-dispatch-only pattern) were both created but **NOT dispatched**
+-- per the standing "test only when I say so" cost instruction, this
+round's verification is `pytest`-only.
+
+Verified via `pytest` only (428 passed) -- new `tests/test_pom_schema.py`
+(Pydantic structural guarantees: defaults, enum validation for
+`ConfidenceLevel`/`NarrativeArc`), `tests/test_pom_engine.py` (mechanical
+Belief/Relationship aggregation including dedup-order and the
+Entity-skip-when-bare rule; the LLM-inferred half's grounding
+enforcement -- a fabricated evidence quote with no word overlap gets
+dropped AND downgrades its field to `"unclear"`, a real quote survives
+and keeps its level, a Theory of Mind entry with only ungrounded
+evidence is dropped entirely), extended `tests/test_retrieval.py` (every
+POM field's omit-vs-render condition, rendering alongside
+patterns/insights/need_state), and extended `tests/test_api_server.py`
+(a real `db.replace_personal_operating_model` call reaches Judgment's
+prompt on the next live turn; `GET /personal-operating-model` returns
+null before any computation and the last-computed POM after). **No live
+LLM dispatch was run** -- same reasoning as every other layer this
+session: deterministic/mocked coverage for wiring and grounding logic:
+the ONE thing genuinely unverified is whether a real model actually
+produces sensible, well-calibrated Identity/Motivation/Stress/Narrative/
+Theory-of-Mind inferences on real conversation history -- that is
+exactly the accepted risk this round's user decision took on, and
+remains open until a real `pom-computation.yml` dispatch is explicitly
+requested.

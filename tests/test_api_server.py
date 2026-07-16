@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 from src.api import db, server
 from src.insight.schema import Insight
 from src.learning.engine import Pattern
+from src.pom.schema import IdentitySystem, PersonalOperatingModel
 
 _MINIMAL_JUDGMENT = {
     "primary_problem": "",
@@ -356,6 +357,76 @@ def test_send_message_threads_inferred_need_state_into_judgment_prompt(client, m
     _, judgment_messages = seen["judgment"]
     content = judgment_messages[0]["content"]
     assert "This turn's inferred need: decision" in content
+
+
+def test_send_message_threads_personal_operating_model_into_judgment_prompt(client, monkeypatch):
+    """Personal Operating Model (see engine/decisions.md "Personal
+    Operating Model", src/pom/engine.py): whatever
+    scripts/run_pom_computation.py last computed offline and stored via
+    db.replace_personal_operating_model must reach Judgment's real
+    prompt on the next live turn -- read-only, no live computation."""
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    db.replace_personal_operating_model(
+        PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, judgment_messages = seen["judgment"]
+    content = judgment_messages[0]["content"]
+    assert "Identity: Values independence at work." in content
+
+
+def test_send_message_omits_pom_content_when_nothing_computed_yet(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, judgment_messages = seen["judgment"]
+    assert "Identity" not in judgment_messages[0]["content"]
+
+
+def test_get_personal_operating_model_returns_null_before_any_computation(client):
+    res = client.get("/personal-operating-model")
+    assert res.status_code == 200
+    assert res.json() is None
+
+
+def test_get_personal_operating_model_returns_last_computed_pom(client):
+    db.replace_personal_operating_model(
+        PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
+    )
+    res = client.get("/personal-operating-model")
+    assert res.status_code == 200
+    assert res.json()["identity"]["self_concept"] == "Values independence at work."
 
 
 def test_send_message_returns_response_text(client, monkeypatch):

@@ -80,7 +80,8 @@ from src.instrumentation.events import BehavioralEvent, is_events_enabled
 from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
-from src.state.world_state import WorldState
+from src.pom.schema import PersonalOperatingModel
+from src.state.world_state import Entity, WorldState
 
 # Deployment (see .github/workflows/deploy.yml, fly.toml) mounts a
 # persistent volume and points CONFIDANT_DB_PATH at a file inside it --
@@ -147,6 +148,12 @@ CREATE TABLE IF NOT EXISTS insight_sessions (
     session_id TEXT NOT NULL,
     FOREIGN KEY (insight_id) REFERENCES insights(id),
     FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS personal_operating_model (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    pom_json TEXT NOT NULL,
+    computed_at TEXT NOT NULL
 );
 """
 
@@ -560,3 +567,73 @@ def get_insights() -> List[InsightOut]:
         InsightOut(theme=theme, detail=detail, evidence_session_ids=evidence_by_insight.get(insight_id, []))
         for insight_id, theme, detail in insight_rows
     ]
+
+
+def get_aggregated_knowledge_for_pom() -> Tuple[List[str], List[str], List[Entity], str]:
+    """
+    Reads EVERY session's WorldState (uncapped, same as
+    get_all_sessions_raw -- POM is a single-person, all-history model,
+    not a recency-capped sample the way Insight Engine's cross-session
+    detection is) and aggregates it into what
+    src/pom/engine.py::compute_personal_operating_model needs:
+    (claims, assumptions, entities, aggregated_content) -- the first
+    three feed the two mechanical systems directly; aggregated_content
+    is a single plain-text rendering of everything (facts, claims,
+    goals, decisions, entities, emotional signals) for the one LLM call
+    that infers the other six systems.
+
+    Read-only, used only by scripts/run_pom_computation.py -- this
+    module has no opinion on POM itself, same separation as
+    get_session_texts_for_insights above.
+    """
+    with _connect() as conn:
+        rows = conn.execute("SELECT world_state_json FROM sessions").fetchall()
+
+    claims: List[str] = []
+    assumptions: List[str] = []
+    entities: List[Entity] = []
+    lines: List[str] = []
+    for (world_state_json,) in rows:
+        state = WorldState.model_validate_json(world_state_json)
+        claims += [c.content for c in state.claims]
+        assumptions += list(state.assumptions)
+        entities += list(state.entities)
+
+        lines += [f"Fact: {f.content}" for f in state.facts]
+        lines += [f"Claim: {c.content}" for c in state.claims]
+        lines += [f"Goal: {g.content}" for g in state.goals]
+        lines += [f"Decision: {d.content}" for d in state.decisions]
+        lines += [f"Assumption: {a}" for a in state.assumptions]
+        for entity in state.entities:
+            attr_text = "; ".join(f"{a.attribute} is {a.value}" for a in entity.attributes)
+            rel_text = "; ".join(entity.relationships)
+            lines.append(f"Entity: {entity.name}" + (f" -- {attr_text} {rel_text}".rstrip() if attr_text or rel_text else ""))
+        for signal in state.emotional_signal_items:
+            lines.append(f"Emotional signal: {signal.content}")
+
+    aggregated_content = "\n".join(lines)
+    return claims, assumptions, entities, aggregated_content
+
+
+def replace_personal_operating_model(pom: PersonalOperatingModel) -> None:
+    """Truncate-and-replace, not append -- POM is one standing profile
+    for the single user this MVP serves, not an accumulating log (same
+    "single row, id=1" simplification as this table's own CHECK
+    constraint). Called only by scripts/run_pom_computation.py."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO personal_operating_model (id, pom_json, computed_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET pom_json = excluded.pom_json, computed_at = excluded.computed_at",
+            (pom.model_dump_json(), _now()),
+        )
+
+
+def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
+    """Returns None until scripts/run_pom_computation.py has been run at
+    least once -- a brand-new deployment correctly has no POM yet, not
+    an error state."""
+    with _connect() as conn:
+        row = conn.execute("SELECT pom_json FROM personal_operating_model WHERE id = 1").fetchone()
+    if row is None:
+        return None
+    return PersonalOperatingModel.model_validate_json(row[0])

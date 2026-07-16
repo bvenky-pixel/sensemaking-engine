@@ -48,39 +48,42 @@ since that's what's actually in scope right now.
 **Updated 2026-07-16** -- this table was stale against actual code
 (previously claimed 6/12 built; Learning, Insight Engine, and Memory
 Store were all already real by the time this was checked; Retrieval,
-Synthesis, and now Need State Inference have since been added).
-Corrected here rather than left to mislead the next planning pass.
+Synthesis, Need State Inference, and now Personal Operating Model have
+since been added). Corrected here rather than left to mislead the next
+planning pass.
 
 | # | Vision layer | Current status | Current equivalent |
 |---|---|---|---|
 | 1 | Interpretation | **Built** | `src/interpretation/` |
 | 2 | Learning | **Built** | `src/learning/engine.py` -- offline, evidence-gated (`MIN_EVIDENCE=3`) behavioral pattern detection |
 | 3 | Memory Store | **Built** | `behavioral_events` table (`src/api/db.py`) -- append-only per-user log Learning reads from |
-| 4 | Personal Operating Model | **Not built** | — |
+| 4 | Personal Operating Model | **Built, first pass, 8 of 9 systems** | `src/pom/engine.py` -- 2 mechanical (Belief, Relationship: verbatim aggregation of existing Claims/Assumptions/Entities), 6 LLM-inferred in one call (Identity, Motivation/SDT, Learning Style, Stress, Narrative/Narrative-Identity-Theory, Theory of Mind). The 9th system, Behavioral Pattern System, already shipped as Layer 2 Learning. See this doc's Phase 1 note below for the real risk accepted here |
 | 5 | World State | **Built** | `src/state/world_state.py` |
 | 6 | Insight Engine | **Built** | `src/insight/engine.py` -- offline, evidence-gated (`MIN_EVIDENCE_SESSIONS=2`) cross-session theme detection |
 | 7 | Need State Inference | **Built, deterministic, scoped to 3 needs** | `src/need_state/engine.py::infer_need_state` -- a mechanical classifier (decision / accountability / reflection / general) over already-existing WorldState signals, not a learned or LLM-inferred scored vector. See this doc's Phase 2 note below |
-| 8 | Retrieval | **Built, now need-labeled but still unfiltered** | `src/retrieval/engine.py` -- surfaces the inferred need state as a visible label alongside Learning/Insight output, still NOT filtering which patterns/insights surface (see Phase 2 note) |
+| 8 | Retrieval | **Built, now need-and-POM-labeled but still unfiltered** | `src/retrieval/engine.py` -- surfaces the inferred need state and the standing POM as visible labels alongside Learning/Insight output, still NOT filtering which patterns/insights surface (see Phase 2 note) |
 | 9 | Judgement | **Built, single-perspective** | `src/judgment/` — one reasoning pass, not the vision's 5-persona fusion |
 | 10 | Synthesis | **Built, scoped to one call** | Adaptive mode (`src/orchestrator/modes.py`) -- Planner picks whichever of the five lenses fits THIS TURN from its own single call, rather than a separate 5-call-plus-fusion pipeline. Not the vision's independent multi-persona Judgement fusion -- see this doc's Phase 3 note below |
 | 11 | Planning | **Built** | `src/planner/` |
 | 12 | Response | **Built** | `src/response/` |
 
-Eleven of twelve layers exist. The one that doesn't — Personal
-Operating Model — is the one remaining layer that genuinely requires
-**inventing a scored model** (psychological dimensions scored against
-named frameworks like Self-Determination Theory) with no evidence yet
-to calibrate it against. Need State Inference avoided that trap the same
-way Synthesis did: scoped to a small, closed, mechanically-detectable
-set (decision / accountability / reflection / general) derived from
-signals this codebase already trusts elsewhere (open Decisions,
-stagnation gaps), rather than an invented need-state vector. Personal
-Operating Model doesn't have an equivalent mechanical shortcut available
--- its very nature is scoring against psychological dimensions that
-don't reduce to structural WorldState signals the way "is this Decision
-open" does. Worth scoping carefully (same two-question confirmation
-pattern as Synthesis/Need State Inference) once attempted, rather than
-guessing at a scoring scheme with nothing to validate it against.
+**All twelve layers now have some real slice built.** Personal Operating
+Model is the one layer where this project's own default caution
+("recommend the mechanical-only scope, wait for evidence before
+inventing a psychological score") was explicitly OVERRIDDEN by the user
+-- offered a narrower "just Belief + Relationship" scope first (the two
+systems that reduce to existing structured data with no invented
+scoring, same reasoning Need State Inference and Synthesis used to avoid
+this exact trap), the user chose "all 8 remaining systems now" instead,
+accepting the real risk that Motivation/Learning Style/Stress/Narrative/
+Theory of Mind/Identity have nothing to calibrate their scores against
+yet. See `engine/decisions.md` "Personal Operating Model" for the full
+conversation and the mitigations actually applied (coarse categorical
+scales instead of false-precision floats, mandatory grounding evidence
+per field, engine-level grounding enforcement that downgrades a field to
+"unclear" if its evidence doesn't survive a word-overlap check) --
+mitigations, not a substitute for the real calibration only actual usage
+can provide.
 
 ---
 
@@ -123,6 +126,15 @@ Self-Determination Theory dimensions, Belief, Relationship, Learning,
 Stress, Narrative, Theory of Mind) require inventing scored psychological
 dimensions with no evidence behind them yet — explicitly **not** in this
 phase.
+
+**Update 2026-07-16**: all eight of those systems have since been built
+(`src/pom/engine.py`, see this doc's Layer 4 table entry and
+`engine/decisions.md` "Personal Operating Model") -- at the user's
+explicit direction, overriding this phase's own original caution about
+inventing unevidenced scoring. Left this paragraph as written above
+rather than rewritten, since it accurately records what the reasoning
+was AT THE TIME Phase 1 was scoped -- the override is a later, separate
+decision, not evidence this reasoning was wrong then.
 
 Concretely:
 
