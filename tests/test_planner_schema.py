@@ -82,3 +82,30 @@ def test_list_fields_accept_populated_values():
     assert plan.questions_to_explore == ["what does X mean?"]
     assert plan.assumptions_to_test == ["user believes Y"]
     assert plan.planning_constraints == ["preserve user agency"]
+
+
+def test_active_lens_defaults_to_none():
+    """Synthesis (see engine/decisions.md "Synthesis"): every mode except
+    Adaptive leaves active_lens unset -- must default to None, not
+    require every caller to pass it."""
+    plan = Planner(**REQUIRED_FIELDS)
+    assert plan.active_lens is None
+
+
+@pytest.mark.parametrize("lens", ["vent", "strategize", "commit", "explore", "realign"])
+def test_active_lens_accepts_each_concrete_lens(lens):
+    plan = Planner(**REQUIRED_FIELDS, active_lens=lens)
+    assert plan.active_lens == lens
+
+
+def test_active_lens_rejects_adaptive_itself():
+    """active_lens must resolve to one of the five CONCRETE lenses --
+    "adaptive" itself is not a valid choice, since it names the absence
+    of a fixed lens, not a lens."""
+    with pytest.raises(ValidationError):
+        Planner(**REQUIRED_FIELDS, active_lens="adaptive")
+
+
+def test_active_lens_rejects_unrecognized_value():
+    with pytest.raises(ValidationError):
+        Planner(**REQUIRED_FIELDS, active_lens="not-a-real-lens")

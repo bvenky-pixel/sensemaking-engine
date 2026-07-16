@@ -197,6 +197,15 @@ FIELD DEFINITIONS
       Judgment didn't already account for). An unexplained jump above
       Judgment's confidence is a signal to recheck your own number, not
       a stylistic choice.
+- active_lens: leave this null UNLESS the user message includes "This
+  Journey was started in Adaptive mode" -- in every other case (any of
+  the other five modes, or no mode at all), the lens is already fixed by
+  construction and there is nothing to choose, so this field must stay
+  null. When it IS Adaptive mode, that mode's own note (in the user
+  message) explains the five lenses to choose between and how to choose
+  -- set this field to the id of whichever one you chose, and make every
+  other field in this output follow that lens's own guidance for this
+  turn.
 
 Before finalizing your output, review it against these questions
 (see engine/decisions.md "Major update" Part 6 -- these two cases

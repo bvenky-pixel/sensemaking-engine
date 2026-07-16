@@ -16,15 +16,23 @@ from src.orchestrator.modes import (
 
 _ALL_MODES = ["vent", "strategize", "commit", "explore", "realign"]
 
+# Synthesis (see engine/decisions.md "Synthesis"): "adaptive" is a real,
+# selectable mode (in MODE_COPY, and it has its own PLANNER_MODE_FOCUS
+# entry) but deliberately has NO entry of its own in RESPONSE_MODE_FOCUS
+# -- Response is always given whichever CONCRETE lens Planner actually
+# chose that turn (see src/orchestrator/engine.py::run_turn's
+# effective_mode resolution), never the literal string "adaptive".
+_ALL_MODE_IDS = _ALL_MODES + ["adaptive"]
+
 
 def test_five_modes_are_defined_consistently():
-    assert set(MODE_COPY.keys()) == set(_ALL_MODES)
-    assert set(PLANNER_MODE_FOCUS.keys()) == set(_ALL_MODES)
+    assert set(MODE_COPY.keys()) == set(_ALL_MODE_IDS)
+    assert set(PLANNER_MODE_FOCUS.keys()) == set(_ALL_MODE_IDS)
     assert set(RESPONSE_MODE_FOCUS.keys()) == set(_ALL_MODES)
 
 
 def test_mode_copy_has_a_label_and_description_for_every_mode():
-    for mode in _ALL_MODES:
+    for mode in _ALL_MODE_IDS:
         assert MODE_COPY[mode]["label"]
         assert MODE_COPY[mode]["description"]
 
@@ -44,7 +52,7 @@ def test_planner_and_response_focus_notes_return_empty_string_for_unrecognized_m
 
 
 def test_planner_focus_note_returns_the_focus_text_for_each_known_mode():
-    for mode in _ALL_MODES:
+    for mode in _ALL_MODE_IDS:
         note = planner_mode_focus_note(mode)
         assert note == PLANNER_MODE_FOCUS[mode]
         assert MODE_COPY[mode]["label"] in note
@@ -150,3 +158,41 @@ def test_strategize_response_focus_warns_against_duplicating_options_in_prose():
     correctly, but sentence 2 also re-described each option in prose --
     pure duplication now explicitly disallowed."""
     assert "duplicat" in RESPONSE_MODE_FOCUS["strategize"].lower()
+
+
+def test_response_focus_note_returns_empty_string_for_adaptive():
+    """Synthesis (see engine/decisions.md "Synthesis"): Adaptive
+    deliberately has no RESPONSE_MODE_FOCUS entry of its own -- Response
+    is always given whichever concrete lens Planner chose that turn
+    instead (see src/orchestrator/engine.py's effective_mode
+    resolution), never the literal string "adaptive"."""
+    assert response_mode_focus_note("adaptive") == ""
+
+
+def test_planner_focus_note_for_adaptive_mentions_every_concrete_lens():
+    """Adaptive's own Planner focus note must actually offer all five
+    concrete lenses to choose between, not just some of them."""
+    note = PLANNER_MODE_FOCUS["adaptive"]
+    for mode in _ALL_MODES:
+        assert mode in note
+
+
+def test_planner_focus_note_for_adaptive_is_built_from_each_lens_own_text():
+    """Regression guard: Adaptive's guidance must be built FROM the five
+    lenses' own established PLANNER_MODE_FOCUS text (so editing a lens's
+    entry automatically updates what Adaptive offers), not a separate,
+    driftable summary written from scratch."""
+    note = PLANNER_MODE_FOCUS["adaptive"]
+    for mode in _ALL_MODES:
+        assert PLANNER_MODE_FOCUS[mode] in note
+
+
+def test_planner_focus_note_for_adaptive_instructs_setting_active_lens():
+    assert "active_lens" in PLANNER_MODE_FOCUS["adaptive"]
+
+
+def test_planner_focus_note_for_adaptive_frames_choice_as_per_turn_not_whole_journey():
+    """Regression guard for the key design difference from the other
+    five modes: Adaptive's choice must be allowed to change turn to
+    turn, not lock in for the whole Journey the way the other five do."""
+    assert "per-turn" in PLANNER_MODE_FOCUS["adaptive"].lower() or "per turn" in PLANNER_MODE_FOCUS["adaptive"].lower()

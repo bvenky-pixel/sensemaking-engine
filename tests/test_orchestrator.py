@@ -143,6 +143,58 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
     assert seen["response_mode"] == "vent"
 
 
+def test_run_turn_resolves_adaptive_mode_to_planners_chosen_lens_for_response(monkeypatch):
+    """Synthesis (see engine/decisions.md "Synthesis"): when mode is
+    "adaptive", Planner itself picks which concrete lens fits this turn
+    and reports it on Planner.active_lens -- run_turn must pass THAT
+    concrete lens to Response, not the literal string "adaptive" (which
+    has no RESPONSE_MODE_FOCUS entry of its own)."""
+    seen = {}
+
+    def _planner(state, judgment, tracker=None, mode=None):
+        seen["planner_mode"] = mode
+        return _PLANNER.model_copy(update={"active_lens": "commit"})
+
+    def _response(state, judgment, planner, tracker=None, mode=None):
+        seen["response_mode"] = mode
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    run_turn("I said I'd do this weeks ago.", WorldState(), mode="adaptive")
+
+    assert seen["planner_mode"] == "adaptive"
+    assert seen["response_mode"] == "commit"
+
+
+def test_run_turn_falls_back_to_raw_mode_when_adaptive_planner_sets_no_lens(monkeypatch):
+    """If Planner fails to set active_lens on an Adaptive-mode turn (e.g.
+    a provider that ignores the instruction), Response must still get
+    SOME value -- falling back to the raw "adaptive" string, which
+    response_mode_focus_note gracefully turns into "" (no focus note),
+    rather than crashing or silently reusing a stale prior lens."""
+    seen = {}
+
+    def _planner(state, judgment, tracker=None, mode=None):
+        return _PLANNER  # active_lens defaults to None
+
+    def _response(state, judgment, planner, tracker=None, mode=None):
+        seen["response_mode"] = mode
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    run_turn("I want to move teams.", WorldState(), mode="adaptive")
+
+    assert seen["response_mode"] == "adaptive"
+
+
 def test_run_turn_threads_retrieved_context_to_judgment_only(monkeypatch):
     """Retrieval v1 (see engine/decisions.md "Retrieval",
     src/retrieval/engine.py): run_turn's own `retrieved_context` parameter

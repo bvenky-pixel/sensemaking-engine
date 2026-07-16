@@ -107,6 +107,16 @@ def run_turn(
     reasoning as `phase` staying entirely their own concern elsewhere.
     Default None is a true no-op for every existing caller.
 
+    Synthesis (2026-07-16, see engine/decisions.md "Synthesis"): when
+    mode == "adaptive", Planner itself chooses which of the five concrete
+    lenses fits THIS TURN and reports it on `plan.active_lens` -- Response
+    must be given THAT concrete lens, not the literal string "adaptive"
+    (which has no entry of its own in RESPONSE_MODE_FOCUS), so it reuses
+    the same, already-tuned focus text a Journey fixed to that lens from
+    the start would get. Every other mode's `effective_mode` is just
+    `mode` unchanged -- `plan.active_lens` is only ever set when Planner
+    was actually asked to choose one.
+
     retrieved_context: optional, already-formatted Retrieval output (see
     src/retrieval/engine.py::build_retrieved_context and
     engine/decisions.md "Retrieval") -- Orchestrator threads it ONLY to
@@ -207,8 +217,14 @@ def run_turn(
         )
     _notify("planner")
 
+    # Synthesis (see mode's own docstring paragraph above): Adaptive
+    # mode's per-turn lens choice lives on `plan.active_lens`, not on
+    # `mode` itself -- resolve it here, once, so Response gets whichever
+    # concrete lens Planner actually chose this turn.
+    effective_mode = plan.active_lens if mode == "adaptive" and plan.active_lens else mode
+
     try:
-        response = run_response_generator(state, judgment, plan, tracker=tracker, mode=mode)
+        response = run_response_generator(state, judgment, plan, tracker=tracker, mode=effective_mode)
     except ResponseGeneratorError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment, planner=plan,

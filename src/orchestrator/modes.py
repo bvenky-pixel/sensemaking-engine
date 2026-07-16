@@ -7,13 +7,29 @@ perspectives named in the founder's uploaded vision doc
 Advisor, Accountability Coach, Mentor, Supportive Companion, Socratic
 Guide.
 
-NOT the full multi-perspective Judgement + Synthesis system that vision
-doc describes -- this project's own `engine/specs/architecture-roadmap-v1.md`
-explicitly gates that as Phase 3, pending real Phase 1/2 evidence. This
-is a much smaller, buildable slice: the person picks ONE lens up front,
-and Planner/Response stay biased toward that lens for the whole Journey,
-rather than running all five perspectives and synthesizing tensions
-every turn.
+Originally NOT the full multi-perspective Judgement + Synthesis system
+the vision doc describes -- Phase 1/2 evidence (Learning, Memory Store,
+Insight Engine, Retrieval) hadn't shipped yet when this was first built,
+so the five fixed modes below were a much smaller, buildable slice: the
+person picks ONE lens up front, and Planner/Response stay biased toward
+that lens for the whole Journey, rather than running all five
+perspectives and synthesizing tensions every turn.
+
+Synthesis (2026-07-16, see engine/decisions.md "Synthesis"): a sixth
+mode, "adaptive", added once Phase 1/2 evidence existed. Rather than a
+separate multi-call fusion pipeline (5 lens calls plus a fusion call --
+6x a normal turn's LLM cost), Adaptive keeps Planner's one existing call
+but gives it all five lenses' own established guidance as options and
+asks it to choose whichever fits THIS TURN specifically (see
+PLANNER_MODE_FOCUS["adaptive"] below), set that choice on a new
+`active_lens` output field (src/planner/schema.py), and plan accordingly
+under it. Orchestrator then resolves that per-turn choice into the
+`mode` Response itself receives (see src/orchestrator/engine.py::run_turn),
+so Response reuses that lens's own existing, already-tuned
+RESPONSE_MODE_FOCUS text directly -- no separate Adaptive-specific
+Response text to keep in sync. Same per-turn LLM cost as any other mode;
+the "fusion" is choosing among established lenses each turn, not running
+all five and synthesizing them.
 
 Labels are plain, emotive action verbs a person would actually tap
 ("Vent", "Strategize") -- never the vision doc's internal coaching
@@ -75,7 +91,15 @@ from __future__ import annotations
 
 from typing import Dict, Literal, Optional
 
-CounselingMode = Literal["vent", "strategize", "commit", "explore", "realign"]
+CounselingMode = Literal["vent", "strategize", "commit", "explore", "realign", "adaptive"]
+
+# The five CONCRETE lenses -- every CounselingMode except "adaptive"
+# itself, which doesn't commit to one. Used to type Planner's own
+# `active_lens` output field (see src/planner/schema.py) and to build
+# Adaptive mode's own focus note below, so Adaptive never has to name
+# the five ids as a separate, driftable literal list.
+ConcreteLens = Literal["vent", "strategize", "commit", "explore", "realign"]
+_CONCRETE_LENS_IDS = ("vent", "strategize", "commit", "explore", "realign")
 
 # Frontend copy: label + one-line description shown on the mode-select
 # screen (see frontend/app/src/screens/ModeSelect.svelte). Kept here,
@@ -104,6 +128,10 @@ MODE_COPY: Dict[str, Dict[str, str]] = {
     "realign": {
         "label": "Realign",
         "description": "Check this against what actually matters to you.",
+    },
+    "adaptive": {
+        "label": "Adaptive",
+        "description": "Confidant senses what you need, turn by turn.",
     },
 }
 
@@ -169,6 +197,51 @@ PLANNER_MODE_FOCUS: Dict[str, str] = {
         "than stay purely situational."
     ),
 }
+
+# Synthesis v1 (see engine/decisions.md "Synthesis"): rather than a
+# separate multi-call fusion pipeline (5 lens calls + a fusion call --
+# 6x today's per-turn cost), Adaptive is Planner's EXISTING single call,
+# given all five lenses' own established guidance as options and asked
+# to pick the one that fits THIS TURN, then plan accordingly under it.
+# Built from the five entries above, not retyped, so Adaptive's guidance
+# can never drift from what each lens actually says elsewhere in this
+# file -- editing a lens's own entry automatically updates what Adaptive
+# sees too.
+_ADAPTIVE_LENS_SUMMARIES = "\n\n".join(
+    f'[{lens_id}]\n{PLANNER_MODE_FOCUS[lens_id]}' for lens_id in _CONCRETE_LENS_IDS
+)
+
+PLANNER_MODE_FOCUS["adaptive"] = (
+    "This Journey was started in Adaptive mode: the person did not commit "
+    "to one lens up front -- your job this turn is to choose whichever of "
+    "the five lenses below actually fits what THIS TURN's message and "
+    "current WorldState/Judgment call for, then plan exactly as that "
+    "lens's own guidance directs. This is a PER-TURN choice, not a "
+    "whole-Journey one like the other five modes: a different turn later "
+    "in this same Journey may genuinely call for a different lens, and "
+    "that is correct, not an inconsistency to avoid.\n"
+    "\n"
+    f"{_ADAPTIVE_LENS_SUMMARIES}\n"
+    "\n"
+    "Ground the choice in what's actually present this turn -- e.g. "
+    "distress with nothing yet to solve points to vent; a decision "
+    "needing to be narrowed points to strategize; a stalled commitment "
+    "flagged in stagnation_notes points to commit; a flagged assumption "
+    "or contradiction ripe to press on points to explore; content "
+    "touching a value, identity, or long-term throughline points to "
+    "realign. Never invent signal that isn't there just to justify a "
+    "choice. Set `active_lens` to the id of whichever lens you chose "
+    "(exactly one of: vent, strategize, commit, explore, realign -- never "
+    "'adaptive' itself), and let every other output field follow that "
+    "lens's own guidance above for this turn."
+)
+
+# No separate RESPONSE_MODE_FOCUS["adaptive"] entry -- Response is given
+# the CONCRETE lens Planner actually chose (state.orchestrator.engine
+# resolves plan.active_lens into the `mode` passed to Response, see
+# run_turn), so Response reuses that lens's own existing, already-tuned
+# RESPONSE_MODE_FOCUS entry directly rather than a duplicate Adaptive-
+# specific text that could drift from it.
 
 # Injected into Response's own prompt (see src/response/prompt.py's
 # build_messages) -- what THIS mode means for HOW to phrase sentence 2

@@ -45,11 +45,11 @@ since that's what's actually in scope right now.
 
 ## 2. Mapping the vision's 12 layers to what exists today
 
-**Updated 2026-07-15** -- this table was stale against actual code
+**Updated 2026-07-16** -- this table was stale against actual code
 (previously claimed 6/12 built; Learning, Insight Engine, and Memory
-Store were all already real by the time this was checked, and Retrieval
-has since been added). Corrected here rather than left to mislead the
-next planning pass.
+Store were all already real by the time this was checked; Retrieval and
+now Synthesis have since been added). Corrected here rather than left
+to mislead the next planning pass.
 
 | # | Vision layer | Current status | Current equivalent |
 |---|---|---|---|
@@ -62,19 +62,24 @@ next planning pass.
 | 7 | Need State Inference | **Not built** | Planner infers priority implicitly; no scored need-state vector exists |
 | 8 | Retrieval | **Built, scoped narrow** | `src/retrieval/engine.py` -- unfiltered surfacing of Learning/Insight output into Judgment, not need-aware selective retrieval (needs #7 first) |
 | 9 | Judgement | **Built, single-perspective** | `src/judgment/` — one reasoning pass, not the vision's 5-persona fusion |
-| 10 | Synthesis | **Not built** | No multi-perspective output to synthesize yet. Counseling modes (`src/orchestrator/modes.py`) is a scoped-down preview -- one fixed lens per Journey, not the vision's multi-lens fusion per turn |
+| 10 | Synthesis | **Built, scoped to one call** | Adaptive mode (`src/orchestrator/modes.py`) -- Planner picks whichever of the five lenses fits THIS TURN from its own single call, rather than a separate 5-call-plus-fusion pipeline. Not the vision's independent multi-persona Judgement fusion -- see this doc's Phase 3 note below |
 | 11 | Planning | **Built** | `src/planner/` |
 | 12 | Response | **Built** | `src/response/` |
 
-Nine of twelve layers exist. The three that don't — Personal Operating
-Model, Need State Inference, Synthesis — are exactly the layers that
-require **inventing a scored model** (psychological dimensions, a
-need-state vector, or a fusion of multiple reasoning perspectives) with
-no evidence yet to calibrate it against, which this codebase has
-correctly refused to build before real usage existed to learn from. That
-refusal was right at the time. It's worth revisiting now specifically
-because real usage has started (see the Learning
-discussion this document formalizes).
+Ten of twelve layers exist. The two that don't — Personal Operating
+Model, Need State Inference — are exactly the layers that require
+**inventing a scored model** (psychological dimensions, or a need-state
+vector) with no evidence yet to calibrate it against, which this
+codebase has correctly refused to build before real usage existed to
+learn from. Synthesis avoided that trap by being scoped to something
+directly measurable (which of five already-established lenses fits this
+turn) rather than an invented fusion algorithm -- see its own Phase 3
+note below. That refusal on the remaining two is still right today, but
+worth revisiting once real usage exists to learn from (see the Learning
+discussion this document formalizes) -- the user has stated an intent
+to build both next, after Synthesis (see engine/decisions.md
+"Synthesis"), so that evidence-gathering step is imminent, not
+indefinitely deferred.
 
 ---
 
@@ -160,22 +165,31 @@ warns against everywhere else. Until it exists, Retrieval stays
 unfiltered/surface-everything rather than need-aware, by design (see its
 own module docstring).
 
-### Phase 3 — Counseling modes shipped a scoped preview; full fusion still gated
+### Phase 3 — done, scoped to a single-call choice rather than a multi-persona fusion pipeline
 Multi-perspective Judgement + Synthesis (the vision's five coaching
 lenses — Strategic Advisor, Accountability Coach, Mentor, Supportive
-Companion, Socratic Guide) remains unbuilt as originally envisioned (a
-per-turn fusion across lenses). Counseling modes
-(`src/orchestrator/modes.py`) shipped a deliberately narrower version --
-one fixed lens chosen once per Journey, biasing Planner/Response prompts
--- not per-turn multi-perspective fusion. Full fusion directly attacks
-the original "sounds like a regular LLM" complaint, and is honestly
-testable against the existing eval harness
-(`experiments/confidant-validation/`) — run single-pass Judgment against
-fusion Judgment on the same transcripts and compare, mirroring the
-vision doc's own "Fusion Cost Tracking" idea (quality lift vs. added
-cost, measured, not assumed). Unlike Need State Inference/Personal
-Operating Model, this doesn't require inventing an unevidenced scoring
-system first -- it can be attempted and measured directly.
+Companion, Socratic Guide) shipped as Adaptive mode, a sixth Counseling
+mode alongside the five fixed ones (`src/orchestrator/modes.py`,
+`engine/decisions.md` "Synthesis"). Deliberately NOT the vision's
+literal design (5 separate lens calls plus a fusion call, 6x a normal
+turn's LLM cost) -- Planner's one existing call is given all five
+lenses' own established guidance and asked to choose whichever fits
+THIS TURN, set that choice on a new `active_lens` output field, and plan
+under it; Orchestrator resolves that per-turn choice into the concrete
+`mode` Response itself receives, so Response reuses that lens's own
+already-tuned RESPONSE_MODE_FOCUS text. Same per-turn cost as any other
+mode. This is a genuine, if narrower, answer to the original "sounds
+like a regular LLM" complaint: the system now visibly shifts register
+turn to turn based on what a turn actually calls for, rather than
+committing to one lens for an entire Journey or running one static
+lens forever.
+
+Not measured against the eval harness comparison this section
+originally proposed (single-pass Judgment vs. fusion Judgment, quality
+lift vs. cost) -- that comparison assumed the vision's literal multi-
+call fusion design, which this scoped-down version doesn't do. Worth
+revisiting if the vision's literal per-turn multi-persona fusion (not
+just a single-call choice among lenses) is ever attempted for real.
 
 ### Explicitly not scoped by this roadmap
 The sponsor/organization layer, SOC2/ISO27001/SAML/investor-dashboard

@@ -7751,3 +7751,99 @@ in the DB reach Judgment's real prompt payload on the next live turn.
 only when I say so" instruction -- this is wiring/plumbing work with
 deterministic unit-test coverage, not a prompt-behavior change that
 needs live-model verification to trust.
+
+## Synthesis -- Layer 10, scoped to one call instead of a fusion pipeline
+
+Second step toward the 12-layer vision, picked with the user's explicit
+sequencing ("yes let's do that [Synthesis], but after finishing
+synthesis, I would want to build need state inference and POM anyway").
+Before implementing, two architecture forks were resolved with the user
+directly rather than guessed at, since either one wrong would have
+meant either silently multiplying live LLM cost or building something
+that didn't match what "Synthesis" was actually supposed to mean here:
+
+1. **Call architecture**: the vision's literal design (5 independent
+   lens calls plus a fusion call, ~6x a normal turn's Judgment/Planner
+   cost) vs. one call reasoning across all 5 lenses internally (no cost
+   change) vs. an offline eval-harness-only experiment first. Chosen:
+   **one call, internal multi-perspective reasoning** -- same "one call,
+   one schema, no hybrid complexity" discipline Judgment v2 and Planner
+   v1 already established, and no live-cost increase per turn.
+2. **Relationship to existing Counseling modes**: replace the five fixed
+   modes entirely, bias one mode's lens with supporting input from the
+   other four, or keep both fully independent. The user's own answer,
+   verbatim: "Fusion is a 6th mode where it switches modes based on the
+   user entry" -- i.e. Synthesis isn't a separate system alongside
+   modes, it IS a sixth mode, one that re-chooses its lens every turn
+   instead of fixing it once per Journey.
+
+**What shipped**: a sixth `CounselingMode`, `"adaptive"` (see
+`src/orchestrator/modes.py`). Planner already makes one LLM call per
+turn (`run_planner`) -- Adaptive mode gives that same call all five
+existing lenses' own, already-tuned `PLANNER_MODE_FOCUS` text (built
+BY REFERENCE from the other five entries, `PLANNER_MODE_FOCUS["adaptive"]
+= "..." + "\n\n".join(PLANNER_MODE_FOCUS[lens] for lens in the five
+concrete ids) + "..."`, so editing a lens's own text automatically
+updates what Adaptive offers -- no separate, driftable summary) and asks
+it to choose whichever lens fits what THIS TURN's message and current
+WorldState/Judgment actually call for, then plan exactly as that lens's
+own guidance directs. The choice is reported on a new Planner output
+field, `active_lens: Optional[ConcreteLens]` (`src/planner/schema.py`,
+`ConcreteLens` = the five non-adaptive mode ids, imported from
+`src.orchestrator.modes` -- precedented import direction, since
+`src/planner/engine.py` already imports `planner_mode_focus_note` from
+the same module). Every non-Adaptive mode leaves `active_lens=None`,
+same "only meaningfully set under one specific condition" discipline as
+Judgment's `has_knowledge_correction`/`has_risk_signal` boolean gates.
+
+**Response gets the resolved concrete lens, not the literal string
+"adaptive"**: `src/orchestrator/engine.py::run_turn` now computes
+`effective_mode = plan.active_lens if mode == "adaptive" and
+plan.active_lens else mode` before calling `run_response_generator` --
+so Response reuses that lens's own existing, already-tuned
+`RESPONSE_MODE_FOCUS` entry directly. Deliberately **no separate
+`RESPONSE_MODE_FOCUS["adaptive"]` entry** -- one would either duplicate
+the five real entries (drift risk) or be generic (useless). If Planner
+ever fails to set `active_lens` on an Adaptive turn, `effective_mode`
+falls back to the raw string `"adaptive"`, which `response_mode_focus_note`
+gracefully turns into `""` (no focus note, default Response behavior) --
+not a crash, not a stale reused lens from an earlier turn.
+
+**Deliberately NOT the vision's literal multi-persona fusion**: no
+5-lens-plus-synthesis call pipeline exists. What "fuses" here is a
+single call choosing among five already-established, independently
+battle-tested lenses -- not independent reasoning from five separate
+personas merged afterward. This is the honest tradeoff of the chosen
+architecture (see fork 1 above): cheap and consistent with this
+codebase's existing call discipline, at the cost of not being the
+vision doc's literal design. Revisit if the literal multi-call fusion
+is ever attempted for real (see `engine/specs/architecture-roadmap-v1.md`'s
+updated Phase 3 section).
+
+**Frontend needs no changes**: `frontend/app/src/screens/ModeSelect.svelte`
+already renders every mode returned by `GET /modes` with no hardcoded
+list (confirmed by reading it before assuming otherwise) -- Adaptive
+appears automatically once deployed, same "API is the single source of
+truth" principle already governing that screen.
+
+Verified via `pytest` only (375 passed) -- new tests in
+`tests/test_modes.py` (Adaptive's `PLANNER_MODE_FOCUS` entry actually
+contains all five lenses' own text verbatim, not a rewritten summary;
+instructs setting `active_lens`; frames the choice as per-turn;
+`RESPONSE_MODE_FOCUS` has no Adaptive entry), `tests/test_planner_schema.py`
+(`active_lens` defaults to `None`; accepts each concrete lens; rejects
+`"adaptive"` itself and unrecognized values), `tests/test_orchestrator.py`
+(`run_turn` resolves `plan.active_lens` into Response's `mode` on an
+Adaptive turn; falls back to the raw mode string when Planner sets no
+lens), and an end-to-end `tests/test_api_server.py` test with
+`call_provider` spies on both Planner and Response confirming a real
+Adaptive-mode turn, with Planner's mocked output choosing "commit,"
+actually produces "This Journey was started in Commit mode:" in
+Response's own prompt. **No live LLM dispatch was run for this
+feature**, per the standing "test only when I say so" instruction --
+same reasoning as Retrieval: this is deterministic wiring/schema/prompt-
+text work, verifiable without a real model call. Whether a real model
+reliably chooses a sensible lens turn-to-turn (the one part genuinely
+open to real-model behavior, same category as Realign's earlier
+whack-a-mole) has NOT been checked live -- deferred until explicitly
+requested, per that same standing instruction.

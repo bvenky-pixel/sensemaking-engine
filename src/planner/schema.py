@@ -19,13 +19,25 @@ into concrete types (see engine/decisions.md for the full discussion):
   matches how Judgment's `primary_problem`/`primary_goal`/`current_focus`
   are plain strings guided by prompt examples rather than forced into an
   enum the spec never actually closes.
+
+`active_lens` (added for Synthesis, see engine/decisions.md "Synthesis"
+and src/orchestrator/modes.py's "adaptive" mode) is NOT part of the
+original v1 spec -- added the same way Judgment's `has_knowledge_correction`/
+`has_risk_signal`/`stagnation_notes` were added on top of its own v2
+spec, once a real capability needed a field the original spec never
+anticipated. Only ever meaningfully set when the Journey is in Adaptive
+mode (see src/planner/prompt.py's FIELD DEFINITIONS); every other mode
+-- including no mode at all -- leaves it `None`, since those modes
+already fix the lens by construction and have nothing to choose.
 """
 
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from src.orchestrator.modes import ConcreteLens
 
 TemporalHorizon = Literal["immediate", "near_term", "long_term"]
 
@@ -45,3 +57,5 @@ class Planner(BaseModel):
     temporal_horizon: TemporalHorizon
 
     confidence: float = Field(ge=0.0, le=1.0)
+
+    active_lens: Optional[ConcreteLens] = None

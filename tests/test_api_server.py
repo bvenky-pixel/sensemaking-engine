@@ -165,11 +165,13 @@ def test_create_session_rejects_an_unrecognized_mode(client):
     assert res.status_code == 422
 
 
-def test_list_modes_returns_all_five_with_label_and_description(client):
+def test_list_modes_returns_all_six_with_label_and_description(client):
     res = client.get("/modes")
     assert res.status_code == 200
     modes = res.json()
-    assert {m["id"] for m in modes} == {"vent", "strategize", "commit", "explore", "realign"}
+    assert {m["id"] for m in modes} == {
+        "vent", "strategize", "commit", "explore", "realign", "adaptive",
+    }
     for m in modes:
         assert m["label"]
         assert m["description"]
@@ -224,6 +226,34 @@ def test_send_message_omits_mode_focus_note_when_no_mode_was_chosen(client, monk
 
     _, planner_messages = seen["planner"]
     assert "This Journey was started in" not in planner_messages[0]["content"]
+
+
+def test_send_message_in_adaptive_mode_threads_planners_chosen_lens_into_response_prompt(client, monkeypatch):
+    """Synthesis end-to-end (see engine/decisions.md "Synthesis"): a real
+    Adaptive-mode turn, where Planner's own (mocked) output picks
+    "commit" as this turn's active_lens, must reach Response as the
+    CONCRETE "commit" focus note -- not the literal, focus-note-less
+    string "adaptive"."""
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User said they'd apply for the internal transfer weeks ago.")),
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider",
+        _spy_call_provider({**_MINIMAL_PLANNER, "active_lens": "commit"}, seen, "planner"),
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _spy_call_provider(_MINIMAL_RESPONSE, seen, "response")
+    )
+    session_id = client.post("/sessions", json={"mode": "adaptive"}).json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I still haven't applied."})
+
+    _, planner_messages = seen["planner"]
+    _, response_messages = seen["response"]
+    assert "This Journey was started in Adaptive mode:" in planner_messages[0]["content"]
+    assert "This Journey was started in Commit mode:" in response_messages[0]["content"]
 
 
 def test_send_message_threads_retrieved_context_into_judgment_prompt(client, monkeypatch):
