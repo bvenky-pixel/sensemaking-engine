@@ -47,9 +47,9 @@ since that's what's actually in scope right now.
 
 **Updated 2026-07-16** -- this table was stale against actual code
 (previously claimed 6/12 built; Learning, Insight Engine, and Memory
-Store were all already real by the time this was checked; Retrieval and
-now Synthesis have since been added). Corrected here rather than left
-to mislead the next planning pass.
+Store were all already real by the time this was checked; Retrieval,
+Synthesis, and now Need State Inference have since been added).
+Corrected here rather than left to mislead the next planning pass.
 
 | # | Vision layer | Current status | Current equivalent |
 |---|---|---|---|
@@ -59,27 +59,28 @@ to mislead the next planning pass.
 | 4 | Personal Operating Model | **Not built** | — |
 | 5 | World State | **Built** | `src/state/world_state.py` |
 | 6 | Insight Engine | **Built** | `src/insight/engine.py` -- offline, evidence-gated (`MIN_EVIDENCE_SESSIONS=2`) cross-session theme detection |
-| 7 | Need State Inference | **Not built** | Planner infers priority implicitly; no scored need-state vector exists |
-| 8 | Retrieval | **Built, scoped narrow** | `src/retrieval/engine.py` -- unfiltered surfacing of Learning/Insight output into Judgment, not need-aware selective retrieval (needs #7 first) |
+| 7 | Need State Inference | **Built, deterministic, scoped to 3 needs** | `src/need_state/engine.py::infer_need_state` -- a mechanical classifier (decision / accountability / reflection / general) over already-existing WorldState signals, not a learned or LLM-inferred scored vector. See this doc's Phase 2 note below |
+| 8 | Retrieval | **Built, now need-labeled but still unfiltered** | `src/retrieval/engine.py` -- surfaces the inferred need state as a visible label alongside Learning/Insight output, still NOT filtering which patterns/insights surface (see Phase 2 note) |
 | 9 | Judgement | **Built, single-perspective** | `src/judgment/` — one reasoning pass, not the vision's 5-persona fusion |
 | 10 | Synthesis | **Built, scoped to one call** | Adaptive mode (`src/orchestrator/modes.py`) -- Planner picks whichever of the five lenses fits THIS TURN from its own single call, rather than a separate 5-call-plus-fusion pipeline. Not the vision's independent multi-persona Judgement fusion -- see this doc's Phase 3 note below |
 | 11 | Planning | **Built** | `src/planner/` |
 | 12 | Response | **Built** | `src/response/` |
 
-Ten of twelve layers exist. The two that don't — Personal Operating
-Model, Need State Inference — are exactly the layers that require
-**inventing a scored model** (psychological dimensions, or a need-state
-vector) with no evidence yet to calibrate it against, which this
-codebase has correctly refused to build before real usage existed to
-learn from. Synthesis avoided that trap by being scoped to something
-directly measurable (which of five already-established lenses fits this
-turn) rather than an invented fusion algorithm -- see its own Phase 3
-note below. That refusal on the remaining two is still right today, but
-worth revisiting once real usage exists to learn from (see the Learning
-discussion this document formalizes) -- the user has stated an intent
-to build both next, after Synthesis (see engine/decisions.md
-"Synthesis"), so that evidence-gathering step is imminent, not
-indefinitely deferred.
+Eleven of twelve layers exist. The one that doesn't — Personal
+Operating Model — is the one remaining layer that genuinely requires
+**inventing a scored model** (psychological dimensions scored against
+named frameworks like Self-Determination Theory) with no evidence yet
+to calibrate it against. Need State Inference avoided that trap the same
+way Synthesis did: scoped to a small, closed, mechanically-detectable
+set (decision / accountability / reflection / general) derived from
+signals this codebase already trusts elsewhere (open Decisions,
+stagnation gaps), rather than an invented need-state vector. Personal
+Operating Model doesn't have an equivalent mechanical shortcut available
+-- its very nature is scoring against psychological dimensions that
+don't reduce to structural WorldState signals the way "is this Decision
+open" does. Worth scoping carefully (same two-question confirmation
+pattern as Synthesis/Need State Inference) once attempted, rather than
+guessing at a scoring scheme with nothing to validate it against.
 
 ---
 
@@ -155,15 +156,24 @@ Concretely:
    frontend design work needed beyond wiring it to real data once it
    exists.
 
-### Phase 2 — done for Insight Engine + Retrieval; Need State Inference still open
-Insight Engine (`src/insight/engine.py`) shipped and is now wired live
-via Retrieval (`src/retrieval/engine.py`, `engine/decisions.md`
-"Retrieval"). Need State Inference has not been attempted -- it's the
-one Phase 2 item that requires inventing a scored need-state vector with
-no evidence yet to calibrate it against, the same risk this document
-warns against everywhere else. Until it exists, Retrieval stays
-unfiltered/surface-everything rather than need-aware, by design (see its
-own module docstring).
+### Phase 2 — done: Insight Engine, Retrieval, and Need State Inference
+Insight Engine (`src/insight/engine.py`) shipped and is wired live via
+Retrieval (`src/retrieval/engine.py`, `engine/decisions.md`
+"Retrieval"). Need State Inference shipped too (`src/need_state/engine.py`,
+`engine/decisions.md` "Need State Inference"), but NOT as the vision's
+scored need-state vector -- that would have meant inventing a model with
+no evidence to calibrate it against, the same risk this document warns
+against everywhere else. Instead, a deterministic classifier over
+signals this codebase already trusts (open Decisions, the same
+stagnation-gap arithmetic `compute_stagnation_signals` already uses)
+resolves to one of three concrete needs (`decision`/`accountability`/
+`reflection`) or `general`. Retrieval now surfaces that inferred need as
+a visible label (see its own "Need State Inference" docstring section)
+but still does NOT filter which patterns/insights surface -- Learning's
+`pattern_type`/Insight's `theme` are free text with no validated
+need-taxonomy mapping to filter against, so Retrieval stays
+label-only/unfiltered by design, same "don't invent an unvalidated
+relevance model" discipline as everywhere else in this phase.
 
 ### Phase 3 — done, scoped to a single-call choice rather than a multi-persona fusion pipeline
 Multi-perspective Judgement + Synthesis (the vision's five coaching

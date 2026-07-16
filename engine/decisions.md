@@ -7847,3 +7847,108 @@ reliably chooses a sensible lens turn-to-turn (the one part genuinely
 open to real-model behavior, same category as Realign's earlier
 whack-a-mole) has NOT been checked live -- deferred until explicitly
 requested, per that same standing instruction.
+
+## Need State Inference -- Layer 7, deterministic and scoped to three needs
+
+Third step toward the 12-layer vision, per the user's own stated
+sequencing ("after finishing synthesis, I would want to build need state
+inference and POM anyway"). Unlike Synthesis, this layer genuinely
+cannot be folded into an existing LLM call: the vision's own layer order
+puts Need State Inference BEFORE Retrieval, which feeds Judgment --
+Planner and Judgment both run too late in the per-turn pipeline to make
+the choice in time to affect what Retrieval itself surfaces this turn.
+
+**Process note, for transparency**: two real design forks existed here
+(mechanical classifier vs. a new dedicated LLM call; label-only vs.
+actually filtering Retrieval's output), the same kind this project has
+resolved via a direct question to the user before implementing
+(Retrieval's own scoping conversation, Synthesis's two AskUserQuestion
+forks). `AskUserQuestion` was attempted twice for this round and failed
+both times with a tool-level stream error, not a user response.
+Proceeded on my own best judgment rather than block indefinitely --
+flagged here and in chat plainly, specifically so it's easy to override
+if either choice actually wanted the other option.
+
+**Fork 1, computation -- chosen: deterministic, no new LLM call.** A
+pure function, `infer_need_state(state) -> NeedState`
+(`src/need_state/engine.py`), same trusted "mechanical, not a call"
+category as `compute_stagnation_signals`/`recommend_phase_transition`.
+The alternative (a new dedicated LLM call reasoning over WorldState) is
+the vision's more faithful design, but is exactly the "invent a scored
+model with no evidence to calibrate it against" risk this project's own
+roadmap doc flags for this specific layer, plus it would add a new LLM
+call -- and cost -- to every single turn. `NeedState` is a small, closed
+`Literal["decision", "accountability", "reflection", "general"]`
+(`src/need_state/schema.py`) -- only the three need categories the
+vision doc actually names in its Retrieval discussion ("Decision
+Retrieval, Accountability Retrieval, Reflection Retrieval"), not an
+invented larger taxonomy, plus a `"general"` fallback for when nothing
+fires.
+
+`infer_need_state`'s priority order, each branch grounded in a signal
+this codebase already trusts elsewhere:
+1. `accountability` -- a Goal (status="active") or Decision
+   (status="open") has gone `threshold` (3, same constant as Judgment's
+   own `STAGNATION_TURN_THRESHOLD`, duplicated rather than imported --
+   see below) turns without a status change. Checked FIRST: a stalled
+   item is a more urgent need than a fresh, not-yet-stagnant one, even
+   when both are present in the same turn.
+2. `decision` -- an open Decision exists, not yet stagnant. Mirrors
+   Strategize mode's own criterion.
+3. `reflection` -- at least one Goal with status="active" exists (same
+   "active only, a paused/completed/abandoned item is already accounted
+   for" scoping as `compute_stagnation_signals`), but nothing sharper
+   fired.
+4. `general` -- none of the above; a brand-new Journey correctly infers
+   "general," not a guessed need.
+
+The stagnation-gap arithmetic is intentionally duplicated from
+`compute_stagnation_signals` rather than imported -- same "small utility
+functions deliberately duplicated across modules, not shared" convention
+already established (see `src/orchestrator/modes.py`'s own docstring on
+why Planner's and Response's focus notes aren't merged into one).
+
+**Fork 2, effect on Retrieval -- chosen: label-only, still unfiltered.**
+`src/retrieval/engine.py::build_retrieved_context` gained an optional
+`need_state` parameter -- when meaningfully set (anything but
+`"general"`, which conveys nothing actionable and is deliberately
+omitted, same "omit rather than show a hollow signal" discipline as
+mode focus notes), it prepends a plain, explicit line ("This turn's
+inferred need: decision (an open decision genuinely being weighed).")
+to the same Retrieved Context block, alongside Learning/Insight's
+patterns and insights -- UNCHANGED and still fully unfiltered. The
+alternative (actually filtering or reordering patterns/insights to match
+the inferred need) was rejected: `Pattern.pattern_type`/`Insight.theme`
+are free text with no existing, validated need taxonomy to match
+against reliably -- building that matching logic now would risk
+silently hiding a genuinely relevant pattern on a crude, unvalidated
+heuristic, exactly the kind of invented-with-no-evidence mechanism this
+project has refused everywhere else. Label-only lets Judgment weigh the
+(still-complete) evidence knowing what this turn actually needs, without
+anything being hidden from it.
+
+**Wiring**: `src/api/server.py::send_message` calls
+`infer_need_state(state)` on the PRE-turn `state` (loaded via
+`db.load_state`, before this turn's own Interpretation has run) --
+correct, since Need State Inference has to be ready before Retrieval,
+which itself runs before Judgment even sees this turn's fresh
+Interpretation. Threaded only into `build_retrieved_context`, which
+still feeds Judgment only, same scope as Retrieval itself.
+
+Verified via `pytest` only (390 passed) -- new `tests/test_need_state.py`
+(priority ordering across all four need states, including the
+"stagnant Goal beats a fresh open Decision" and "fresh open Decision
+beats reflection" ordering cases, plus paused-Goal/resolved-Decision
+never counting), extended `tests/test_retrieval.py` (the "general"
+label is omitted even alone; a meaningful need label appears even with
+no patterns/insights to attach it to; the label never filters or hides
+an unrelated pattern/insight), and an end-to-end two-turn
+`tests/test_api_server.py` test (turn 1 establishes a real open Decision
+via a properly-grounded `decision_options` entry -- had to fix the first
+draft, which used ungrounded option text that
+`src/interpretation/engine.py`'s own `_is_option_grounded` anti-
+hallucination filter correctly stripped; turn 2's `call_provider` spy
+confirms "This turn's inferred need: decision" actually reaches
+Judgment's real prompt). **No live LLM dispatch was run for this
+feature** -- deterministic function plus prompt-text wiring, verifiable
+without a real model call, same reasoning as Retrieval and Synthesis.

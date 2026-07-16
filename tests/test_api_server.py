@@ -315,6 +315,49 @@ def test_send_message_omits_retrieved_context_when_nothing_learned_yet(client, m
     assert "Retrieved Context" not in judgment_messages[0]["content"]
 
 
+def test_send_message_threads_inferred_need_state_into_judgment_prompt(client, monkeypatch):
+    """Need State Inference (see engine/decisions.md "Need State
+    Inference", src/need_state/engine.py): once a real open Decision
+    exists in a session's accumulated WorldState, the NEXT turn's
+    infer_need_state(state) call must actually reach Judgment's prompt
+    via Retrieved Context's new label -- not just be computable in
+    isolation (already covered by tests/test_need_state.py)."""
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns({**_minimal_interp("User is weighing the job offer."), "decision_options": ["Take the job offer."]}),
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    # Turn 1: establishes the open Decision in WorldState (judgment mock
+    # is unspied here -- only the SECOND turn's prompt is under test,
+    # since infer_need_state runs on the PRE-turn state loaded before
+    # turn 2 begins). decision_options must be lexically grounded in the
+    # user's own message text -- src/interpretation/engine.py's own
+    # grounding filter (_is_option_grounded) strips any option that
+    # isn't, same anti-hallucination guard as everywhere else in this
+    # codebase.
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT)
+    )
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I have a job offer to weigh."})
+
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    client.post(f"/sessions/{session_id}/messages", json={"content": "Still thinking about it."})
+
+    _, judgment_messages = seen["judgment"]
+    content = judgment_messages[0]["content"]
+    assert "This turn's inferred need: decision" in content
+
+
 def test_send_message_returns_response_text(client, monkeypatch):
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",

@@ -59,6 +59,7 @@ from src.insight.schema import Insight
 from src.instrumentation.usage import UsageTracker
 from src.judgment.schema import Judgment
 from src.learning.engine import Pattern
+from src.need_state.engine import infer_need_state
 from src.orchestrator.engine import run_turn
 from src.orchestrator.modes import MODE_COPY
 from src.planner.schema import Planner
@@ -243,7 +244,13 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
         Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
         for i in db.get_insights()
     ]
-    retrieved_context = build_retrieved_context(patterns, insights)
+    # Need State Inference v1 (see src/need_state/engine.py,
+    # engine/decisions.md "Need State Inference") -- must run on the
+    # PRE-turn `state` (loaded above), since it has to be ready before
+    # Retrieval, which feeds Judgment before this turn's own
+    # Interpretation has even run.
+    need_state = infer_need_state(state)
+    retrieved_context = build_retrieved_context(patterns, insights, need_state=need_state)
 
     result = run_turn(
         body.content, state, tracker=tracker, session_id=session_id,
