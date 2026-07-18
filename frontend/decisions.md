@@ -565,3 +565,27 @@ session, confirmed the failure message itself renders correctly in the
 new visual language), and Settings' danger-red delete-confirm state.
 No backend/Python code touched this round -- `pytest` untouched by this
 change, not re-run.
+
+## Settings -- organizing pass (2026-07-18)
+
+Direct founder feedback: "the settings screen is messy and needs
+organizing." Previously the three sections (Privacy/Account/Data) were
+loose, unbordered paragraphs running directly into each other with only
+an uppercase `.ui-label` to distinguish them -- no card, no shadow, no
+spacing device beyond a bottom margin. Now each section is its own
+`.card`, with a small color-coded marker dot next to its label (same
+scannability device ModeSelect already established for its six modes --
+periwinkle for Privacy, sage for Account, coral for Data), so the three
+sections read as three distinct things at a glance rather than one
+continuous block of text.
+
+Dropped one incidental addition (a `transition:fade` on Data's journey
+rows) after it broke `Settings.test.js`'s removal test --
+`queryByText(...)` after confirming a delete kept finding the row,
+because jsdom's `Element.animate()` polyfill (see the polyfill's own
+comment in `src/tests/setup.js`) doesn't reliably signal outro-
+transition completion the way Svelte's real DOM implementation does, so
+the node never actually left the DOM within the test's wait window.
+Not worth extending the polyfill for one minor list-item fade -- reverted
+that one transition, kept everything else. Full suite green after (31
+passed); `npm run build` green; live-verified via Playwright screenshot.

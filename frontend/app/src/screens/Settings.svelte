@@ -11,7 +11,16 @@
   // dialog, matching this app's own calm, custom-styled aesthetic
   // rather than a browser chrome interruption. Irreversible, same as
   // the backend's own delete_session -- no undo exists yet.
+  //
+  // Warm & Alive redesign, organizing pass (2026-07-18, see
+  // frontend/decisions.md): the three sections previously ran together
+  // as loose, unbordered paragraphs -- "messy," per direct founder
+  // feedback. Now each is its own card with a small color-coded marker
+  // dot, same scannability device ModeSelect already established for
+  // its six modes, so a person can tell the three sections apart at a
+  // glance rather than reading every label.
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { listSessions, deleteSession } from '../lib/api.js';
 
   let { onBack } = $props();
@@ -41,20 +50,31 @@
 <div class="settings">
   <button type="button" class="back" onclick={onBack}>&larr; Home</button>
 
-  <section>
-    <p class="ui-label">Privacy</p>
-    <p>Controls for what Confidant remembers and how it's used.</p>
+  <p class="display">Settings</p>
+
+  <section class="card setting-section">
+    <div class="setting-heading">
+      <span class="dot" style="--dot-tint: var(--accent-2)"></span>
+      <p class="ui-label">Privacy</p>
+    </div>
+    <p class="setting-body">Controls for what Confidant remembers and how it's used.</p>
   </section>
 
-  <section>
-    <p class="ui-label">Account</p>
-    <p>Basic account details.</p>
+  <section class="card setting-section">
+    <div class="setting-heading">
+      <span class="dot" style="--dot-tint: var(--accent-3)"></span>
+      <p class="ui-label">Account</p>
+    </div>
+    <p class="setting-body">Basic account details.</p>
   </section>
 
-  <section>
-    <p class="ui-label">Data</p>
+  <section class="card setting-section">
+    <div class="setting-heading">
+      <span class="dot" style="--dot-tint: var(--accent)"></span>
+      <p class="ui-label">Data</p>
+    </div>
     {#if sessions.length === 0}
-      <p>Nothing shared here yet.</p>
+      <p class="setting-body">Nothing shared here yet.</p>
     {:else}
       <ul class="journey-list">
         {#each sessions as session (session.id)}
@@ -86,12 +106,32 @@
     margin-bottom: var(--space-3);
   }
 
-  section {
-    margin-bottom: var(--space-3);
+  .display {
+    margin: 0 0 var(--space-4);
   }
 
-  section p:last-child {
+  .setting-section {
+    padding: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .setting-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--dot-tint);
+    flex-shrink: 0;
+  }
+
+  .setting-body {
     color: var(--ink-muted);
+    margin: var(--space-1) 0 0;
   }
 
   .journey-list {
@@ -115,6 +155,7 @@
 
   .preview {
     font-family: var(--font-body);
+    color: var(--ink);
   }
 
   .link-button {
