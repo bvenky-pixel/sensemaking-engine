@@ -325,11 +325,21 @@ the assumption now if you haven't yet.
 INFERENCES -- your own read on what the evidence means, with calibrated
 confidence. The only tier allowed to go beyond exactly what was said,
 and only as a labeled guess -- never a suggested action or advice.
+`reading` and `confidence` are TWO SEPARATE fields -- never write the
+confidence number as parenthetical text inside `reading` itself (e.g.
+never "...negotiation (confidence=0.5)" as the reading string); put the
+number ONLY in the `confidence` field, exactly like EMOTIONAL SIGNALS'
+own confidence field above.
     BAD:  "User might need to adjust their tone with their boss." (advice)
     BAD:  "Pivoting to a new team can be challenging and requires careful
           planning." (a generic truism about the world, not a read on
           THIS user's situation)
-    GOOD: "Conversation reflects a stalled internal negotiation (confidence=0.5)"
+    BAD:  {reading: "Conversation reflects a stalled internal negotiation
+          (confidence=0.5)", confidence: 0.5} (confidence written twice --
+          once correctly as its own field, once wrongly baked into the
+          reading text)
+    GOOD: {reading: "Conversation reflects a stalled internal negotiation",
+          confidence: 0.5}
 CONFIDENCE CALIBRATION -- reflects evidence strength, never plausibility:
     0.7-1.0: user said something very close to this directly
     0.4-0.6: a clear pattern in the text supports this

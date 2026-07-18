@@ -8919,3 +8919,58 @@ the entire failure class, exactly as predicted. This entry is now
 closed -- both the original verbatim-phrase problem and this round's
 model-arithmetic-unreliability problem are confirmed fixed against the
 actual current production model mix.
+
+## Interpretation prompt: fix the ambiguous inference confidence example (2026-07-18)
+
+Founder asked why some turns were failing in the live re-verification
+runs above (both dispatches had exactly 1 of 11 turns lose their entire
+Interpretation call to `schema_validation_failed`). Root-caused rather
+than papered over with a retry: the actual Pydantic error was
+
+    inferences.0.confidence
+      Field required [type=missing, input_value={'reading': "Sarah's prom...tures (confidence=0.3)"}, ...]
+
+Qwen3-32B (now Interpretation's primary model) wrote the confidence
+number as parenthetical text INSIDE the `reading` string and left the
+real, separate `confidence` field empty entirely. Traced to
+`src/interpretation/prompt.py`'s own INFERENCES section: its one GOOD
+example read `"Conversation reflects a stalled internal negotiation
+(confidence=0.5)"` -- a bare quoted string with the confidence value
+baked into the text, unlike EMOTIONAL SIGNALS' own example a few lines
+above, which correctly shows `{emotion: ..., confidence: ..., ...}` as
+separate object fields. `src/state/builder.py` already has a defensive
+`_clean_reading()` mitigation for the MILDER version of this failure
+(a model that fills BOTH the real field AND embeds it in the text,
+producing cosmetic duplication like "...(confidence=0.5) (confidence=0.50)")
+-- see that function's own comment, dated from an earlier gpt-4o-mini-era
+finding -- but that mitigation runs AFTER Pydantic validation succeeds,
+so it never gets a chance to run when a model omits the real field
+outright, which is the harder failure this round hit.
+
+**Considered and declined**: extending the model-fallback chain (added
+this same day, see "primary/fallback chain" entry above) to also retry
+on `ValidationError`, not just `ProviderCallError` -- would have masked
+the actual defect behind a second model's guess rather than fixing the
+prompt ambiguity that caused it, and would have required duplicating a
+model-retry loop into all 6 engine.py files that currently each have
+their own single-provider loop. Fixing the example directly is smaller,
+fixes the root cause for every model (not just papers over Qwen3-32B's
+specific behavior), and costs nothing per turn.
+
+**Fix**: rewrote the INFERENCES section's example to explicitly state
+`reading` and `confidence` are two separate fields, added a BAD example
+showing the exact failure mode (confidence written twice -- once
+correctly as a field, once wrongly baked into the reading text) named
+explicitly, and changed the GOOD example to the same object-literal
+notation EMOTIONAL SIGNALS already uses (`{reading: "...", confidence: 0.5}`)
+instead of a bare quoted string with the number embedded in it.
+
+New `tests/test_interpretation_prompt.py` (first test file for this
+prompt): confirms the old ambiguous bare-string GOOD example is gone,
+and the new object-literal example with the "two separate fields"
+warning is present. Full suite: `pytest` 479 passed (477 + 2 new). Not
+yet re-verified live -- worth a future dispatch to confirm Qwen3-32B
+actually stops making this specific mistake, but the fix targets the
+prompt's own documented root cause directly rather than an unconfirmed
+guess, so shipping it doesn't require a live check first the way a
+behavior-shaping change would.
