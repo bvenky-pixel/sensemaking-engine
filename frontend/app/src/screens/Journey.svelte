@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { getMessages, sendMessage, getClarityBrief, getUnderstanding, openStageStream } from '../lib/api.js';
+  import { getMessages, sendMessage, getClarityBrief, getUnderstanding, openStageStream, deleteSession } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
   import Transcript from '../components/Transcript.svelte';
@@ -60,6 +60,8 @@
   // is all the presentational component needs.
   let pulseCount = $state(0);
   let stageLabel = $state('');
+  let pendingDelete = $state(false);
+  let deleting = $state(false);
 
   async function refreshBrief() {
     const previous = brief;
@@ -127,6 +129,33 @@
       closeStream();
     }
   }
+
+  // Delete a Journey, from the Journey itself (2026-07-18, see
+  // frontend/decisions.md): moved here from Settings' own Data section
+  // per direct founder feedback -- a person deciding to delete a
+  // Journey is looking at that Journey, not digging through Settings
+  // to find it again in a second, duplicate list. Same two-step-confirm
+  // pattern Settings' Data section (and now Privacy's own "Forget
+  // everything") already established, using the same shared
+  // .link-button/.confirm recipe (now in tokens.css). Navigates back to
+  // Home on success -- there's nothing left here to show.
+  function askToDelete() {
+    pendingDelete = true;
+  }
+
+  function cancelDelete() {
+    pendingDelete = false;
+  }
+
+  async function confirmDelete() {
+    deleting = true;
+    try {
+      await deleteSession(sessionId);
+      onBack();
+    } finally {
+      deleting = false;
+    }
+  }
 </script>
 
 <div class="journey">
@@ -155,6 +184,22 @@
   <Composer disabled={sending} onSend={handleSend} />
 
   <Understanding {brief} {tier2} {deepeningClarityNote} />
+
+  <div class="journey-footer">
+    {#if pendingDelete}
+      <span class="confirm">
+        <span class="voice">Delete this Journey for good? This can't be undone.</span>
+        <button type="button" class="link-button danger" onclick={confirmDelete} disabled={deleting}>
+          {deleting ? 'Deleting…' : 'Yes, delete it'}
+        </button>
+        <button type="button" class="link-button" onclick={cancelDelete}>Cancel</button>
+      </span>
+    {:else}
+      <button type="button" class="link-button danger" onclick={askToDelete}>
+        Delete this Journey
+      </button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -208,6 +253,16 @@
     font-size: 15px;
     color: var(--ink-muted);
     margin: 0;
+  }
+
+  /* Delete a Journey, from the Journey itself (see script comment) --
+     tucked at the very bottom, past Understanding, same "destructive
+     action stays out of the way of the actual conversation" placement
+     Settings gives its own Privacy actions. */
+  .journey-footer {
+    margin-top: var(--space-4);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see

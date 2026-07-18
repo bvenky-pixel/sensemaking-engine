@@ -256,6 +256,48 @@ button:disabled {
   box-shadow: none;
 }
 
+/* Shared "quiet destructive/secondary action" recipe (2026-07-18, see
+   frontend/decisions.md "Delete a Journey, from the Journey itself") --
+   promoted here from Settings.svelte, the only place it existed until
+   Journey.svelte needed the identical two-step-confirm pattern too.
+   Same "more than one deliberate identical use warrants sharing, not
+   premature abstraction" threshold this file's own .card/.btn-primary
+   comments already established. */
+.link-button {
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.link-button.danger {
+  color: var(--danger);
+}
+
+.confirm {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  /* min-width: 0 overrides flex items' default min-width: auto -- a
+     real bug caught live in Settings' own Privacy confirm (see
+     frontend/decisions.md "Privacy, made real -- frontend"): without
+     it, a flex item won't wrap its own text below its max-content
+     width, which is exactly wide enough to overflow a narrow card for
+     a full sentence like a delete-confirm message. */
+  min-width: 0;
+}
+
+.confirm .voice {
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
 textarea,
 input[type='text'] {
   font-family: var(--font-body);

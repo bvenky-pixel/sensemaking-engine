@@ -963,3 +963,66 @@ download (`page.expect_download()`, confirmed the JSON's `world_state`
 field is a real parsed object, not an escaped string) and the real
 reset (confirmed the Data section correctly falls back to "Nothing
 shared here yet." afterward) end to end against the actual backend.
+
+## Delete a Journey, from the Journey itself (2026-07-18)
+
+Direct founder instruction: "move the function to delete individual
+journeys to the journey screen rather than settings." Settings' Data
+section had exactly one function -- per-Journey delete -- rendered as
+a second, action-augmented copy of the same journey list Home already
+shows. That's the wrong place for it: a person deciding to delete a
+Journey is looking at that Journey, not navigating away to a settings
+screen to find it again in a duplicate list.
+
+**Journey.svelte** gains a `.journey-footer` at the very bottom of the
+screen (past `Understanding`, same "destructive action stays out of
+the way of the actual conversation" placement Settings already used
+for its own Privacy actions) -- same two-step-confirm pattern as
+everywhere else in this app (`askToDelete`/`cancelDelete`/
+`confirmDelete`), calling `onBack()` on success since there's nothing
+left on screen once the Journey is gone. `App.svelte`'s `onBack` is
+already `goHome`, so this lands the person on Home, whose own
+`listSessions()` refresh already shows the correct, updated list with
+no extra plumbing needed.
+
+**Settings' Data section is removed entirely**, not just its delete
+button -- with deletion gone, a read-only duplicate of Home's own
+journey list had no remaining content of its own (Privacy's export/
+reset already cover "everything at once"). `information-architecture-v1.md`'s
+three-named-sections framing is now two real ones (Privacy, Account),
+not three where one is a hollow shell.
+
+**`.link-button`/`.link-button.danger`/`.confirm`/`.confirm .voice`
+promoted from Settings.svelte's own scoped styles into `tokens.css`**
+-- the exact "more than one deliberate identical use warrants sharing,
+not premature abstraction" threshold this file's own `.card`/
+`.btn-primary` comments already established, now that Journey needs
+the identical two-step-confirm recipe Settings/Privacy already use.
+Carries forward the `min-width: 0` fix from the Privacy confirm
+overflow bug earlier this round, so Journey's own (longer) delete
+confirm message ("Delete this Journey for good? This can't be undone."
++ two buttons) wraps correctly from the start rather than needing the
+same bug caught twice.
+
+New `Journey.test.js` -- the first dedicated test file for
+Journey.svelte, scoped to the delete action specifically (two-step
+confirm does nothing on Cancel; confirms call `deleteSession` and
+`onBack`). Writing it surfaced a real, previously-latent gap in
+`tests/setup.js`: jsdom has no `window.matchMedia` at all, and no
+existing test file had ever actually rendered `BreathingOrb` or
+`AmbientPresence` (Home has no dedicated test file yet; ModeSelect
+never renders an orb) to hit it. Fixed with a minimal polyfill,
+`matches: false`, same "jsdom's own known gap, not a real bug"
+category as the existing `Element.prototype.animate` polyfill right
+above it.
+
+Verified: `npm test` (33 passed -- 5 Data-section tests removed from
+`Settings.test.js`, 1 new export test added there, 2 new tests in
+`Journey.test.js`), `npm run build` green, full `pytest` unaffected
+(436 passed, no backend touched this round). Live verification against
+a real served build with two seeded Journeys (`src.api.db`, no LLM
+calls): confirmed Settings now shows only Privacy/Account,
+screenshotted Journey's new delete action in both states (default and
+mid-confirm, confirming the wrap fix holds), and confirmed the full
+delete-and-return-home flow end to end -- the deleted Journey is gone,
+the other one remains, on Home.

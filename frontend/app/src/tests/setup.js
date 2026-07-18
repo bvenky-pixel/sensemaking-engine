@@ -30,3 +30,26 @@ if (typeof Element !== 'undefined' && !Element.prototype.animate) {
     };
   };
 }
+
+// jsdom doesn't implement window.matchMedia at all -- BreathingOrb.svelte
+// and AmbientPresence.svelte both call it directly (via
+// src/lib/motionPreference.js::prefersReducedMotion) to read the OS-level
+// reduced-motion preference. Never surfaced before Journey.test.js (the
+// first test file to actually render either component -- Home has no
+// dedicated test file yet, and ModeSelect never renders an orb), same
+// "jsdom's own known gap, not a real bug" category as the animate()
+// polyfill above. `matches: false` -- tests don't need to simulate an
+// actual reduced-motion OS setting, just a real function that returns
+// the standard MediaQueryList shape instead of throwing.
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
