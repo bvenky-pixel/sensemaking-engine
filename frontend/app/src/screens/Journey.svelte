@@ -20,6 +20,7 @@
   import BreathingOrb from '../components/BreathingOrb.svelte';
   import Understanding from '../components/Understanding.svelte';
   import LoginGate from '../components/LoginGate.svelte';
+  import { authState } from '../lib/auth.svelte.js';
 
   // Major update (2026-07-11, see engine/decisions.md): a visible opening
   // prompt for a brand-new Journey, distinct from Composer's own
@@ -84,6 +85,13 @@
   // rather than disabling it silently -- the whole point of the limit
   // is to ask for a login, not to just stop working.
   let responseLimitReached = $state(false);
+  // Bookmark/delete require login too (2026-07-18, direct founder
+  // follow-up): the overflow menu shows a "log in" prompt instead of
+  // the two actions themselves when signed out, and this flips on when
+  // that prompt is tapped -- rendered as its own small card rather than
+  // replacing the Composer, since being signed out doesn't stop the
+  // conversation itself, only these two actions.
+  let showActionsLoginGate = $state(false);
 
   async function refreshBrief() {
     const previous = brief;
@@ -191,6 +199,11 @@
     pendingDelete = false;
   }
 
+  function openActionsLoginGate() {
+    showActionsLoginGate = true;
+    closeMenu();
+  }
+
   async function toggleBookmark() {
     togglingBookmark = true;
     const next = !bookmarked;
@@ -284,7 +297,12 @@
       </button>
       {#if menuOpen}
         <div class="journey-menu" role="menu">
-          {#if pendingDelete}
+          {#if !authState.authenticated}
+            <p class="voice menu-confirm">Log in to bookmark or delete Journeys.</p>
+            <button type="button" class="link-button menu-item" onclick={openActionsLoginGate}>
+              Log in
+            </button>
+          {:else if pendingDelete}
             <p class="voice menu-confirm">Delete this Journey for good? This can't be undone.</p>
             <button type="button" class="link-button danger menu-item" onclick={confirmDelete} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Yes, delete it'}
@@ -302,6 +320,12 @@
       {/if}
     </div>
   </div>
+
+  {#if showActionsLoginGate}
+    <div class="actions-gate card" in:fade={{ duration: 220 }}>
+      <LoginGate message="Log in to bookmark or delete this Journey." />
+    </div>
+  {/if}
 
   <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
@@ -408,6 +432,15 @@
      spot in the layout rather than appearing as an unrelated overlay. */
   .limit-gate {
     margin-top: var(--space-4);
+    padding: var(--space-3);
+  }
+
+  /* Bookmark/delete login gate (see script comment on
+     showActionsLoginGate) -- sits right below the header, above the
+     transcript, since it's prompted by the overflow menu right there;
+     unlike .limit-gate it doesn't replace anything else on screen. */
+  .actions-gate {
+    margin-bottom: var(--space-3);
     padding: var(--space-3);
   }
 

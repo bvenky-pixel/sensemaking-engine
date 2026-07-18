@@ -672,9 +672,13 @@ def test_anonymous_visitors_do_not_see_each_others_journeys(client, monkeypatch)
 
 
 def test_anonymous_session_owner_cannot_be_impersonated_by_a_guessed_id(client, monkeypatch):
-    """A session_id belonging to a different anonymous visitor 404s
-    (never 403) for every session-scoped action -- existence and
-    ownership are indistinguishable from the outside."""
+    """A session_id belonging to a different visitor 404s (never 403)
+    for every session-scoped action -- existence and ownership are
+    indistinguishable from the outside. `other_browser` logs in as a
+    DIFFERENT account (bookmark/delete are login-required actions in
+    their own right -- see test_bookmark_and_delete_require_login below
+    -- so proving ownership isolation specifically needs a signed-in
+    stranger, not just an anonymous one)."""
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
@@ -683,11 +687,39 @@ def test_anonymous_session_owner_cannot_be_impersonated_by_a_guessed_id(client, 
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
 
     with TestClient(server.app) as other_browser:
+        _login(other_browser, email="stranger@example.com")
         assert other_browser.post(f"/sessions/{session_id}/bookmark", json={"bookmarked": True}).status_code == 404
         assert other_browser.delete(f"/sessions/{session_id}").status_code == 404
         assert other_browser.post(
             f"/sessions/{session_id}/messages", json={"content": "hi"}
         ).status_code == 404
+
+
+def test_bookmark_and_delete_require_login(client, monkeypatch):
+    """Direct founder follow-up: bookmark and delete are login-required
+    actions too, not just Settings/Privacy and the response cap --
+    an anonymous caller (no _login here) is turned away before
+    ownership is even checked, same `login_required` gate Settings
+    uses. Reading the current bookmark state is deliberately NOT
+    gated this way (see get_bookmark's own docstring) -- only the
+    write/delete actions are."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    bookmark_res = client.post(f"/sessions/{session_id}/bookmark", json={"bookmarked": True})
+    assert bookmark_res.status_code == 401
+    assert bookmark_res.json()["detail"] == "login_required"
+
+    delete_res = client.delete(f"/sessions/{session_id}")
+    assert delete_res.status_code == 401
+    assert delete_res.json()["detail"] == "login_required"
+
+    # The read is unaffected -- still works anonymously.
+    assert client.get(f"/sessions/{session_id}/bookmark").status_code == 200
 
 
 def test_request_magic_link_always_reports_sent_regardless_of_email(client):
@@ -816,6 +848,7 @@ def test_bookmark_toggle_persists_and_filters(client):
     a session must both persist across a fresh GET /sessions call and
     correctly filter when bookmarked_only=true, without pulling in an
     unbookmarked session."""
+    _login(client)
     session_a = client.post("/sessions").json()["id"]
     session_b = client.post("/sessions").json()["id"]
     # Only populated after a real message is shared -- both need one to
@@ -846,6 +879,7 @@ def test_bookmark_toggle_persists_and_filters(client):
 
 
 def test_bookmark_unknown_session_returns_404(client):
+    _login(client)
     res = client.post("/sessions/does-not-exist/bookmark", json={"bookmarked": True})
     assert res.status_code == 404
 
@@ -863,6 +897,7 @@ def test_get_bookmark_defaults_to_false_for_a_new_session(client):
 
 
 def test_get_bookmark_reflects_a_prior_set(client):
+    _login(client)
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/bookmark", json={"bookmarked": True})
 
@@ -882,6 +917,7 @@ def test_delete_session_removes_it_from_the_list(client, monkeypatch):
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
+    _login(client)
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
 
@@ -897,6 +933,7 @@ def test_delete_session_does_not_affect_other_sessions(client, monkeypatch):
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
+    _login(client)
     session_a = client.post("/sessions").json()["id"]
     session_b = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_a}/messages", json={"content": "I want to move teams."})
@@ -912,6 +949,7 @@ def test_delete_session_does_not_affect_other_sessions(client, monkeypatch):
 
 
 def test_delete_unknown_session_returns_404(client):
+    _login(client)
     res = client.delete("/sessions/does-not-exist")
     assert res.status_code == 404
 

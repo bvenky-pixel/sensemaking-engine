@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import Journey from '../screens/Journey.svelte';
 import * as api from '../lib/api.js';
+import { authState } from '../lib/auth.svelte.js';
 
 // Tuck destructive/secondary Journey actions behind an overflow menu
 // (2026-07-18, see frontend/decisions.md): delete moved to Journey.svelte
@@ -28,6 +29,10 @@ vi.mock('../lib/api.js', async (importOriginal) => {
     getBookmark: vi.fn(),
     setBookmark: vi.fn(),
     ApiError: actual.ApiError,
+    getAuthStatus: vi.fn(),
+    requestMagicLink: vi.fn(),
+    verifyMagicLink: vi.fn(),
+    logout: vi.fn(),
   };
 });
 
@@ -39,6 +44,13 @@ describe('Journey overflow menu', () => {
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.openStageStream.mockReturnValue(vi.fn());
+    // Bookmark/delete require login (2026-07-18, see
+    // frontend/decisions.md) -- every test below exercises the
+    // signed-in menu; the new describe block further down covers the
+    // signed-out login prompt itself.
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
   });
 
   it('does not show any actions until the menu is opened', async () => {
@@ -236,5 +248,52 @@ describe('Journey: response limit reached', () => {
     // the message the person actually typed.
     expect(getByText('One more thing.')).toBeTruthy();
     expect(getByText('Share this')).toBeTruthy();
+  });
+});
+
+// Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
+// direct founder follow-up -- bookmark and delete are login-required
+// actions too, not just Settings/Privacy and the response cap.
+describe('Journey overflow menu: signed out', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getMessages.mockResolvedValue([]);
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.openStageStream.mockReturnValue(vi.fn());
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+  });
+
+  it('shows a login prompt instead of Bookmark/Delete', async () => {
+    const { getByLabelText, getByText, queryByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    const trigger = await waitFor(() => getByLabelText('Journey options'));
+    await fireEvent.click(trigger);
+
+    expect(getByText('Log in to bookmark or delete Journeys.')).toBeTruthy();
+    expect(queryByText('Delete this Journey')).toBeNull();
+    expect(queryByText('☆ Bookmark this Journey')).toBeNull();
+  });
+
+  it('opens the shared login gate below the header when tapped, and never calls the API', async () => {
+    const { getByLabelText, getByText, getByPlaceholderText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await fireEvent.click(await waitFor(() => getByLabelText('Journey options')));
+    await fireEvent.click(getByText('Log in'));
+
+    await waitFor(() => getByText('Log in to bookmark or delete this Journey.'));
+    await fireEvent.input(getByPlaceholderText('you@example.com'), { target: { value: 'me@example.com' } });
+    await fireEvent.click(getByText('Send me a login link'));
+
+    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com'));
+    expect(api.setBookmark).not.toHaveBeenCalled();
+    expect(api.deleteSession).not.toHaveBeenCalled();
   });
 });

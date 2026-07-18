@@ -1329,3 +1329,56 @@ new account and unlocked Settings with the real signed-in email;
 logging out re-gated Settings; and a separately-seeded 10-message
 anonymous Journey correctly blocked an 11th send with the login
 prompt, with the unsent message never appearing in the transcript.
+
+## Bookmark and delete require login too (2026-07-18)
+
+Direct founder follow-up right after the auth layer shipped: "do not
+allow delete and bookmark journey functions without login either."
+Both had shipped usable anonymously in the first auth round -- correct
+per the original brief ("chat available without login"), but the
+founder wants these two specifically pulled behind the same gate as
+Settings/Privacy and the response cap, not left open.
+
+**Journey's overflow menu**: when signed out, the menu shows "Log in
+to bookmark or delete Journeys." with a single "Log in" item instead
+of the two actions themselves -- not a disabled/greyed-out version of
+them, an actual replacement, matching "do not allow" literally. Tapping
+it opens the same shared `LoginGate` as a small card between the
+header and the transcript (not replacing the Composer the way the
+response-limit gate does -- being signed out doesn't stop the
+conversation itself, only these two actions).
+
+**Home's per-row bookmark star**: same treatment -- tapping it while
+signed out shows a `LoginGate` card near the top of Home instead of a
+doomed API call. Reading a Journey's current bookmark state (the GET,
+both here and in Journey's own onMount) stays unauthenticated on
+purpose -- only the WRITE actions are gated (see
+engine/decisions.md's matching note on the backend side).
+
+**A "Log in" link at the bottom of Home, in line with Settings**
+(direct founder ask): only rendered once `authState.checked` is true
+and `!authState.authenticated` -- a person who just wants to log in
+doesn't have to detour through Settings' own gate first to find where.
+Disappears the moment `authState.authenticated` flips true (no need
+for a redundant control once signed in -- Settings' own Account
+section already has Log out).
+
+Verified: 3 new backend tests (`tests/test_api_server.py`) -- an
+anonymous caller gets `401 login_required` from both POST bookmark and
+DELETE, and the GET read is unaffected; updated the ownership-isolation
+test so the "stranger" browser logs in first (bookmark/delete now 401
+before ownership is even checked for an anonymous caller, so proving
+ownership isolation specifically needs a signed-in stranger). 6
+existing tests updated to log in first, now that they exercise a
+genuinely login-required action. Frontend: 2 new tests in
+`Journey.test.js` (signed-out menu copy; tapping "Log in" opens the
+gate and never calls setBookmark/deleteSession) and 3 new tests in
+`Home.test.js` (Log in link visibility toggles with auth state; tapping
+the star while signed out shows the gate and never calls setBookmark;
+tapping it while signed in actually calls setBookmark). Full suite:
+`pytest` 452 passed, `npm test` 64 passed, `npm run build` green. Live
+Playwright verification against a real served build (same seeded
+anonymous Journey as the auth round): Home showed both "SETTINGS" and
+"LOG IN" side by side at the bottom; tapping the star showed "Log in to
+bookmark Journeys."; opening the Journey and tapping "•••" showed "Log
+in to bookmark or delete Journeys." in place of the two actions.

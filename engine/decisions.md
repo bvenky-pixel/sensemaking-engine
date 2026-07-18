@@ -8352,3 +8352,38 @@ different "anonymous visitors" that can't see each other's session;
 switched it to one shared `httpx.Client()` so the anon cookie the
 first call mints actually carries across the stream-open and the
 POST, same as a real browser tab would. Full suite: 451 passed.
+
+## Bookmark and delete now require login too (2026-07-18)
+
+Direct founder follow-up right after auth shipped: "do not allow
+delete and bookmark journey functions without login either." Both
+endpoints (`POST /sessions/{id}/bookmark`, `DELETE /sessions/{id}`)
+now additionally depend on `require_user`, alongside the existing
+`_require_owned_session` ownership check -- an anonymous caller gets
+turned away with `401 login_required` before ownership is even
+evaluated. `GET /sessions/{id}/bookmark` (the read) deliberately stays
+unauthenticated -- gating a read that Journey.svelte's own onMount
+depends on for every visitor would break rendering the toggle's
+current state for someone who isn't logged in yet, which is a
+different concern from gating the ACTION of changing it.
+
+Real ripple, fixed rather than routed around: `require_user` raises
+its 401 during FastAPI's own dependency resolution, before the route
+body (and its `_require_owned_session` call) ever runs. This means an
+anonymous caller hitting either endpoint with an unknown/nonexistent
+session_id now correctly gets 401 first, not 404 -- there's nothing
+left to check existence of until someone's actually logged in. Updated
+`test_bookmark_unknown_session_returns_404`/`test_delete_unknown_session_returns_404`
+to log in first (so they test what they're named for: a real,
+logged-in caller hitting an unknown id), and
+`test_anonymous_session_owner_cannot_be_impersonated_by_a_guessed_id`'s
+"other_browser" now logs in as a genuinely different account before
+asserting 404 -- proving ownership isolation specifically now needs a
+signed-in stranger, since an anonymous one would 401 before ownership
+is even the question. New direct regression test:
+`test_bookmark_and_delete_require_login`, covering the 401 on both
+endpoints for an anonymous caller and confirming the GET read is
+unaffected.
+
+Verified: full suite 452 passed (451 + 1 new; 6 existing tests updated
+to log in first rather than net-new).

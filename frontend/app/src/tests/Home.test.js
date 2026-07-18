@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import Home from '../screens/Home.svelte';
 import * as api from '../lib/api.js';
+import { authState } from '../lib/auth.svelte.js';
 
 // Home: time period + mode filtering (2026-07-18, see
 // frontend/decisions.md) -- the first dedicated test file for
@@ -9,11 +10,19 @@ import * as api from '../lib/api.js';
 // toggle + counts, mode filter chips, the two composing and resetting
 // correctly on period change). Mocking lib/api.js (rather than fetch)
 // matches every other screen test's own boundary.
+//
+// Auth, the low-friction way (2026-07-18): getAuthStatus/requestMagicLink/
+// verifyMagicLink/logout are mocked too since lib/auth.svelte.js (which
+// Home now imports) calls them.
 vi.mock('../lib/api.js', () => ({
   listSessions: vi.fn(),
   setBookmark: vi.fn(),
   createSession: vi.fn(),
   getModes: vi.fn(),
+  getAuthStatus: vi.fn(),
+  requestMagicLink: vi.fn(),
+  verifyMagicLink: vi.fn(),
+  logout: vi.fn(),
 }));
 
 const MODES = [
@@ -46,6 +55,13 @@ describe('Home: time period + mode filtering', () => {
     vi.setSystemTime(NOW);
     vi.clearAllMocks();
     api.getModes.mockResolvedValue(MODES);
+    // None of the filtering tests below care about auth state --
+    // signed-out is the default a fresh visitor actually gets. See the
+    // dedicated "Home: bookmark requires login" describe block further
+    // down for the login-gating behavior itself.
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
   });
 
   afterEach(() => {
@@ -165,5 +181,74 @@ describe('Home: time period + mode filtering', () => {
 
     const modelessCard = getByText('Old journey').closest('button.journey-card');
     expect(modelessCard.getAttribute('style') ?? '').not.toContain('--mode-tint');
+  });
+});
+
+// Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
+// direct founder follow-up -- bookmarking is a login-required action,
+// and a "Log in" link sits at the bottom of Home "in line with
+// Settings" so a person doesn't have to detour through Settings first
+// to find where to log in.
+describe('Home: bookmark requires login, and a Log in link at the bottom', () => {
+  const ONE_SESSION = [
+    { id: 's1', preview_text: 'A single journey', updated_at: '2026-07-15T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: null },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.clearAllMocks();
+    api.getModes.mockResolvedValue(MODES);
+    api.listSessions.mockResolvedValue(ONE_SESSION);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows a Log in link at the bottom when signed out, and none when signed in', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    const { getByText, queryByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText('Settings'));
+    expect(getByText('Log in')).toBeTruthy();
+
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+    await waitFor(() => expect(queryByText('Log in')).toBeNull());
+  });
+
+  it('shows a login prompt instead of toggling the bookmark when signed out', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    const { getByLabelText, getByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    const star = await waitFor(() => getByLabelText('Bookmark this Journey'));
+    await fireEvent.click(star);
+
+    await waitFor(() => getByText('Log in to bookmark Journeys.'));
+    expect(api.setBookmark).not.toHaveBeenCalled();
+  });
+
+  it('actually toggles the bookmark when signed in', async () => {
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+    api.setBookmark.mockResolvedValue({ bookmarked: true });
+    const { getByLabelText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    const star = await waitFor(() => getByLabelText('Bookmark this Journey'));
+    await fireEvent.click(star);
+
+    await waitFor(() => expect(api.setBookmark).toHaveBeenCalledWith('s1', true));
   });
 });

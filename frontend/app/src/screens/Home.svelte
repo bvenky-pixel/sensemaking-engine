@@ -70,18 +70,31 @@
   // toggle -- off (the default) already means "show everything the
   // period/mode filters allow", so a redundant explicit "All" had
   // nothing left to mean.
+  //
+  // Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
+  // bookmarking is a login-required action now, same as delete in
+  // Journey's own overflow menu -- direct founder follow-up. Tapping a
+  // journey card's star while signed out shows the same shared
+  // LoginGate instead of a doomed API call. A "Log in" link also sits
+  // at the bottom of Home now, "in line with Settings" (direct founder
+  // ask) -- Settings' own gate already gets someone there eventually,
+  // but a person who just wants to log in shouldn't have to detour
+  // through Settings first to find where.
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { listSessions, setBookmark, createSession, getModes } from '../lib/api.js';
   import BreathingOrb from '../components/BreathingOrb.svelte';
   import ZenQuote from '../components/ZenQuote.svelte';
   import ModePicker from '../components/ModePicker.svelte';
+  import LoginGate from '../components/LoginGate.svelte';
+  import { authState } from '../lib/auth.svelte.js';
   import { tintFor } from '../lib/modeTints.js';
 
   let { onOpen, onSettings, onBeginNew } = $props();
 
   let sessions = $state([]);
   let showBookmarkedOnly = $state(false);
+  let showLoginGate = $state(false);
   // Guards against a one-frame flash of the hero (orb + mode picker)
   // before the first real listSessions() call resolves -- unlike the
   // old single-button design, the hero and the journey list are now
@@ -164,6 +177,10 @@
 
   async function toggleBookmark(event, session) {
     event.stopPropagation();
+    if (!authState.authenticated) {
+      showLoginGate = true;
+      return;
+    }
     const nextBookmarked = !session.bookmarked;
     await setBookmark(session.id, nextBookmarked);
     await refresh();
@@ -192,6 +209,12 @@
       <BreathingOrb compact />
     {/if}
   </div>
+
+  {#if showLoginGate}
+    <div class="login-gate-card card" in:fade={{ duration: 220 }}>
+      <LoginGate message="Log in to bookmark Journeys." />
+    </div>
+  {/if}
 
   {#if loaded && !showBookmarkedOnly && sessions.length === 0}
     <div class="hero" in:fade={{ duration: 320 }}>
@@ -295,7 +318,14 @@
     </button>
   {/if}
 
-  <button type="button" class="ui-label settings-link" onclick={onSettings}>Settings</button>
+  <div class="bottom-links">
+    <button type="button" class="ui-label settings-link" onclick={onSettings}>Settings</button>
+    {#if authState.checked && !authState.authenticated}
+      <button type="button" class="ui-label settings-link" onclick={() => (showLoginGate = true)}>
+        Log in
+      </button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -471,8 +501,24 @@
     width: 100%;
   }
 
+  /* Login link "in line with Settings" (see script comment) -- a plain
+     flex row so both share the same top margin/spacing rhythm the
+     lone Settings link used to have on its own, rather than stacking
+     with a second margin-top of its own. */
+  .bottom-links {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+  }
+
   .settings-link {
     display: block;
-    margin-top: var(--space-5);
+  }
+
+  /* Bookmark login gate (see script comment on showLoginGate) -- same
+     .card recipe every other login prompt in this app uses. */
+  .login-gate-card {
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
   }
 </style>

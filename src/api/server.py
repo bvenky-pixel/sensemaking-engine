@@ -255,11 +255,21 @@ def list_sessions(
 
 @app.post("/sessions/{session_id}/bookmark", response_model=SetBookmarkRequest)
 def set_bookmark(
-    session_id: str, body: SetBookmarkRequest, identity: Identity = Depends(resolve_identity)
+    session_id: str,
+    body: SetBookmarkRequest,
+    identity: Identity = Depends(resolve_identity),
+    user_id: str = Depends(require_user),
 ) -> SetBookmarkRequest:
     """Added for the Home redesign (see frontend/decisions.md) -- returns
     the same shape back so the frontend can update optimistically without
-    a second round trip to re-fetch the session list."""
+    a second round trip to re-fetch the session list.
+
+    Gated behind `require_user` (basic auth, see engine/decisions.md
+    "Auth, the low-friction way") -- direct founder follow-up: bookmark
+    and delete are login-required actions too, not just Settings/Privacy
+    and the response cap. `identity` is still needed alongside `user_id`
+    for the ownership check below -- `require_user` only proves SOME
+    account is signed in, not that it owns THIS session."""
     _require_owned_session(session_id, identity)
     db.set_bookmark(session_id, body.bookmarked)
     return body
@@ -272,18 +282,34 @@ def get_bookmark(session_id: str, identity: Identity = Depends(resolve_identity)
     menu") -- Journey.svelte never fetches the full session list the
     way Home does, so it has no other way to know this session's
     current bookmark state before rendering the toggle. Same response
-    shape as the existing POST, reused rather than duplicated."""
+    shape as the existing POST, reused rather than duplicated.
+
+    Deliberately NOT behind `require_user`, unlike the POST right above
+    -- this is a read of a Journey a caller already owns (still gated
+    by `_require_owned_session`), not the login-required ACTION of
+    changing it. Journey.svelte's own onMount depends on this
+    succeeding for every visitor, logged in or not, just to render the
+    current (possibly-false) toggle state correctly."""
     _require_owned_session(session_id, identity)
     return SetBookmarkRequest(bookmarked=db.get_bookmark(session_id))
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
-def delete_session(session_id: str, identity: Identity = Depends(resolve_identity)) -> None:
+def delete_session(
+    session_id: str,
+    identity: Identity = Depends(resolve_identity),
+    user_id: str = Depends(require_user),
+) -> None:
     """Added for Settings' Data section (see engine/decisions.md
     "Frontend UX pass") -- removes a Journey and every row that
     references it (see db.delete_session's own docstring for exactly
     what that means for insight_sessions specifically). Irreversible,
-    same as any real delete -- no soft-delete/undo exists yet."""
+    same as any real delete -- no soft-delete/undo exists yet.
+
+    Gated behind `require_user` (basic auth, see engine/decisions.md
+    "Auth, the low-friction way") -- same follow-up as set_bookmark
+    above: an irreversible action deserves at least as much protection
+    as a reversible one."""
     _require_owned_session(session_id, identity)
     db.delete_session(session_id)
 
