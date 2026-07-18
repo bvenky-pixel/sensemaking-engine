@@ -2,12 +2,16 @@
 Personal Operating Model -- offline computation (see src/pom/engine.py,
 engine/decisions.md "Personal Operating Model").
 
-Reads every session's WorldState (src/api/db.py::get_aggregated_knowledge_for_pom,
-uncapped -- POM is a single-person, all-history profile, not a
-recency-capped sample), computes the two mechanical systems plus one LLM
-call for the other six, and replaces the stored
-`personal_operating_model` row wholesale (truncate-and-replace, single
-row -- see db.py's own table CHECK constraint).
+POM made per-user (2026-07-18, see engine/decisions.md "POM made
+per-user"): reads every account's own sessions' WorldState
+(src/api/db.py::get_aggregated_knowledge_for_pom(user_id), uncapped --
+POM is a single-person, all-history profile, not a recency-capped
+sample), one account at a time, computes the two mechanical systems
+plus one LLM call for the other six per account, and replaces that
+account's own `personal_operating_model` row (upsert, keyed on
+user_id -- see db.py's own schema). Every user-facing surface in this
+app is scoped to one account's own data; this offline job mirrors that
+same discipline rather than computing a single cross-account profile.
 
 Run manually, or via a GitHub Actions workflow_dispatch. Never called
 from src/api/server.py or any other live request path -- same
@@ -52,31 +56,39 @@ def main() -> None:
         print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
         return
 
-    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom()
-    print(
-        f"Aggregated {len(claims)} claim(s), {len(assumptions)} assumption(s), "
-        f"{len(entities)} entit(y/ies) across every session."
-    )
+    user_ids = db.get_all_user_ids_with_sessions()
+    if not user_ids:
+        print("No accounts with any sessions yet -- nothing to compute.")
+        return
+    print(f"Computing POM for {len(user_ids)} account(s).")
 
-    pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content)
-    db.replace_personal_operating_model(pom)
+    for user_id in user_ids:
+        claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(user_id)
+        print(
+            f"\n=== {user_id} ==="
+            f"\nAggregated {len(claims)} claim(s), {len(assumptions)} assumption(s), "
+            f"{len(entities)} entit(y/ies) across this account's sessions."
+        )
 
-    print("\nBelief:")
-    print(f"  {len(pom.belief.beliefs)} belief(s)")
-    print("Relationship:")
-    print(f"  {len(pom.relationship.relationships)} relationship(s)")
-    print(f"Identity: {pom.identity.self_concept or '(unclear)'}")
-    print(
-        "Motivation (Self-Determination Theory): "
-        f"autonomy={pom.motivation.autonomy}, competence={pom.motivation.competence}, "
-        f"relatedness={pom.motivation.relatedness}"
-    )
-    print(f"Learning style: {pom.learning_style.style or '(unclear)'}")
-    print(f"Stress: {pom.stress.level}")
-    print(f"Narrative arc: {pom.narrative.arc} -- {pom.narrative.summary or '(no summary)'}")
-    print(f"Theory of mind: {len(pom.theory_of_mind.entries)} entr(y/ies)")
-    for entry in pom.theory_of_mind.entries:
-        print(f"  - {entry.entity_name}: {entry.inferred_perspective}")
+        pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content)
+        db.replace_personal_operating_model(user_id, pom)
+
+        print("Belief:")
+        print(f"  {len(pom.belief.beliefs)} belief(s)")
+        print("Relationship:")
+        print(f"  {len(pom.relationship.relationships)} relationship(s)")
+        print(f"Identity: {pom.identity.self_concept or '(unclear)'}")
+        print(
+            "Motivation (Self-Determination Theory): "
+            f"autonomy={pom.motivation.autonomy}, competence={pom.motivation.competence}, "
+            f"relatedness={pom.motivation.relatedness}"
+        )
+        print(f"Learning style: {pom.learning_style.style or '(unclear)'}")
+        print(f"Stress: {pom.stress.level}")
+        print(f"Narrative arc: {pom.narrative.arc} -- {pom.narrative.summary or '(no summary)'}")
+        print(f"Theory of mind: {len(pom.theory_of_mind.entries)} entr(y/ies)")
+        for entry in pom.theory_of_mind.entries:
+            print(f"  - {entry.entity_name}: {entry.inferred_perspective}")
 
 
 if __name__ == "__main__":

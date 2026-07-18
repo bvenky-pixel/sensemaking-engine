@@ -8408,3 +8408,104 @@ yet split per-account. Flagged, not silently assumed away.
 Verified: `test_get_personal_operating_model_requires_login` (new,
 direct regression test), plus the two existing GET tests updated to
 log in first. Full suite: 453 passed.
+
+## POM made per-user (2026-07-18)
+
+Founder question after the POM-surfacing round above ("will the You
+section be seen for a new user") led to tracing the actual data model,
+which surfaced a real bug: `personal_operating_model` was still a
+`CHECK(id=1)` global singleton, flagged-but-not-fixed in that same
+round's carve-out note. A brand-new signed-in account would have seen
+whatever POM was last computed from ANYONE's sessions as their own
+inferred profile -- not a cosmetic gap, a real cross-account data leak
+into a screen explicitly framed as "what I've learned about you."
+
+Tracing every reference to `personal_operating_model` before touching
+anything also surfaced a more severe sibling bug in the same family:
+`export_all_data()`/`reset_all_data()` (`src/api/db.py`) were both
+still completely unscoped despite backing live, login-gated endpoints
+(`GET /privacy/export`, `POST /privacy/reset`) -- meaning any signed-in
+visitor's "Export your data" downloaded EVERY account's Journeys, and
+"Forget everything" deleted EVERY account's Journeys system-wide.
+Flagged to the founder before proceeding; founder confirmed fixing both
+together, and separately restated the underlying product principle
+this now enforces: every user-facing surface in this app shows one
+account's own data only -- global/cross-account views are reserved for
+a separate, internal-only founder dashboard, never for a user-facing
+screen or API response.
+
+**Schema migration.** `personal_operating_model` changed from
+`CHECK(id=1)` (one row, ever) to `user_id TEXT PRIMARY KEY` (one row
+per account). This is the first NON-additive migration in `init_db()`
+-- every prior migration was `ALTER TABLE ADD COLUMN`. The two shapes
+are mutually exclusive, so `init_db()` detects the old shape via
+`PRAGMA table_info(personal_operating_model)` (checking for the `id`
+column) and does an explicit `DROP TABLE` + recreate. Considered and
+rejected: keeping the old singleton row under a guessed/fake owner
+(actively misleading -- it can't correspond to any real account), or
+leaving the old table around under a new name (dead weight, same
+misleading content still reachable). The old row is fundamentally
+non-attributable, so dropping it is the only honest option.
+
+**Per-account scoping**, leveraging the `user_id`/`anonymous_id` owner
+columns `sessions` already had from the earlier auth round:
+- `get_aggregated_knowledge_for_pom(user_id)` now scopes to `WHERE
+  user_id = ?` instead of reading every session in the database.
+- `replace_personal_operating_model(user_id, pom)` / `get_personal_operating_model(user_id)`
+  now key on that account's own row.
+- New `get_all_user_ids_with_sessions()` lets the offline computation
+  script iterate every account rather than compute one global profile.
+- `GET /personal-operating-model` and `send_message`'s own POM read
+  both now pass the caller's resolved `user_id` through; an anonymous
+  caller gets `None` regardless of what's been computed for any
+  account, since there's no stable identity to own a standing profile.
+- `scripts/run_pom_computation.py` now loops `get_all_user_ids_with_sessions()`
+  and computes+stores one POM per account per run (still one real,
+  billable LLM call per account). `scripts/run_pom_walkthrough.py`'s two
+  demo sessions now both belong to one fixed demo account
+  (`pom-walkthrough-demo-user`) so their content still aggregates into
+  one POM, matching how two real Journeys from one signed-in person
+  would.
+
+**Export/reset scoping**, new shared helpers `_rows_for_session_ids`/
+`_rows_for_ids` (short-circuit to `[]` on an empty id list, since
+SQLite rejects `WHERE x IN ()`):
+- `export_all_data(user_id)` now scopes `sessions` to that account,
+  pulls `messages`/`behavioral_events`/`insight_sessions` only for
+  those session ids, and `personal_operating_model` to that account's
+  own row.
+- `reset_all_data(user_id)` deletes only that account's own
+  `messages`/`behavioral_events`/`insight_sessions`/`sessions`/
+  `personal_operating_model` rows, in dependency order, one
+  transaction -- same "remove the evidence link, not the insight
+  itself" discipline `delete_session()` already established for a
+  single session, extended here to "all of one account's sessions."
+- `learned_patterns` and `insights` are NOT touched by either function
+  (aggregate/cross-account artifacts -- `learned_patterns` has no
+  per-session evidence linkage at all, so there's no way to attribute
+  any of it to one account; `insights` DOES have per-session evidence
+  via `insight_sessions`, but the underlying theme itself must survive
+  if other accounts' sessions still evidence it, so only the evidence
+  LINK for this account's own sessions is removed on reset, and only
+  insights evidenced by this account's own sessions are included on
+  export). `privacy_settings` is unchanged -- still the single, global
+  singleton it already was; making it genuinely per-account remains a
+  separate, not-yet-started project (flagged on `GET /privacy/settings`'s
+  own docstring, updated this round to remove POM from that carve-out
+  since POM is no longer part of it).
+
+New regression tests: `test_get_aggregated_knowledge_for_pom_excludes_other_accounts_sessions`,
+`test_get_personal_operating_model_never_returns_another_accounts_pom`,
+`test_privacy_export_never_includes_another_accounts_sessions`,
+`test_privacy_reset_never_deletes_another_accounts_sessions` -- each a
+direct two-account regression test for exactly the bug this round
+fixed. `test_privacy_reset_deletes_sessions_but_keeps_settings` updated:
+`learned_patterns` now asserted to SURVIVE a reset rather than be wiped,
+per the corrected scoping above.
+
+Verified: full suite 457 passed (453 from the prior round + 4 new
+cross-account regression tests; several existing POM tests updated to
+log in / pass `user_id` rather than net-new). `scripts/run_pom_computation.py` smoke-tested
+against an empty DB (no accounts with sessions yet) to confirm it exits
+cleanly with no live LLM call attempted, rather than crashing or
+silently computing nothing.

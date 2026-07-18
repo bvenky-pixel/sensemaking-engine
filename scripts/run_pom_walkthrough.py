@@ -56,10 +56,16 @@ SESSION_B_MESSAGES = [
     "Honestly the last few months have been hard, but I feel like I'm finally getting my footing back.",
 ]
 
+# POM made per-user (2026-07-18, see engine/decisions.md "POM made
+# per-user"): both demo sessions below belong to the same fixed demo
+# account, so their content aggregates into one POM the same way two
+# real Journeys from one signed-in person would.
+DEMO_USER_ID = "pom-walkthrough-demo-user"
+
 
 def _run_session(label: str, messages: list[str], tracker: UsageTracker) -> str:
     print(f"\n{'=' * 70}\nSESSION {label}\n{'=' * 70}")
-    session_id = db.create_session()
+    session_id = db.create_session(user_id=DEMO_USER_ID)
     state = WorldState()
     result = None
     for i, message in enumerate(messages, start=1):
@@ -83,13 +89,13 @@ def main() -> None:
     _run_session("A (identity/motivation/decision)", SESSION_A_MESSAGES, tracker)
     _run_session("B (relationship/stress/narrative)", SESSION_B_MESSAGES, tracker)
 
-    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom()
+    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(DEMO_USER_ID)
     print(f"\n{'=' * 70}\nAggregated: {len(claims)} claim(s), {len(assumptions)} assumption(s), "
           f"{len(entities)} entit(y/ies) across both sessions.\n{'=' * 70}")
     print(aggregated_content)
 
     pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content, tracker=tracker)
-    db.replace_personal_operating_model(pom)
+    db.replace_personal_operating_model(DEMO_USER_ID, pom)
 
     print(f"\n{'=' * 70}\nPERSONAL OPERATING MODEL\n{'=' * 70}")
     print(f"\nBelief ({len(pom.belief.beliefs)}):")

@@ -32,7 +32,7 @@ def test_get_aggregated_knowledge_for_pom_handles_a_real_emotional_signal_item(t
     EmotionalSignalItem."""
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     db.init_db(tmp_path / "test.db")
-    session_id = db.create_session()
+    session_id = db.create_session(user_id="user-1")
     state = WorldState(
         facts=[Fact(content="User is weighing a job offer.")],
         claims=[Claim(content="User believes the market is competitive.")],
@@ -46,7 +46,7 @@ def test_get_aggregated_knowledge_for_pom_handles_a_real_emotional_signal_item(t
     )
     db.save_world_state_for_backfill(session_id, state)
 
-    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom()
+    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom("user-1")
 
     assert claims == ["User believes the market is competitive."]
     assert len(entities) == 1
@@ -60,12 +60,12 @@ def test_get_aggregated_knowledge_for_pom_handles_a_real_emotional_signal_item(t
 def test_get_aggregated_knowledge_for_pom_aggregates_across_multiple_sessions(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     db.init_db(tmp_path / "test.db")
-    session_a = db.create_session()
-    session_b = db.create_session()
+    session_a = db.create_session(user_id="user-1")
+    session_b = db.create_session(user_id="user-1")
     db.save_world_state_for_backfill(session_a, WorldState(claims=[Claim(content="Belief from session A.")]))
     db.save_world_state_for_backfill(session_b, WorldState(claims=[Claim(content="Belief from session B.")]))
 
-    claims, _, _, _ = db.get_aggregated_knowledge_for_pom()
+    claims, _, _, _ = db.get_aggregated_knowledge_for_pom("user-1")
 
     assert "Belief from session A." in claims
     assert "Belief from session B." in claims
@@ -75,9 +75,28 @@ def test_get_aggregated_knowledge_for_pom_empty_when_no_sessions_exist(tmp_path,
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     db.init_db(tmp_path / "test.db")
 
-    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom()
+    claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom("user-1")
 
     assert claims == []
     assert assumptions == []
     assert entities == []
     assert aggregated_content == ""
+
+
+def test_get_aggregated_knowledge_for_pom_excludes_other_accounts_sessions(tmp_path, monkeypatch):
+    """POM made per-user (2026-07-18, see engine/decisions.md "POM made
+    per-user"): the direct regression test for the bug this round
+    fixed -- a brand-new account must never inherit another account's
+    aggregated knowledge just because sessions exist in the same DB."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db(tmp_path / "test.db")
+    session_a = db.create_session(user_id="user-1")
+    session_b = db.create_session(user_id="user-2")
+    db.save_world_state_for_backfill(session_a, WorldState(claims=[Claim(content="Belief from user-1.")]))
+    db.save_world_state_for_backfill(session_b, WorldState(claims=[Claim(content="Belief from user-2.")]))
+
+    claims_1, _, _, _ = db.get_aggregated_knowledge_for_pom("user-1")
+    claims_2, _, _, _ = db.get_aggregated_knowledge_for_pom("user-2")
+
+    assert claims_1 == ["Belief from user-1."]
+    assert claims_2 == ["Belief from user-2."]

@@ -410,7 +410,11 @@ def test_send_message_threads_personal_operating_model_into_judgment_prompt(clie
     Operating Model", src/pom/engine.py): whatever
     scripts/run_pom_computation.py last computed offline and stored via
     db.replace_personal_operating_model must reach Judgment's real
-    prompt on the next live turn -- read-only, no live computation."""
+    prompt on the next live turn -- read-only, no live computation.
+
+    POM made per-user (2026-07-18, see engine/decisions.md "POM made
+    per-user"): this now requires a signed-in caller, since an
+    anonymous caller has no account to own a stored POM."""
     seen = {}
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
@@ -425,8 +429,10 @@ def test_send_message_threads_personal_operating_model_into_judgment_prompt(clie
     monkeypatch.setattr(
         "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
     )
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
     db.replace_personal_operating_model(
-        PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
+        user_id, PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
     )
     session_id = client.post("/sessions").json()["id"]
 
@@ -468,13 +474,31 @@ def test_get_personal_operating_model_returns_null_before_any_computation(client
 
 
 def test_get_personal_operating_model_returns_last_computed_pom(client):
-    _login(client)
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
     db.replace_personal_operating_model(
-        PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
+        user_id, PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
     )
     res = client.get("/personal-operating-model")
     assert res.status_code == 200
     assert res.json()["identity"]["self_concept"] == "Values independence at work."
+
+
+def test_get_personal_operating_model_never_returns_another_accounts_pom(client):
+    """POM made per-user (2026-07-18, see engine/decisions.md "POM made
+    per-user"): the direct regression test for the bug this round
+    fixed -- a brand-new signed-in account must not inherit whatever
+    POM was computed from a different account's own sessions."""
+    other_user_id = db.get_or_create_user("someone-else@example.com")
+    db.replace_personal_operating_model(
+        other_user_id, PersonalOperatingModel(identity=IdentitySystem(self_concept="Someone else's profile."))
+    )
+    _login(client)
+
+    res = client.get("/personal-operating-model")
+
+    assert res.status_code == 200
+    assert res.json() is None
 
 
 def test_get_personal_operating_model_requires_login(client):
@@ -1424,8 +1448,66 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     assert res.status_code == 204
 
     assert client.get("/sessions").json() == []
-    assert db.get_learned_patterns() == []
+    # export/reset scoped to one account (2026-07-18, see
+    # engine/decisions.md "POM made per-user"): learned_patterns has no
+    # per-session evidence linkage at all, so there's no way to
+    # attribute any of it to one account -- it's excluded from
+    # per-account reset entirely and must survive, unlike before this
+    # fix when "Forget everything" wiped it for every account at once.
+    assert len(db.get_learned_patterns()) == 1
     # The person's own stated privacy preference survives a data reset --
     # resetting journal content isn't the same action as reverting a
     # setting they deliberately chose.
     assert db.get_cross_session_learning_enabled() is False
+
+
+def test_privacy_export_never_includes_another_accounts_sessions(client, monkeypatch):
+    """Direct regression test for the export/reset global-scope bug
+    fixed this round (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- before this fix, ANY signed-in visitor's "Export your
+    data" downloaded EVERY account's Journeys."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    _login(client, email="other-account@example.com")
+    other_session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{other_session_id}/messages", json={"content": "Someone else's private message."})
+    client.post("/auth/logout")
+
+    _login(client, email="person@example.com")
+    own_session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{own_session_id}/messages", json={"content": "My own message."})
+
+    payload = client.get("/privacy/export").json()
+
+    session_ids = {s["id"] for s in payload["sessions"]}
+    assert session_ids == {own_session_id}
+    assert other_session_id not in session_ids
+
+
+def test_privacy_reset_never_deletes_another_accounts_sessions(client, monkeypatch):
+    """Direct regression test for the export/reset global-scope bug
+    fixed this round (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- before this fix, ANY signed-in visitor's "Forget
+    everything" deleted EVERY account's Journeys system-wide."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    _login(client, email="other-account@example.com")
+    other_session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{other_session_id}/messages", json={"content": "Someone else's private message."})
+    client.post("/auth/logout")
+
+    _login(client, email="person@example.com")
+    client.post("/sessions").json()["id"]
+
+    res = client.post("/privacy/reset")
+    assert res.status_code == 204
+
+    assert client.get("/sessions").json() == []
+    client.post("/auth/logout")
+    _login(client, email="other-account@example.com")
+    remaining = client.get("/sessions").json()
+    assert {s["id"] for s in remaining} == {other_session_id}

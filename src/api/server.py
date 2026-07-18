@@ -433,8 +433,13 @@ def send_message(
         # engine/decisions.md "Personal Operating Model") -- a cheap,
         # read-only DB read of whatever scripts/run_pom_computation.py
         # last computed offline; never computed live. None until that
-        # script has run at least once.
-        pom = db.get_personal_operating_model()
+        # script has run at least once for THIS account. POM made
+        # per-user (2026-07-18, see engine/decisions.md "POM made
+        # per-user") -- an anonymous caller has no stable account to
+        # own a standing profile, so they get None here regardless of
+        # whether any account's POM has ever been computed; a signed-in
+        # caller only ever sees their own.
+        pom = db.get_personal_operating_model(identity.user_id) if identity.user_id else None
     else:
         patterns, insights, pom = [], [], None
     # Need State Inference v1 (see src/need_state/engine.py,
@@ -588,10 +593,13 @@ def get_personal_operating_model(user_id: str = Depends(require_user)) -> Option
     (`frontend/app/src/components/PersonalOperatingModel.svelte`), so
     it gets the same protection the four Privacy endpoints already
     have, matching this codebase's own "gate the action, not just hide
-    the button" discipline. Note the same carve-out already documented
-    on the Privacy endpoints applies here too: this stays the single,
-    global POM -- not yet split per-account."""
-    return db.get_personal_operating_model()
+    the button" discipline.
+
+    POM made per-user (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- `require_user`'s own `user_id` is passed straight
+    through, so each account only ever sees its own standing profile,
+    never another account's."""
+    return db.get_personal_operating_model(user_id)
 
 
 @app.get("/privacy/settings", response_model=PrivacySettingsOut)
@@ -607,10 +615,12 @@ def get_privacy_settings(user_id: str = Depends(require_user)) -> PrivacySetting
     underlying `privacy_settings` row is still the single, global
     singleton it already was (see src/api/db.py's own docstring on
     that table) -- it is not yet split per-account, so today every
-    signed-in visitor shares the same setting. Making it genuinely
-    per-account is a real, separate project (same carve-out as
-    Learning/Insight Engine/POM), flagged here rather than silently
-    assumed away."""
+    signed-in visitor shares the same setting. POM made per-user
+    (2026-07-18, see engine/decisions.md "POM made per-user") is no
+    longer part of this carve-out -- only `privacy_settings` itself and
+    the cross-account `learned_patterns`/`insights` models remain
+    global. Making `privacy_settings` genuinely per-account is a real,
+    separate project, flagged here rather than silently assumed away."""
     return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled())
 
 
@@ -629,8 +639,14 @@ def export_privacy_data(user_id: str = Depends(require_user)) -> Response:
     docstring for exactly what's included). A plain `Response` with an
     explicit Content-Disposition rather than `response_model` -- this
     is a file download, not a typed API resource a frontend consumes
-    programmatically."""
-    payload = json.dumps(db.export_all_data(), indent=2)
+    programmatically.
+
+    Scoped to `user_id` (2026-07-18, see engine/decisions.md "POM made
+    per-user" -- the same round also fixed this endpoint): every
+    user-facing surface in this app shows one account's own data only,
+    never a cross-account or global view (that's reserved for a
+    separate, internal-only founder dashboard, not this API)."""
+    payload = json.dumps(db.export_all_data(user_id), indent=2)
     return Response(
         content=payload,
         media_type="application/json",
@@ -646,8 +662,12 @@ def reset_privacy_data(user_id: str = Depends(require_user)) -> None:
     confirm (same pattern as Settings' existing per-Journey delete) is
     where the "are you sure" lives, matching every other destructive
     action in this API (DELETE /sessions/{id} has no confirmation
-    param either)."""
-    db.reset_all_data()
+    param either).
+
+    Scoped to `user_id` (2026-07-18, see engine/decisions.md "POM made
+    per-user" -- the same round also fixed this endpoint): deletes only
+    this account's own Journeys, never another account's."""
+    db.reset_all_data(user_id)
 
 
 @app.post("/auth/request-link", response_model=RequestMagicLinkResponse)

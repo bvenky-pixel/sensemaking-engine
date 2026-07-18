@@ -63,10 +63,13 @@ src/insight/engine.py, engine/decisions.md "Major update"):
   already keys on `session_id` directly rather than as a JSON blob.
 
 One more table, added for Privacy, made real (see frontend/decisions.md):
-- `privacy_settings`: a true singleton (same "id INTEGER PRIMARY KEY
-  CHECK (id = 1)" shape as `personal_operating_model`, except `init_db`
-  guarantees a row exists from the very first startup -- unlike POM,
-  there's no "not computed yet" state this can correctly be in).
+- `privacy_settings`: a true singleton ("id INTEGER PRIMARY KEY CHECK
+  (id = 1)" -- `personal_operating_model` used to share this exact
+  shape before "POM made per-user" below gave it a real `user_id` key;
+  `privacy_settings` itself stays a genuine singleton, unlike POM.
+  `init_db` guarantees a row exists from the very first startup --
+  unlike POM, there's no "not computed yet" state this can correctly be
+  in).
   Currently one column, `cross_session_learning_enabled`: when false,
   `send_message` stops reading `learned_patterns`/`insights`/
   `personal_operating_model` into a live turn's Retrieved Context, and
@@ -100,14 +103,25 @@ was written to guess an owner for them, so they are simply not returned
 to anyone by the now-owner-scoped `list_sessions`/`_require_owned_session`
 -- an honest consequence of introducing ownership after the fact, not
 silently swept under a rug (flagged plainly in engine/decisions.md).
-Scope is bounded deliberately to Journeys alone: `privacy_settings`,
-`personal_operating_model`, `learned_patterns`, and `insights` all stay
-the single, global, cross-visitor models they already were (the
-`behavioral_events` docstring's own "stated single-user simplification")
--- making Learning/Insight Engine/POM genuinely per-account is a real,
-separate project, out of scope for what was asked here (login gating
-Settings/Privacy access and a per-conversation response cap, not
-per-account personalization).
+Scope was originally bounded to Journeys alone -- `personal_operating_model`
+stayed a single global singleton in this same round, alongside
+`privacy_settings`/`learned_patterns`/`insights`, as an explicit
+out-of-scope carve-out.
+
+**That carve-out was corrected the same day** (see engine/decisions.md
+"POM made per-user"): a brand-new signed-in account was found to
+inherit whatever POM had been computed from ANYONE's sessions, since
+nothing distinguished one person's inferred profile from another's --
+a real correctness bug, not a cosmetic gap, once real accounts existed
+to be confused with each other. `personal_operating_model` now has a
+`user_id` primary key (see this table's own creation SQL below and its
+migration in `init_db`) and every accessor takes a `user_id`.
+`privacy_settings` and `learned_patterns`/`insights` remain the
+single, global, cross-visitor models they already were (the
+`behavioral_events` docstring's own "stated single-user
+simplification") -- making Learning/Insight Engine's own output
+genuinely per-account, and giving each person their own privacy
+toggle, are real, separate projects, still out of scope.
 
 - `users`: one row per account. `email` is the only real field --
   magic-link auth never needs a password hash to store.
@@ -217,7 +231,7 @@ CREATE TABLE IF NOT EXISTS insight_sessions (
 );
 
 CREATE TABLE IF NOT EXISTS personal_operating_model (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    user_id TEXT PRIMARY KEY,
     pom_json TEXT NOT NULL,
     computed_at TEXT NOT NULL
 );
@@ -329,6 +343,36 @@ def init_db(db_path: Optional[Path] = None) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO privacy_settings (id, cross_session_learning_enabled) VALUES (1, 1)"
         )
+        # POM made per-user (2026-07-18, basic auth follow-up, see
+        # engine/decisions.md "POM made per-user") -- `personal_operating_model`
+        # was a genuine "id INTEGER PRIMARY KEY CHECK (id = 1)" global
+        # singleton before real accounts existed. Unlike every other
+        # migration in this function, this ISN'T additive -- the whole
+        # point is that the OLD shape (one row, no owner) can no longer
+        # be expressed at all; a `user_id TEXT PRIMARY KEY` table and a
+        # `CHECK (id = 1)` table cannot both satisfy `CREATE TABLE IF NOT
+        # EXISTS personal_operating_model`, so a database created before
+        # this round keeps its OLD table forever unless explicitly
+        # migrated here. The one existing row (if any) is a computed
+        # profile that was never actually attributable to any specific
+        # account -- once real per-user computation exists, keeping it
+        # around under nobody's name would be actively misleading (see
+        # the founder's own report that a brand-new signed-in user was
+        # seeing an unrelated pre-auth POM as if it were their own), so
+        # this drops it outright rather than trying to guess an owner
+        # for data that fundamentally has none. Detected via PRAGMA
+        # table_info rather than a version table (this codebase has
+        # none) -- the old shape's `id` column is the one thing the new
+        # shape doesn't have.
+        old_shape_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(personal_operating_model)").fetchall()
+        }
+        if "id" in old_shape_columns:
+            conn.execute("DROP TABLE personal_operating_model")
+            conn.execute(
+                "CREATE TABLE personal_operating_model ("
+                "user_id TEXT PRIMARY KEY, pom_json TEXT NOT NULL, computed_at TEXT NOT NULL)"
+            )
 
 
 def create_session(
@@ -895,25 +939,31 @@ def get_insights() -> List[InsightOut]:
     ]
 
 
-def get_aggregated_knowledge_for_pom() -> Tuple[List[str], List[str], List[Entity], str]:
+def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str], List[Entity], str]:
     """
-    Reads EVERY session's WorldState (uncapped, same as
-    get_all_sessions_raw -- POM is a single-person, all-history model,
-    not a recency-capped sample the way Insight Engine's cross-session
-    detection is) and aggregates it into what
-    src/pom/engine.py::compute_personal_operating_model needs:
-    (claims, assumptions, entities, aggregated_content) -- the first
-    three feed the two mechanical systems directly; aggregated_content
-    is a single plain-text rendering of everything (facts, claims,
-    goals, decisions, entities, emotional signals) for the one LLM call
-    that infers the other six systems.
+    POM made per-user (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- reads every session OWNED BY THIS ACCOUNT (uncapped
+    within that scope, same as get_all_sessions_raw's own "POM is an
+    all-history model, not a recency-capped sample" reasoning, just no
+    longer all-history across every account). An anonymous-owned
+    session (never claimed via login) is correctly excluded -- POM only
+    ever reflects a real, standing account's own claimed history, never
+    a browser that hasn't signed up. Aggregates into what
+    src/pom/engine.py::compute_personal_operating_model needs: (claims,
+    assumptions, entities, aggregated_content) -- the first three feed
+    the two mechanical systems directly; aggregated_content is a single
+    plain-text rendering of everything (facts, claims, goals,
+    decisions, entities, emotional signals) for the one LLM call that
+    infers the other six systems.
 
     Read-only, used only by scripts/run_pom_computation.py -- this
     module has no opinion on POM itself, same separation as
     get_session_texts_for_insights above.
     """
     with _connect() as conn:
-        rows = conn.execute("SELECT world_state_json FROM sessions").fetchall()
+        rows = conn.execute(
+            "SELECT world_state_json FROM sessions WHERE user_id = ?", (user_id,)
+        ).fetchall()
 
     claims: List[str] = []
     assumptions: List[str] = []
@@ -941,25 +991,43 @@ def get_aggregated_knowledge_for_pom() -> Tuple[List[str], List[str], List[Entit
     return claims, assumptions, entities, aggregated_content
 
 
-def replace_personal_operating_model(pom: PersonalOperatingModel) -> None:
-    """Truncate-and-replace, not append -- POM is one standing profile
-    for the single user this MVP serves, not an accumulating log (same
-    "single row, id=1" simplification as this table's own CHECK
-    constraint). Called only by scripts/run_pom_computation.py."""
+def get_all_user_ids_with_sessions() -> List[str]:
+    """Every account that owns at least one Journey -- what
+    scripts/run_pom_computation.py loops over to compute one POM per
+    account (see engine/decisions.md "POM made per-user"). Anonymous-only
+    browsers (never signed in) have no `user_id` and are correctly
+    excluded -- there's no stable account to attach a standing profile
+    to yet."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT user_id FROM sessions WHERE user_id IS NOT NULL"
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def replace_personal_operating_model(user_id: str, pom: PersonalOperatingModel) -> None:
+    """Truncate-and-replace per account, not append -- POM is one
+    standing profile per person, not an accumulating log (same
+    "latest wins" precedent as `learned_patterns`' own truncate-and-replace,
+    just keyed per `user_id` now instead of one shared row). Called only
+    by scripts/run_pom_computation.py."""
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO personal_operating_model (id, pom_json, computed_at) VALUES (1, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET pom_json = excluded.pom_json, computed_at = excluded.computed_at",
-            (pom.model_dump_json(), _now()),
+            "INSERT INTO personal_operating_model (user_id, pom_json, computed_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET pom_json = excluded.pom_json, computed_at = excluded.computed_at",
+            (user_id, pom.model_dump_json(), _now()),
         )
 
 
-def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
-    """Returns None until scripts/run_pom_computation.py has been run at
-    least once -- a brand-new deployment correctly has no POM yet, not
-    an error state."""
+def get_personal_operating_model(user_id: str) -> Optional[PersonalOperatingModel]:
+    """Returns None until scripts/run_pom_computation.py has computed
+    THIS account's own POM at least once -- a brand-new account
+    correctly has no POM yet, not an error state, and never inherits
+    another account's (see engine/decisions.md "POM made per-user")."""
     with _connect() as conn:
-        row = conn.execute("SELECT pom_json FROM personal_operating_model WHERE id = 1").fetchone()
+        row = conn.execute(
+            "SELECT pom_json FROM personal_operating_model WHERE user_id = ?", (user_id,)
+        ).fetchone()
     if row is None:
         return None
     return PersonalOperatingModel.model_validate_json(row[0])
@@ -991,23 +1059,67 @@ def set_cross_session_learning_enabled(enabled: bool) -> None:
         )
 
 
-def export_all_data() -> dict:
-    """Everything Confidant has ever stored about this person, as one
-    plain JSON-serializable document -- every table this module owns
-    except `privacy_settings` itself (the export is about the person's
-    Journey data, not their settings). `*_json` TEXT columns are parsed
-    back into real nested objects rather than left as escaped strings,
-    so the exported file is actually readable by a person, not just
-    re-ingestable by this codebase."""
+def _rows_for_session_ids(conn: sqlite3.Connection, table: str, session_ids: List[str]) -> List[dict]:
+    """Small shared helper for export_all_data/reset_all_data below --
+    both need "every row in this child table that belongs to one of
+    THESE session ids" at least twice each. An empty `session_ids`
+    (an account with no Journeys yet) short-circuits to `[]` rather
+    than emitting `WHERE session_id IN ()`, which SQLite rejects as
+    invalid syntax."""
+    if not session_ids:
+        return []
+    placeholders = ",".join("?" * len(session_ids))
+    conn.row_factory = sqlite3.Row
+    return [dict(row) for row in conn.execute(
+        f"SELECT * FROM {table} WHERE session_id IN ({placeholders})", session_ids
+    )]
+
+
+def export_all_data(user_id: str) -> dict:
+    """Everything Confidant has ever stored about THIS ACCOUNT, as one
+    plain JSON-serializable document.
+
+    Scoped per account (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- this shipped alongside making POM per-user, since
+    both were the same underlying bug: real personal content with zero
+    account scoping. Before this fix, ANY signed-in visitor's "Export
+    your data" downloaded EVERY account's Journeys -- correct back when
+    this app served exactly one person, a real cross-account data leak
+    once real accounts existed to leak between.
+
+    Scoped to sessions this account itself owns (`sessions.user_id`),
+    plus every child row that references one of those sessions
+    (messages/behavioral_events/insight_sessions -- same "keyed on
+    session_id" pattern delete_session already uses, just for many
+    sessions at once via `_rows_for_session_ids`). `insights` are
+    included only when included via THIS account's own
+    insight_sessions rows -- an Insight is a genuine cross-account
+    theme that may also be evidenced by someone else's Journey, so the
+    row itself isn't "this account's data" the way a session is, but a
+    theme actually showing up in their own history is. `learned_patterns`
+    is excluded entirely, unlike insights -- it has no per-session
+    evidence linkage at all (just aggregate stats), so there is no way
+    to attribute any of it to one account; including the whole shared
+    model under one person's export would misleadingly imply it's
+    theirs. `*_json` TEXT columns are parsed back into real nested
+    objects rather than left as escaped strings, so the exported file
+    is actually readable by a person, not just re-ingestable by this
+    codebase."""
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        sessions = [dict(row) for row in conn.execute("SELECT * FROM sessions")]
-        messages = [dict(row) for row in conn.execute("SELECT * FROM messages")]
-        behavioral_events = [dict(row) for row in conn.execute("SELECT * FROM behavioral_events")]
-        learned_patterns = [dict(row) for row in conn.execute("SELECT * FROM learned_patterns")]
-        insights = [dict(row) for row in conn.execute("SELECT * FROM insights")]
-        insight_sessions = [dict(row) for row in conn.execute("SELECT * FROM insight_sessions")]
-        pom_rows = [dict(row) for row in conn.execute("SELECT * FROM personal_operating_model")]
+        sessions = [dict(row) for row in conn.execute(
+            "SELECT * FROM sessions WHERE user_id = ?", (user_id,)
+        )]
+        session_ids = [s["id"] for s in sessions]
+        messages = _rows_for_session_ids(conn, "messages", session_ids)
+        behavioral_events = _rows_for_session_ids(conn, "behavioral_events", session_ids)
+        insight_sessions = _rows_for_session_ids(conn, "insight_sessions", session_ids)
+        insight_ids = sorted({row["insight_id"] for row in insight_sessions})
+        insights = _rows_for_ids(conn, "insights", insight_ids)
+        pom_row = conn.execute(
+            "SELECT * FROM personal_operating_model WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        pom_row = dict(pom_row) if pom_row else None
 
     for session in sessions:
         session["world_state"] = json.loads(session.pop("world_state_json"))
@@ -1016,7 +1128,7 @@ def export_all_data() -> dict:
     for message in messages:
         options_json = message.pop("options_json")
         message["options"] = json.loads(options_json) if options_json else []
-    for pom_row in pom_rows:
+    if pom_row is not None:
         pom_row["personal_operating_model"] = json.loads(pom_row.pop("pom_json"))
 
     return {
@@ -1024,26 +1136,53 @@ def export_all_data() -> dict:
         "sessions": sessions,
         "messages": messages,
         "behavioral_events": behavioral_events,
-        "learned_patterns": learned_patterns,
         "insights": insights,
         "insight_sessions": insight_sessions,
-        "personal_operating_model": pom_rows[0] if pom_rows else None,
+        "personal_operating_model": pom_row,
     }
 
 
-def reset_all_data() -> None:
-    """"Forget everything" -- irreversible, same as delete_session's own
-    lack of an undo path, just wider. Deletes every Journey, message,
-    behavioral event, learned pattern, insight, and the standing
-    Personal Operating Model. Deliberately does NOT touch
-    `privacy_settings` -- a person clearing their journal data is not
-    also asking to have their own stated cross-session-learning
-    preference silently reset back to the default."""
+def _rows_for_ids(conn: sqlite3.Connection, table: str, ids: List[int]) -> List[dict]:
+    """Same short-circuit-on-empty reasoning as `_rows_for_session_ids`
+    above, keyed on `id` instead of `session_id` -- used for pulling
+    `insights` rows by the ids collected from this account's own
+    `insight_sessions` rows."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" * len(ids))
+    conn.row_factory = sqlite3.Row
+    return [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE id IN ({placeholders})", ids)]
+
+
+def reset_all_data(user_id: str) -> None:
+    """"Forget everything" for THIS ACCOUNT -- irreversible, same as
+    delete_session's own lack of an undo path, just wider.
+
+    Scoped per account (2026-07-18, see engine/decisions.md "POM made
+    per-user") -- before this fix, ANY signed-in visitor's "Forget
+    everything" deleted EVERY account's Journeys system-wide, the same
+    underlying bug as export_all_data's own (see that function's
+    docstring for the full reasoning).
+
+    Deletes this account's own sessions, messages, behavioral events,
+    this account's own insight_sessions evidence links, and this
+    account's own Personal Operating Model row. Deliberately does NOT
+    touch `insights`/`learned_patterns` -- both are genuine
+    cross-account models (an Insight may still be evidenced by someone
+    else's Journey even after this account's own evidence link is
+    removed; `learned_patterns` has no per-account attribution at all
+    to selectively remove) -- and does NOT touch `privacy_settings`,
+    same as before: a person clearing their journal data is not also
+    asking to have their own stated cross-session-learning preference
+    silently reset back to the default."""
     with _connect() as conn:
-        conn.execute("DELETE FROM messages")
-        conn.execute("DELETE FROM behavioral_events")
-        conn.execute("DELETE FROM insight_sessions")
-        conn.execute("DELETE FROM insights")
-        conn.execute("DELETE FROM learned_patterns")
-        conn.execute("DELETE FROM personal_operating_model")
-        conn.execute("DELETE FROM sessions")
+        session_ids = [
+            row[0] for row in conn.execute("SELECT id FROM sessions WHERE user_id = ?", (user_id,)).fetchall()
+        ]
+        if session_ids:
+            placeholders = ",".join("?" * len(session_ids))
+            conn.execute(f"DELETE FROM messages WHERE session_id IN ({placeholders})", session_ids)
+            conn.execute(f"DELETE FROM behavioral_events WHERE session_id IN ({placeholders})", session_ids)
+            conn.execute(f"DELETE FROM insight_sessions WHERE session_id IN ({placeholders})", session_ids)
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))

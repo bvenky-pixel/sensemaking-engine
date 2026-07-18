@@ -1,8 +1,10 @@
 name: Personal Operating Model computation
 
-# Manual only -- each run makes one real, billable LLM call (the
-# InferredPOMBatch call in src/pom/engine.py::run_inferred_pom) against
-# whatever sessions exist in the given --db-path. See
+# Manual only -- each run makes one real, billable LLM call per account
+# with any sessions (the InferredPOMBatch call in
+# src/pom/engine.py::run_inferred_pom), computed and stored separately
+# for each account found in the given --db-path (POM made per-user,
+# 2026-07-18, see engine/decisions.md "POM made per-user"). See
 # scripts/run_pom_computation.py and engine/decisions.md "Personal
 # Operating Model".
 on:
