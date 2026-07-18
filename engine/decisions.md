@@ -9102,3 +9102,46 @@ which calls the real LLM pipeline -- held per the founder's standing
 "don't run another validation test now" instruction. Frontend half
 (App.svelte/auth.svelte.js/LoginGate.svelte wiring) documented
 separately in frontend/decisions.md.
+
+## Latency North Star established (2026-07-18)
+
+Direct founder feedback after live-using Strategize mode: "latency is a
+bitch we have to solve for it in the long run," alongside a separate
+observation that mode quality (questions/output) has real room to
+improve even though it's "not bad" today -- the latter is already
+covered by backlog #223 (give Response the same calibration rigor
+Interpretation/Judgment already have), so this entry only covers
+latency.
+
+New `engine/specs/latency-northstar-v1.md` establishes a real, measured
+baseline rather than an estimate -- pulled from the most recent live
+dispatch already run this session (`scripts/run_worldstate_walkthrough.py`,
+GitHub Actions run `29641474956`, an 11-turn real conversation), not a
+new paid dispatch: per-stage latency for a turn running all 5 possible
+calls (Interpretation 11.7s, Judgment 13.8s, Tier2 14.0s, Planner 8.5s,
+Response 4.9s, turn total 53.0s / 38.9s without Tier2), and the whole-
+conversation aggregate (479.3s total latency across 51 calls, ~9.4s
+average per call, ~48s average per turn).
+
+**Root cause, restated plainly for this doc's purpose**: the pipeline's
+own strict sequential dependency chain (`src/orchestrator/engine.py`'s
+own docstring -- "each stage's input is the previous stage's committed
+output... no reordering or parallelism to decide between yet") means
+2-5 back-to-back LLM calls per turn with zero available parallelism
+without a genuine architecture change. Not a bug -- the deliberate
+design so far -- but the direct explanation for why every turn takes
+40-50s wall-clock.
+
+**Two distinct levers, kept explicitly separate**: perceived latency
+(fixed by streaming Response's own token generation instead of the
+current "frozen, then the whole answer lands at once" SSE behavior --
+new backlog #233) vs. actual wall-clock latency (faster-not-just-
+cheaper models per stage, #234; or reducing the sequential stage count
+itself, a real architecture question, #235). No target number set yet
+-- deliberately left open in the doc rather than guessed at; picking
+one is a product decision for the founder, not an engineering one to
+invent unilaterally.
+
+No live dispatch for this entry -- the baseline numbers came from
+already-existing logs, and no code changed yet (that's what #233-#235
+are for).
