@@ -10,11 +10,23 @@ Scoped narrowly to the Behavioral Pattern System only -- one of nine
 systems the founder's uploaded Personal Operating Model vision document
 describes -- because it's a direct generalization of
 src/judgment/engine.py::compute_stagnation_signals, which already ships:
-mechanical, evidence-counted, non-LLM. The other eight systems (Identity,
-Motivation scored against Self-Determination Theory dimensions, Belief,
-Relationship, Learning, Stress, Narrative, Theory of Mind) would require
-inventing scored psychological dimensions with no evidence behind them
--- explicitly not attempted here.
+mechanical, evidence-counted, non-LLM.
+
+**Reconciled 2026-07-18** (this paragraph used to say the other eight
+systems were "explicitly not attempted here" and would "require
+inventing scored psychological dimensions with no evidence behind
+them" -- true when this module was first written, no longer true): all
+eight (Identity, Motivation scored against Self-Determination Theory
+dimensions, Belief, Relationship, Learning Style, Stress, Narrative,
+Theory of Mind) have since shipped as `src/pom/engine.py`'s Personal
+Operating Model, at the founder's own explicit direction overriding
+this module's original caution (see `engine/specs/architecture-
+roadmap-v1.md`'s Layer 4 table entry and `engine/decisions.md`
+"Personal Operating Model" for that conversation). This module and POM
+are siblings covering the vision's 9 systems between them, NOT
+duplicate or competing efforts -- this module owns system 9
+(Behavioral Pattern) only; POM owns the other 8. Any future Learning
+work should assume those 8 are POM's charter, not re-attempt them here.
 
 Deliberately narrower than the vision document's own richer example
 ("delays decisions while seeking more certainty") -- that needs semantic

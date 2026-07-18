@@ -9145,3 +9145,67 @@ invent unilaterally.
 No live dispatch for this entry -- the baseline numbers came from
 already-existing logs, and no code changed yet (that's what #233-#235
 are for).
+
+## Learning: docstring reconciliation + first versioned spec (2026-07-18)
+
+Backlog #226 and #212, started at the founder's own "let's start with
+Learning todos."
+
+**#226**: `src/learning/engine.py`'s own docstring said the vision's
+other 8 systems (Identity, Motivation/SDT, Belief, Relationship,
+Learning Style, Stress, Narrative, Theory of Mind) were "explicitly not
+attempted here" -- true when the module was written, stale ever since
+POM shipped exactly those 8 systems (`engine/specs/architecture-
+roadmap-v1.md`'s own Layer 4 table already had this right: "The 9th
+system, Behavioral Pattern System, already shipped as Layer 2
+Learning" -- just never propagated back into engine.py's own docstring).
+Rewrote the paragraph to state plainly: Learning and POM are siblings
+covering the vision's 9 systems between them, not competing or
+duplicate efforts -- Learning owns system 9 only.
+
+**#212**: new `engine/specs/learning-specification-v1.md` -- the first
+versioned spec Learning has had. Beyond documenting the architecture
+(diff-based event detection, offline-only pattern computation, the
+non-goals unchanged from the original reserved slot), this is where
+three previously-scattered warnings got consolidated into one real
+sequencing question:
+
+1. `get_all_events()`'s own docstring already admitted "single-user
+   scope, no user_id column" -- every account's behavioral events
+   aggregate into one shared `learned_patterns` table with no
+   per-account attribution. Same class of bug already found and fixed
+   for POM. `reset_all_data(user_id)` deletes an account's own raw
+   `behavioral_events` but NOT their contribution to the already-
+   aggregated `learned_patterns`.
+2. `frontend/specs/trust-and-privacy-ux-v1.md`'s Principle 6 requires a
+   real frontend disclosure surface (traceable evidence, not a
+   black-box "we noticed something") before real behavioral data
+   should accumulate -- nothing surfaces `GET /patterns` today.
+3. Same principle requires a real deletion path for a person's own
+   accumulated behavioral history -- genuinely hard while (1) is
+   unresolved.
+
+Written down as one entangled dependency chain rather than three
+separate nice-to-haves: (1) needs resolving (or a knowing, explicit
+temporary acceptance of the risk at today's real user scale) before (2)
+can honestly ship; (2) plus a real deletion path must exist before
+`CONFIDANT_RECORD_EVENTS` should ever be flipped on in production
+(`src/instrumentation/events.py`'s own docstring already calls this "a
+deliberate product/privacy decision, not an engineering default").
+Backlog #213 (calibrating `MIN_EVIDENCE`) is blocked behind all three,
+since it needs real production data to calibrate against at all.
+
+Also corrected one inaccurate impression while researching this:
+`.github/workflows/learning-walkthrough.yml` was confirmed to run
+end-to-end locally without crashing, but per this file's own earlier
+entry the real `workflow_dispatch` run against a live LLM provider was
+never actually triggered -- the spec doc states this plainly rather
+than implying it was verified live.
+
+Verified: docstring-only + doc-only changes, full suite still 481
+passed, no behavior changed. Next real decision for the founder: how to
+sequence #211 (enable in production) given the three-item chain above
+-- accept the cross-account risk explicitly at today's scale, fix #257
+(per-account scoping) first, or build the frontend disclosure surface
+(#214) as a genuinely separate, honestly-scoped-down thing in the
+meantime.
