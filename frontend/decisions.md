@@ -653,3 +653,47 @@ unaffected by the extraction), `npm run build` green, live Playwright
 screenshots of both states (empty account showing orb + all six mode
 cards; a real Journey correctly collapsing the hero back to the
 original compact list + button).
+
+## Orb, round two: bigger "in-flight" signal + Journey's own opening state (2026-07-18)
+
+Direct founder feedback, two asks: "can we use it similar to Claude
+during chat to let users know things are happening in the background,"
+and "make the orb part of the chat screen in the opening of a chat as
+the screen is empty."
+
+**AmbientPresence grown from 40px to 72px.** Same honest, bounded
+JS-driven breathing mechanic as before (`pulseCount`/slowdown logic
+completely unchanged -- only the CSS dimensions and the scale/opacity
+RANGES the same math drives grew, see the component's own updated
+comment) -- a 40px orb tucked between messages was easy to miss
+entirely, which is the opposite of "let users know things are
+happening." Explicitly did NOT pair the bigger orb with any text or
+label: v1's "no percentage, no stage labels, no text of any kind"
+principle is one this redesign has deliberately kept throughout (see
+the original "Warm & Alive" entry's own "what was kept" list) --
+growing the orb's visual presence is not the same decision as adding
+words next to it, and Claude's own chat "thinking" indicators don't
+rely on stage-by-stage text either, just visible motion.
+
+**BreathingOrb now also opens a fresh Journey**, not just Home.
+`screens/Journey.svelte`'s existing empty-state branch (`loaded &&
+messages.length === 0`) now wraps the opening-prompt text in an
+`.opening-hero` alongside a `<BreathingOrb />`, mirroring Home's own
+empty-account hero exactly (same component, same size) -- the same
+"fill the mostly-empty space with something alive, not just one line
+of text" fix, applied to the second place in the app that has the same
+problem. `AmbientPresence` (the in-flight, honest, mechanic-bearing
+version) and `BreathingOrb` (purely decorative, `aria-hidden`) stay
+deliberately separate components -- Journey now uses BOTH, at different
+moments: BreathingOrb before the first message exists, AmbientPresence
+while a turn is actually in flight.
+
+Verified: `npm test` (31 passed), `npm run build` green, live
+Playwright screenshot of the new opening-hero state (orb above the
+opening-prompt card, matching Home's treatment). The in-flight
+AmbientPresence resize couldn't be caught in a live screenshot this
+round -- this verification environment has no LLM key configured, so
+turns fail near-instantly and the "sending" window is too brief to
+reliably capture -- but it's the same proven radial-gradient technique
+already visually confirmed via BreathingOrb, just larger CSS
+dimensions on otherwise-unchanged, already-tested logic.

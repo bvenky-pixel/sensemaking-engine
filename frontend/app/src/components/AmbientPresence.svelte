@@ -68,10 +68,16 @@
     // frontend/decisions.md): a bigger, softer glowing orb instead of a
     // 14px dot, so the same honest, bounded, wordless breathing signal
     // now reads as genuinely alive rather than a barely-visible tick.
+    //
+    // Round 2 (2026-07-18, "use it similar to Claude during chat to let
+    // users know things are happening" -- see frontend/decisions.md
+    // "Orb, round two"): grown again, from a 40px orb to 72px (see
+    // .orb-wrap below) -- same math here, just a wider scale/opacity
+    // swing so the bigger element still reads as breathing, not static.
     const eased = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
     if (dotEl) {
       dotEl.style.transform = `scale(${(0.82 + eased * 0.34).toFixed(3)})`;
-      dotEl.style.opacity = (0.55 + eased * 0.4).toFixed(3);
+      dotEl.style.opacity = (0.6 + eased * 0.4).toFixed(3);
     }
     if (glowEl) {
       // Outer glow trails the core by design -- a slightly larger,
@@ -79,7 +85,7 @@
       // countable pulse (still driven by the exact same phase/eased
       // value, so it can never desync into its own learnable rhythm).
       glowEl.style.transform = `scale(${(1.3 + eased * 0.5).toFixed(3)})`;
-      glowEl.style.opacity = (0.18 + eased * 0.22).toFixed(3);
+      glowEl.style.opacity = (0.22 + eased * 0.26).toFixed(3);
     }
     rafHandle = requestAnimationFrame(tick);
   }
@@ -120,13 +126,23 @@
     display: flex;
     justify-content: flex-start;
     align-items: center;
-    padding: var(--space-2) 0;
+    padding: var(--space-3) 0;
   }
 
+  /* Round 2 size (see script comment above): 72px, up from 40px --
+     "let users know things are happening" needed genuine visual
+     presence in the conversation flow, not something easy to miss
+     between messages. Still no text/label next to it (role="status"'s
+     aria-label carries that for screen readers only) -- v1's "no
+     percentage, no stage labels, no text of any kind" principle is one
+     of the ones the Warm & Alive redesign deliberately KEPT, not
+     overridden; a bigger orb communicates "something is happening"
+     just as honestly as a small one, growing it doesn't invite adding
+     words next to it. */
   .orb-wrap {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 72px;
+    height: 72px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -136,29 +152,29 @@
      the core dot. */
   .glow {
     position: absolute;
-    width: 40px;
-    height: 40px;
+    width: 72px;
+    height: 72px;
     border-radius: 50%;
     background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-    filter: blur(4px);
-    opacity: 0.2;
+    filter: blur(8px);
+    opacity: 0.22;
   }
 
   .glow.reduced {
-    opacity: 0.16;
+    opacity: 0.18;
   }
 
-  /* The core -- a small, warm gradient orb rather than a flat dot. */
+  /* The core -- a warm gradient orb rather than a flat dot. */
   .breath {
     position: relative;
-    width: 18px;
-    height: 18px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #FFC2A8, var(--accent) 70%);
-    opacity: 0.7;
+    opacity: 0.75;
   }
 
   .breath.reduced {
-    opacity: 0.6;
+    opacity: 0.65;
   }
 </style>

@@ -7,6 +7,7 @@
   import Transcript from '../components/Transcript.svelte';
   import Composer from '../components/Composer.svelte';
   import AmbientPresence from '../components/AmbientPresence.svelte';
+  import BreathingOrb from '../components/BreathingOrb.svelte';
   import Understanding from '../components/Understanding.svelte';
 
   // Major update (2026-07-11, see engine/decisions.md): a visible opening
@@ -109,7 +110,10 @@
 
   <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
-    <p class="voice opening-prompt" in:fade={{ duration: 320 }}>{openingPrompt}</p>
+    <div class="opening-hero" in:fade={{ duration: 320 }}>
+      <BreathingOrb />
+      <p class="voice opening-prompt">{openingPrompt}</p>
+    </div>
   {/if}
   {#if sending}<AmbientPresence {pulseCount} />{/if}
   <Composer disabled={sending} onSend={handleSend} />
@@ -123,13 +127,23 @@
     margin-bottom: var(--space-3);
   }
 
+  /* Empty-Journey opening hero (2026-07-18, see frontend/decisions.md
+     "Orb, round two"): same BreathingOrb centerpiece Home shows on a
+     journey-less account, now also filling a fresh Journey's own empty
+     space above the Composer, not just the opening-prompt text alone. */
+  .opening-hero {
+    text-align: center;
+    margin: var(--space-4) 0;
+  }
+
   .opening-prompt {
     color: var(--ink-muted);
-    margin: var(--space-3) 0;
+    margin: 0;
     padding: var(--space-3);
     background: var(--paper-raised);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-soft);
+    text-align: left;
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see
