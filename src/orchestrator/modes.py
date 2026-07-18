@@ -79,6 +79,17 @@ actually does with it:
   instead of left to free choice among alternatives -- a free "pick one
   of these" list still collapses onto whichever one or two feel most
   natural, repeated verbatim.
+- A FOURTH Realign round (2026-07-18, see engine/decisions.md "Realign
+  rotation precomputed in Python"): re-verifying the turn_count % 5 fix
+  against newly pinned production models found it still converged onto
+  ONE concept (the retrospective framing) in 4 of 6 observed turns, even
+  though the original verbatim-phrase problem stayed fixed -- asking the
+  MODEL to compute the modulo and select a concept turned out to be
+  exactly the kind of instruction-following step that varies by which
+  model is primary. Fixed by moving the selection into Python entirely
+  (`_realign_concept_for_turn`, called from `response_mode_focus_note`)
+  -- the model is now handed one already-resolved concept per turn and
+  never asked to choose or compute anything.
 
 Planner and Response get SEPARATE focus notes per mode (below) --
 Planner's own job (deciding what to prioritize) and Response's (deciding
@@ -392,21 +403,21 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "even a list of alternatives to 'pick from' tends to collapse onto "
         "whichever one or two feel most natural, repeated verbatim.\n"
         "\n"
-        "Resolve this WITHOUT needing memory: WorldState includes "
-        "`turn_count`, a plain integer you already see this turn. Compute "
-        "`turn_count % 5` and let the result select which underlying "
-        "CONCEPT sentence 2 draws on this turn (0=cost/tradeoff of this "
-        "path, 1=looking back on this a year from now, 2=whether this is "
-        "genuinely wanted vs. expected of them, 3=what it says about their "
-        "priorities, 4=what kind of professional/person they're trying to "
-        "become) -- a deterministic rotation needs no memory of past turns, "
-        "just this turn's own visible number. Write an ORIGINAL sentence "
-        "around whatever concept that index points to; do not quote a fixed "
-        "template verbatim turn after turn even when the same index recurs "
-        "later in a long Journey (turn_count % 5 repeats every 5 turns) -- "
-        "rephrase it fresh each time using this turn's own specific details.\n"
+        "The rotation is RESOLVED FOR YOU, not left to your own judgment "
+        "(2026-07-18, see engine/decisions.md \"Realign rotation "
+        "precomputed in Python\" -- a live re-check found the prior "
+        "\"compute turn_count % 5 yourself\" design still converged onto "
+        "ONE concept most turns once a different model became primary, "
+        "even though it stopped the original verbatim-phrase problem): "
+        "for THIS turn specifically, sentence 2 should draw on the "
+        "following concept -- {concept} -- write an ORIGINAL sentence "
+        "around it, grounded in this turn's own specific WorldState/ "
+        "Judgment/Planner content; do not quote a fixed template verbatim "
+        "even if this exact concept recurs on a later turn in this same "
+        "Journey (it will, roughly every 5 turns) -- rephrase it fresh "
+        "each time using this turn's own specific details.\n"
         "\n"
-        "Regardless of which concept you land on, never phrase it as "
+        "Regardless of which concept this is, never phrase it as "
         "'vision,' 'trajectory,' 'envision(ing),' or 'aspiration(s)' for "
         "your career -- that whole family of words is overused and banned "
         "here, not just the two exact phrases 'vision for your career' and "
@@ -414,6 +425,35 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "frame more specific than what WorldState actually supports."
     ),
 }
+
+# Realign rotation, precomputed in Python (2026-07-18, see
+# engine/decisions.md "Realign rotation precomputed in Python"): the
+# ORIGINAL turn_count % 5 fix (see the module docstring's "Realign round
+# four" history) asked the MODEL to compute the modulo and pick a
+# concept itself. A live re-verification against the new pinned models
+# (Qwen3-32B primary for Planner, see engine/decisions.md "Per-component
+# paid model pinning") found 4 of 6 observed turns converged on the SAME
+# concept (index 1, the retrospective framing) regardless of what
+# turn_count actually was -- the specific banned-phrase problem this
+# rotation was built to fix stayed fixed, but the underlying "a
+# memoryless generator collapses onto one comfortable framing" failure
+# mode came back via a different concept, this time because the
+# arithmetic/selection step itself isn't reliably followed by every
+# model. Fix: compute the index in Python (deterministic regardless of
+# which model is primary) and inject only the single resolved concept
+# into the prompt -- the model is never asked to choose or compute
+# anything, only to write an original sentence around what it's given.
+_REALIGN_CONCEPTS = [
+    "the cost or tradeoff of choosing this path",
+    "looking back on this a year from now and asking whether it held up",
+    "whether this is genuinely wanted vs. expected of them",
+    "what it says about their priorities",
+    "what kind of professional or person they're trying to become",
+]
+
+
+def _realign_concept_for_turn(turn_count: int) -> str:
+    return _REALIGN_CONCEPTS[turn_count % len(_REALIGN_CONCEPTS)]
 
 
 def planner_mode_focus_note(mode: Optional[str]) -> str:
@@ -427,9 +467,24 @@ def planner_mode_focus_note(mode: Optional[str]) -> str:
     return PLANNER_MODE_FOCUS.get(mode, "")
 
 
-def response_mode_focus_note(mode: Optional[str]) -> str:
+def response_mode_focus_note(mode: Optional[str], turn_count: int = 0) -> str:
     """Same contract as planner_mode_focus_note above, for Response's
-    own, separately-worded focus text."""
+    own, separately-worded focus text.
+
+    turn_count (2026-07-18, see engine/decisions.md "Realign rotation
+    precomputed in Python"): WorldState.turn_count for THIS turn -- used
+    ONLY by Realign's own deterministic concept rotation
+    (_realign_concept_for_turn above); every other mode's note ignores
+    this parameter entirely, same as before it existed. Realign's own
+    entry contains a literal `{concept}` format placeholder filled in
+    here rather than left for the model to resolve itself -- a live
+    re-verification found the model-computes-the-modulo design still
+    converged onto one concept most turns once a different model became
+    Planner's primary, so the selection is now made in Python, not left
+    to the model's own arithmetic/instruction-following."""
     if not mode:
         return ""
-    return RESPONSE_MODE_FOCUS.get(mode, "")
+    note = RESPONSE_MODE_FOCUS.get(mode, "")
+    if mode == "realign" and note:
+        return note.format(concept=_realign_concept_for_turn(turn_count))
+    return note

@@ -10,6 +10,7 @@ from src.orchestrator.modes import (
     MODE_COPY,
     PLANNER_MODE_FOCUS,
     RESPONSE_MODE_FOCUS,
+    _realign_concept_for_turn,
     planner_mode_focus_note,
     response_mode_focus_note,
 )
@@ -59,9 +60,19 @@ def test_planner_focus_note_returns_the_focus_text_for_each_known_mode():
 
 
 def test_response_focus_note_returns_the_focus_text_for_each_known_mode():
+    """Realign is a special case (2026-07-18, see engine/decisions.md
+    "Realign rotation precomputed in Python"): its raw RESPONSE_MODE_FOCUS
+    entry contains a literal `{concept}` format placeholder, filled in by
+    response_mode_focus_note itself rather than matching the raw dict
+    entry verbatim -- every other mode's note is still an exact,
+    unmodified match."""
     for mode in _ALL_MODES:
         note = response_mode_focus_note(mode)
-        assert note == RESPONSE_MODE_FOCUS[mode]
+        if mode == "realign":
+            assert "{concept}" not in note
+            assert note != RESPONSE_MODE_FOCUS[mode]
+        else:
+            assert note == RESPONSE_MODE_FOCUS[mode]
         assert MODE_COPY[mode]["label"] in note
 
 
@@ -126,24 +137,59 @@ def test_realign_response_focus_flags_overused_phrases_and_gives_concrete_altern
     assert "long-term career aspirations" in RESPONSE_MODE_FOCUS["realign"]
 
 
-def test_realign_response_focus_uses_turn_count_for_deterministic_rotation():
+def test_realign_response_focus_bans_the_overused_word_family():
     """Regression guard for a THIRD live-dispatch round on Realign: given
     a free-choice list of 5 templates, the model still converged --
     verbatim reuse of whichever 2-3 templates it favored (3x "year from
     now", 2x "cost you" back-to-back), while 2 of 5 templates were never
     sampled at all, and off-template turns re-derived the exact banned
-    "vision"/"trajectory" language unprompted. Fixed by keying rotation to
-    WorldState.turn_count (visible, deterministic, no memory required)
-    instead of leaving the choice free, and banning the whole
-    "vision"/"trajectory"/"envision"/"aspiration" word family rather than
-    just the two specific retired phrases."""
-    assert "turn_count % 5" in RESPONSE_MODE_FOCUS["realign"]
+    "vision"/"trajectory" language unprompted. The whole
+    "vision"/"trajectory"/"envision"/"aspiration" word family is banned,
+    not just the two specific retired phrases -- this survived the
+    round-four rewrite below unchanged."""
     assert "trajectory" in RESPONSE_MODE_FOCUS["realign"]
     assert "envision" in RESPONSE_MODE_FOCUS["realign"]
     assert "vision for your career" in RESPONSE_MODE_FOCUS["realign"]
     assert "no memory" in RESPONSE_MODE_FOCUS["realign"].lower()
-    # At least a few concrete alternative question templates present.
-    assert RESPONSE_MODE_FOCUS["realign"].count("'") >= 8
+
+
+def test_realign_concept_for_turn_rotates_through_five_distinct_concepts():
+    """Regression guard for a FOURTH live-dispatch round on Realign
+    (2026-07-18, see engine/decisions.md "Realign rotation precomputed
+    in Python"): asking the MODEL to compute turn_count % 5 itself and
+    pick a concept still converged onto ONE concept (index 1, the
+    retrospective framing) in 4 of 6 observed turns once a different
+    model became Planner's primary -- the arithmetic/selection step
+    itself wasn't reliably followed. Fixed by computing the index in
+    Python: `_realign_concept_for_turn` must return 5 genuinely distinct
+    strings across turn_count 0-4, and repeat identically every 5 turns
+    thereafter (deterministic, not up to the model at all anymore)."""
+    concepts = [_realign_concept_for_turn(i) for i in range(5)]
+    assert len(set(concepts)) == 5
+    for i in range(5):
+        assert _realign_concept_for_turn(i) == _realign_concept_for_turn(i + 5)
+        assert _realign_concept_for_turn(i) == _realign_concept_for_turn(i + 10)
+
+
+def test_response_mode_focus_note_embeds_the_resolved_realign_concept():
+    """Direct regression test that response_mode_focus_note actually
+    fills in Realign's `{concept}` placeholder with the concept
+    Python resolved for that specific turn_count, rather than leaving
+    the model to compute or choose anything -- the model is only ever
+    handed one already-resolved concept per turn now."""
+    for turn_count in range(7):
+        note = response_mode_focus_note("realign", turn_count)
+        assert "{concept}" not in note
+        assert _realign_concept_for_turn(turn_count) in note
+
+
+def test_response_mode_focus_note_ignores_turn_count_for_other_modes():
+    """turn_count is meaningful ONLY to Realign's own rotation -- every
+    other mode's note must be byte-identical regardless of what
+    turn_count is passed, same as before this parameter existed."""
+    for mode in ["vent", "strategize", "commit", "explore"]:
+        notes = {response_mode_focus_note(mode, tc) for tc in range(6)}
+        assert len(notes) == 1
 
 
 def test_commit_focus_notes_use_stagnation_notes_current_wording_not_a_fixed_phrase():

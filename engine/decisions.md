@@ -8819,3 +8819,77 @@ the two share the same 11-turn transcript and now the same production
 model mix) before fully trusting these clauses actually surface
 sentences a real model consistently grounds correctly rather than
 just complying with the letter of a new instruction.
+
+## Realign rotation precomputed in Python (2026-07-18)
+
+Live re-verification of the deferred `turn_count % 5` Realign fix
+(dispatched against the same 11-turn career-decision transcript used in
+every prior mode-repetitiveness round, `mode=realign`, no model
+override -- so it ran on the actual new production defaults: Qwen3-32B
+primary/Gemini-2.5-flash-lite fallback for Judgment/Planner, DeepSeek-
+chat for Response). 10 of 11 turns succeeded (1 Interpretation call
+failed schema validation on an earlier turn -- a separate, unrelated
+reliability data point, not investigated further this round since it's
+a single data point and Qwen3-32B's compliance was already flagged as
+unvalidated).
+
+**The specific problem this fix originally targeted stayed fixed**: zero
+occurrences of the banned "vision"/"trajectory"/"envision"/"aspiration"
+word family across all 6 observed responses (turns 6-11 -- the run's
+own log truncation meant turns 1-5's exact text wasn't recoverable from
+the API, but 6 consecutive turns is still a meaningful sample).
+
+**But a new convergence problem showed up**: 4 of the 6 observed
+responses converged on near-identical phrasing built around the SAME
+concept (the "looking back... a year from now, what would make you
+feel..." retrospective framing), despite `turn_count % 5` supposedly
+rotating across 5 different concepts. Quoted verbatim from the actual
+run:
+- Turn 6: "If you look back on this moment a year from now, what would
+  make you feel this effort was truly worthwhile?"
+- Turn 8: "When you imagine looking back on this a year from now, what
+  would make you feel this was the right way to spend your time and
+  energy?"
+- Turn 9: "When you imagine looking back on this situation a year from
+  now, what would make you feel this path was the right one?"
+- Turn 11: "When you look back on this moment a year from now, what
+  would make you feel it was the right call?"
+
+Only turns 7 and 10 used a different (priorities-flavored) framing.
+Turns using cost/tradeoff, wanted-vs-expected, or professional-identity
+never appeared in this 6-turn sample at all.
+
+**Root cause**: the ORIGINAL fix asked the MODEL to compute `turn_count
+% 5` itself and select a concept from a list -- reliable arithmetic/
+selection-following is not something every model does the same way,
+and the model now primary for Planner (Qwen3-32B) appears to gravitate
+toward the retrospective framing regardless of what index the
+instruction implies it should be using. The underlying failure mode is
+the SAME one this Realign saga has hit three times before (a
+memoryless generator collapses onto one comfortable framing) -- it just
+resurfaced through a different mechanism (unreliable model-side
+arithmetic) once the model changed, rather than through free-choice
+convergence like the earlier rounds.
+
+**Fix**: stop asking the model to compute or choose anything. The
+concept index is now computed in Python
+(`src/orchestrator/modes.py::_realign_concept_for_turn`, `turn_count %
+5` over a 5-item list) and the single resolved concept is injected
+directly into the prompt via a `{concept}` format placeholder in
+`RESPONSE_MODE_FOCUS["realign"]`, filled in by
+`response_mode_focus_note(mode, turn_count)` -- a new second parameter,
+default `0`, that every other mode's note ignores entirely.
+`src/response/engine.py::run_response_generator` now passes
+`state.turn_count` through. This removes the entire failure class: the
+model is never asked to do arithmetic or make a selection, only to
+write an original sentence around one concept it's handed.
+
+Verified: full suite 477 passed (474 + 3 net new -- one obsolete test
+asserting the literal "turn_count % 5" model-instruction text was
+rewritten to test the Python-side rotation instead;
+`test_realign_concept_for_turn_rotates_through_five_distinct_concepts`,
+`test_response_mode_focus_note_embeds_the_resolved_realign_concept`,
+`test_response_mode_focus_note_ignores_turn_count_for_other_modes` are
+new). A second live dispatch of the same 11-turn transcript (mode=realign,
+same production models) is queued to confirm the fix actually breaks
+the new convergence pattern before calling this closed.

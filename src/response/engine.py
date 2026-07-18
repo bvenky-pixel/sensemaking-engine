@@ -74,13 +74,19 @@ def run_response_generator(
 
     mode: optional Counseling mode id (see src/orchestrator/modes.py) --
     same raw session-level value passed to run_planner, resolved to its
-    prompt-injection note here via response_mode_focus_note.
+    prompt-injection note here via response_mode_focus_note. `state.turn_count`
+    is passed through too (2026-07-18, see engine/decisions.md "Realign
+    rotation precomputed in Python") -- Realign's own note uses it to
+    resolve which concept sentence 2 should draw on THIS turn in Python,
+    rather than asking the model to compute `turn_count % 5` itself;
+    every other mode's note ignores this value entirely.
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     planner_json = planner.model_dump_json(indent=2)
     system_prompt, messages = build_messages(
-        world_state_json, judgment_json, planner_json, response_mode_focus_note(mode)
+        world_state_json, judgment_json, planner_json,
+        response_mode_focus_note(mode, state.turn_count),
     )
     schema = Response.model_json_schema()
     tracker = tracker or default_tracker
