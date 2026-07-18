@@ -51,6 +51,55 @@ engine/decisions.md -- that specific model getting rate-limited harder
 than the rotating pool as a whole; `openrouter/free` is the default for
 every other kind of run for exactly that reason.)
 
+PER-COMPONENT PAID MODEL PINNING (2026-07-18, see engine/decisions.md
+"Per-component paid model pinning"): production previously pinned ONE
+model (`openai/gpt-4o-mini`) uniformly across every component via
+`OPENROUTER_MODEL` in fly.toml. Replaced with `_DEFAULT_COMPONENT_MODELS`
+below -- a different, individually cost/quality-matched paid model per
+`component` string, chosen by splitting the 7 live components into three
+bands rather than picking one model for everything:
+
+- Interpretation, Tier2 -- pure structured extraction from a bounded
+  input (one conversation turn); Interpretation is frozen v1.0 with its
+  own grounding-filter safety net downstream, Tier2 is the same shape of
+  task (goal/decision lifecycle, entity attributes). Pinned to the
+  cheapest tier: `google/gemini-2.5-flash-lite`.
+- Judgment, Planner, Insight, POM -- genuine synthesis/reasoning over
+  WorldState (contradictions, risk, a single strategic objective,
+  cross-session pattern-finding, cross-session psychological inference)
+  rather than bounded extraction; errors here either miscalibrate every
+  downstream stage (Judgment/Planner) or surface directly to a person as
+  a wrong "what I've learned about you" claim (Insight/POM). Pinned one
+  band up: `google/gemini-2.5-flash`.
+- Response -- the one component whose raw output IS the product a
+  person reads and judges the app's felt quality by; tone/warmth/
+  coherence matter here in a way no other component's structured JSON
+  output has to contend with. Pinned to `openai/gpt-4.1-mini`.
+
+Prices below are per OpenRouter's published per-million-token rates,
+gathered via web search on 2026-07-18 (direct fetches to openrouter.ai
+and third-party pricing aggregators were blocked by this environment's
+egress policy/bot protection at the time -- these are believed accurate
+as of that date but were not cross-checked against OpenRouter's own
+live model list; re-verify at openrouter.ai/models before leaning on
+exact figures for a cost projection):
+  google/gemini-2.5-flash-lite  $0.10 in / $0.40 out per 1M tokens
+  google/gemini-2.5-flash       $0.30 in / $2.50 out per 1M tokens
+  openai/gpt-4.1-mini           $0.40 in / $1.60 out per 1M tokens
+(for reference, the previous universal pin, openai/gpt-4o-mini, was
+$0.15 in / $0.60 out -- cheaper per-token than the two upper bands here,
+but applied uniformly rather than matched to what each component
+actually needs.)
+
+`OPENROUTER_MODEL`, if explicitly set, still overrides EVERY component
+uniformly -- unchanged behavior, since the existing calibration
+workflows (worldstate-walkthrough.yml, knowledge-correction-calibration.yml,
+pom-computation.yml) depend on being able to force one single model
+across an entire run for controlled comparison. The per-component map
+below is only consulted when no explicit override is set -- which is
+now fly.toml's own production configuration (see fly.toml's own comment
+on why OPENROUTER_MODEL was removed from `[env]`).
+
 Robustness contract: every call_openrouter call either returns a
 non-empty string or raises ProviderCallError -- never any other
 exception type, and never an empty/whitespace-only string. This is
@@ -100,6 +149,41 @@ def _first_env(*names: str) -> Optional[str]:
         if value:
             return value
     return None
+
+
+# Per-component paid model pinning (2026-07-18, see module docstring's own
+# "PER-COMPONENT PAID MODEL PINNING" section for the full rationale/pricing).
+# Keys are exactly the `component` strings each engine.py already passes to
+# call_provider/call_openrouter -- Baseline-B2-summary (evaluation harness
+# only, never a live request path) is deliberately absent, so it falls
+# through to _FALLBACK_MODEL below like any other unmapped component.
+_DEFAULT_COMPONENT_MODELS = {
+    "Interpretation": "google/gemini-2.5-flash-lite",
+    "Tier2": "google/gemini-2.5-flash-lite",
+    "Judgment": "google/gemini-2.5-flash",
+    "Planner": "google/gemini-2.5-flash",
+    "Insight": "google/gemini-2.5-flash",
+    "POM": "google/gemini-2.5-flash",
+    "Response": "openai/gpt-4.1-mini",
+}
+
+# Same default this file has always used for anything not otherwise pinned
+# (OpenRouter's free auto-router -- see module docstring's "SECOND CAVEAT").
+_FALLBACK_MODEL = "openrouter/free"
+
+
+def _resolve_model(component: str) -> str:
+    """An explicit OPENROUTER_MODEL env var always wins, applied uniformly
+    across every component -- unchanged from this file's behavior before
+    per-component pinning existed, since the calibration workflows
+    (worldstate-walkthrough.yml, knowledge-correction-calibration.yml,
+    pom-computation.yml) depend on being able to force one single model
+    for a controlled comparison. Only when no override is set does this
+    fall through to the per-component default map."""
+    override = os.environ.get("OPENROUTER_MODEL")
+    if override:
+        return override
+    return _DEFAULT_COMPONENT_MODELS.get(component, _FALLBACK_MODEL)
 
 
 def _record_usage(
@@ -182,7 +266,7 @@ def call_openrouter(
     """
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
-    model = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+    model = _resolve_model(component)
 
     if not api_key:
         raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")

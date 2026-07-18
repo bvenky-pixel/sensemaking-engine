@@ -15,10 +15,16 @@ app = 'confidantsense'
 primary_region = 'lhr'
 
 [env]
-  # Not a secret -- OpenRouter model routing choice, safe to commit.
-  # Overrides the openrouter/free auto-router default (see
-  # src/llm/providers.py) with a pinned paid model for reliability.
-  OPENROUTER_MODEL = 'openai/gpt-4o-mini'
+  # OPENROUTER_MODEL deliberately left UNSET here (2026-07-18, see
+  # engine/decisions.md "Per-component paid model pinning"). It used to
+  # pin one model (openai/gpt-4o-mini) uniformly across every component;
+  # that's now handled per-component by src/llm/providers.py's own
+  # _DEFAULT_COMPONENT_MODELS map, so setting OPENROUTER_MODEL here would
+  # override -- and flatten -- that per-component tuning back to a
+  # single model, exactly like it did before. Only set this var
+  # (temporarily, for a specific run) when you deliberately want every
+  # component forced to one model, e.g. reproducing a calibration
+  # workflow's controlled-comparison setup in production.
 
 [build]
 

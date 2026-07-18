@@ -28,6 +28,7 @@ import requests
 
 from src.llm.providers import (
     ProviderCallError,
+    _resolve_model,
     call_openrouter,
     call_provider,
     resolve_provider_chain,
@@ -189,3 +190,64 @@ def test_resolve_provider_chain_rejects_unknown_provider(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
         resolve_provider_chain()
+
+
+# --- Per-component paid model pinning (2026-07-18, see module docstring's
+# "PER-COMPONENT PAID MODEL PINNING" section) ---
+
+
+@pytest.mark.parametrize(
+    "component, expected_model",
+    [
+        ("Interpretation", "google/gemini-2.5-flash-lite"),
+        ("Tier2", "google/gemini-2.5-flash-lite"),
+        ("Judgment", "google/gemini-2.5-flash"),
+        ("Planner", "google/gemini-2.5-flash"),
+        ("Insight", "google/gemini-2.5-flash"),
+        ("POM", "google/gemini-2.5-flash"),
+        ("Response", "openai/gpt-4.1-mini"),
+    ],
+)
+def test_resolve_model_uses_the_default_map_for_known_components(monkeypatch, component, expected_model):
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    assert _resolve_model(component) == expected_model
+
+
+def test_resolve_model_falls_back_to_openrouter_free_for_an_unmapped_component(monkeypatch):
+    """Baseline-B2-summary (evaluation harness only, never a live request
+    path) and any other component not in the default map both land here,
+    same as this file's own default before per-component pinning existed."""
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    assert _resolve_model("Baseline-B2-summary") == "openrouter/free"
+    assert _resolve_model("unknown") == "openrouter/free"
+
+
+def test_resolve_model_env_override_wins_over_every_component(monkeypatch):
+    """Direct regression test for the calibration-workflow contract this
+    round preserved: OPENROUTER_MODEL, when set, still forces ONE model
+    uniformly across every component -- exactly the behavior
+    worldstate-walkthrough.yml/knowledge-correction-calibration.yml/
+    pom-computation.yml depend on for a controlled comparison."""
+    monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/some-pinned-free-model")
+    for component in ["Interpretation", "Judgment", "Planner", "Response", "POM", "Insight", "Tier2", "unknown"]:
+        assert _resolve_model(component) == "openrouter/some-pinned-free-model"
+
+
+def test_call_openrouter_sends_the_resolved_models_own_id_in_the_request_body(monkeypatch):
+    """Direct regression test that call_openrouter actually threads its
+    `component` argument through to _resolve_model rather than only
+    reading the old single OPENROUTER_MODEL env var."""
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    seen_payloads = []
+
+    def _spy_post(url, headers, json, timeout):
+        seen_payloads.append(json)
+        return _FakeResponse(json_data={"choices": [{"message": {"content": '{"ok": true}'}}]})
+
+    monkeypatch.setattr("src.llm.providers.requests.post", _spy_post)
+
+    call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Response")
+    call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
+
+    assert seen_payloads[0]["model"] == "openai/gpt-4.1-mini"
+    assert seen_payloads[1]["model"] == "google/gemini-2.5-flash-lite"

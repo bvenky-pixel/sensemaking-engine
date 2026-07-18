@@ -8509,3 +8509,87 @@ log in / pass `user_id` rather than net-new). `scripts/run_pom_computation.py` s
 against an empty DB (no accounts with sessions yet) to confirm it exits
 cleanly with no live LLM call attempted, rather than crashing or
 silently computing nothing.
+
+## Per-component paid model pinning (2026-07-18)
+
+Founder request: stop pinning one model (`openai/gpt-4o-mini`, via
+`OPENROUTER_MODEL` in fly.toml) uniformly across every LLM call, and
+instead pick the most cost-effective OpenRouter paid model for EACH of
+the app's distinct call sites, prioritizing cheapest-while-good-quality
+per task rather than one blanket choice.
+
+Direct fetches to openrouter.ai (both its models page and its
+`/api/v1/models` endpoint) and every third-party pricing aggregator
+tried (costgoat.com, llmreference.com, tokentab.dev) returned HTTP 403
+from this environment -- policy-blocked/bot-protected, not something to
+route around. An "Open Router MCP" connector exists at the org level
+but its tools don't load into an already-running session (enabling it
+mid-conversation didn't add its tools here); starting a fresh session
+to pick it up was offered and the founder chose to proceed instead with
+pricing gathered via targeted web search, cross-checked across
+multiple independent search results per model. Flagged plainly: these
+figures are believed accurate as of 2026-07-18 but were not read
+directly off OpenRouter's own live list -- re-verify at
+openrouter.ai/models before relying on them for a hard cost projection.
+
+**The 7 live components** (the `component` string each engine.py
+already passes to `call_provider`/`call_openrouter` -- this labeling
+already existed, purely for usage instrumentation, and turned out to be
+exactly the right seam to hang per-call model selection on):
+Interpretation, Tier2, Judgment, Planner, Response, Insight, POM.
+(`Baseline-B2-summary`, the evaluation harness's own baseline, is
+deliberately NOT pinned -- never a live request path.)
+
+**Three bands**, not seven distinct models -- grouping by what the task
+actually demands rather than inventing bespoke choices per call site:
+
+- **Interpretation, Tier2** -- bounded structured extraction from one
+  conversation turn (Interpretation is frozen v1.0 with its own
+  grounding-filter safety net downstream; Tier2 is the same shape of
+  task -- goal/decision lifecycle, entity attributes). Pinned to the
+  cheapest band: `google/gemini-2.5-flash-lite` ($0.10 in / $0.40 out
+  per 1M tokens).
+- **Judgment, Planner, Insight, POM** -- genuine synthesis/reasoning
+  over WorldState (contradictions, risk, the single next strategic
+  objective, cross-session pattern-finding, cross-session psychological
+  inference), not bounded extraction -- errors here either miscalibrate
+  every downstream stage (Judgment feeds Planner feeds Response) or
+  surface directly to a person as a wrong "what I've learned about you"
+  claim (Insight, POM). One band up: `google/gemini-2.5-flash` ($0.30
+  in / $2.50 out).
+- **Response** -- the one component whose raw output IS the product a
+  person reads and judges the app's felt quality by; tone, warmth, and
+  coherence matter here in a way no other component's structured JSON
+  output has to contend with. Pinned to `openai/gpt-4.1-mini` ($0.40 in
+  / $1.60 out) -- a real step up from the extraction band, short of the
+  premium tier (`anthropic/claude-haiku-4.5`, ~$1.00 in / $5.00 out)
+  since the ask was "cheapest while good," not "best regardless of
+  cost."
+
+**Mechanism** (`src/llm/providers.py`): new `_DEFAULT_COMPONENT_MODELS`
+dict + `_resolve_model(component)` helper, called from
+`call_openrouter` in place of the old bare `os.environ.get
+("OPENROUTER_MODEL", "openrouter/free")`. An explicit `OPENROUTER_MODEL`
+env var still overrides EVERY component uniformly when set --
+unchanged behavior, preserved deliberately because the existing
+calibration workflows (worldstate-walkthrough.yml,
+knowledge-correction-calibration.yml, pom-computation.yml) depend on
+forcing one single model across an entire run for a controlled
+comparison. The per-component map is only consulted when no override is
+set. A component absent from the map (Baseline-B2-summary, or anything
+future) falls through to `openrouter/free`, same fallback this file
+always had.
+
+**fly.toml**: removed the `OPENROUTER_MODEL = 'openai/gpt-4o-mini'`
+line from `[env]` entirely -- leaving it set would have overridden every
+component back to one flattened model, silently undoing the whole
+point of this round. `[env]` is now empty, with a comment explaining
+why and when someone might deliberately want to re-set it (temporarily
+forcing one model for a specific run).
+
+Verified: full suite 467 passed (457 + 10 new -- 7 parametrized
+known-component cases, 1 unmapped-component fallback case, 1 env-override
+case, 1 direct call_openrouter request-body assertion for two different
+components). No live LLM calls made or dispatched as part of this
+round -- purely a routing-configuration change, verified with mocked
+`requests.post`.
