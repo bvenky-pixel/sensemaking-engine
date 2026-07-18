@@ -8890,6 +8890,32 @@ rewritten to test the Python-side rotation instead;
 `test_realign_concept_for_turn_rotates_through_five_distinct_concepts`,
 `test_response_mode_focus_note_embeds_the_resolved_realign_concept`,
 `test_response_mode_focus_note_ignores_turn_count_for_other_modes` are
-new). A second live dispatch of the same 11-turn transcript (mode=realign,
-same production models) is queued to confirm the fix actually breaks
-the new convergence pattern before calling this closed.
+new).
+
+**Second live dispatch, CONFIRMED FIXED**: same 11-turn transcript,
+`mode=realign`, same production models (Qwen3-32B/DeepSeek-chat, no
+override), re-run immediately after this fix landed. This run's
+Interpretation failure happened on turn 8 (visible directly in the log
+this time), giving 6 responses (turns 5-7, 9-11) with an unbroken,
+verifiable `turn_count` trail. Every single one landed on EXACTLY the
+concept its own `turn_count % 5` predicts, with zero deviation:
+
+| Turn | turn_count | index | concept | actual sentence-2 (quoted) |
+|---|---|---|---|---|
+| 5 | 5 | 0 | cost/tradeoff | "What personal or professional costs would you be willing to accept..." |
+| 6 | 6 | 1 | retrospective | "If you look back on this moment a year from now, what would make you feel this effort was worthwhile?" |
+| 7 | 7 | 2 | wanted vs. expected | "Is this shift toward external opportunities something you genuinely want for yourself, or does it feel more like a response to the current constraints?" |
+| 9 | 8 | 3 | priorities | "...what does waiting until Q3 or considering external options tell you about what matters most..." |
+| 10 | 9 | 4 | professional identity | "What kind of professional growth does moving to the Product team represent for you personally?" |
+| 11 | 10 | 0 | cost/tradeoff (cycles back) | "What tradeoffs are you making by prioritizing this waiting period over more proactive steps toward your goal?" |
+
+All 5 concepts appeared exactly once across the first 5 available
+turns, and turn 11 correctly cycled back to concept 0 -- genuine,
+verified variety, not just an absence of the specific banned phrases
+(which also stayed at zero occurrences across all 6 responses, same as
+before). The precomputed-index fix resolves the convergence problem
+completely: removing the model's own arithmetic/selection step removed
+the entire failure class, exactly as predicted. This entry is now
+closed -- both the original verbatim-phrase problem and this round's
+model-arithmetic-unreliability problem are confirmed fixed against the
+actual current production model mix.
