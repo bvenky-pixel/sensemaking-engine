@@ -4,10 +4,34 @@
 // frontend-engineering-architecture-v1.md Principle 1: "Reflection of
 // Backend Truth, Never a Second Copy").
 
+// Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+// low-friction way"): callers that need to tell "hit the response
+// limit" or "not logged in" apart from a generic failure (Journey's
+// composer, Settings' gate) need the parsed `detail` string the
+// backend sends alongside 401s (`"login_required"`/
+// `"response_limit_reached"`) -- a plain Error's message string alone
+// isn't structured enough to branch on safely.
+export class ApiError extends Error {
+  constructor(status, detail) {
+    super(`Request failed (${status}): ${detail}`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function _json(res) {
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Request failed (${res.status}): ${detail}`);
+    // FastAPI's HTTPException always serializes to `{"detail": "..."}` --
+    // a non-JSON error body would only happen from something outside
+    // this app entirely (a proxy, a network failure page), in which
+    // case a generic detail is the honest answer anyway.
+    let detail = `HTTP ${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      // body wasn't JSON -- keep the generic detail above.
+    }
+    throw new ApiError(res.status, detail);
   }
   return res.json();
 }
@@ -150,6 +174,40 @@ export async function exportPrivacyData() {
 // own docstring, just wider (see src/api/db.py::reset_all_data).
 export async function resetAllData() {
   const res = await fetch('/privacy/reset', { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+// Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+// low-friction way") -- see lib/auth.svelte.js for the shared reactive
+// state these back; this file stays a thin reflection of the backend
+// the same as everywhere else.
+export async function getAuthStatus() {
+  const res = await fetch('/auth/me');
+  return _json(res);
+}
+
+export async function requestMagicLink(email) {
+  const res = await fetch('/auth/request-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return _json(res);
+}
+
+export async function verifyMagicLink(token) {
+  const res = await fetch('/auth/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  return _json(res);
+}
+
+export async function logout() {
+  const res = await fetch('/auth/logout', { method: 'POST' });
   if (!res.ok) {
     throw new Error(`Request failed (${res.status}): ${await res.text()}`);
   }

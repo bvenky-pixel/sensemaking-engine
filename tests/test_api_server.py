@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import socket
+import sqlite3
 import tempfile
 import threading
 import time
@@ -123,6 +124,29 @@ def _always_returns(payload_or_list):
     def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None):
         return json.dumps(payload_or_list)
     return _call
+
+
+def _login(client, email="person@example.com"):
+    """Test-only login helper (basic auth, see engine/decisions.md "Auth,
+    the low-friction way") -- requests a real magic link through the
+    actual endpoint, then reads the pending token straight out of
+    SQLite rather than a real inbox (see src/api/email.py's own "no
+    paid/external calls in tests" docstring), and verifies it through
+    the actual endpoint too. `client` is a `TestClient`, which persists
+    cookies across calls on the same instance, so every later request
+    made with this same `client` is authenticated as this user."""
+    client.post("/auth/request-link", json={"email": email})
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT token FROM magic_links WHERE email = ? ORDER BY created_at DESC LIMIT 1",
+            (email,),
+        ).fetchone()
+    finally:
+        conn.close()
+    res = client.post("/auth/verify", json={"token": row[0]})
+    assert res.status_code == 200
+    return email
 
 
 @pytest.fixture
@@ -624,6 +648,132 @@ def test_list_sessions_excludes_a_session_with_no_messages(client):
     assert empty_session not in [s["id"] for s in client.get("/sessions").json()]
 
 
+# Basic auth (2026-07-18, see engine/decisions.md "Auth, the low-friction
+# way"). Two independent `TestClient(server.app)` instances against the
+# SAME db path (the `client` fixture's own monkeypatched db.DB_PATH) --
+# each TestClient has its own cookie jar, so this is the direct way to
+# simulate "two different browsers" hitting one running server, the
+# thing this whole feature exists to make actually true.
+def test_anonymous_visitors_do_not_see_each_others_journeys(client, monkeypatch):
+    """The exact pre-auth bug this round fixes: GET /sessions used to
+    return literally every Journey in the database to every visitor."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    assert session_id in [s["id"] for s in client.get("/sessions").json()]
+
+    with TestClient(server.app) as other_browser:
+        assert other_browser.get("/sessions").json() == []
+        # Not just invisible on the list -- genuinely not theirs.
+        assert other_browser.get(f"/sessions/{session_id}/messages").status_code == 404
+
+
+def test_anonymous_session_owner_cannot_be_impersonated_by_a_guessed_id(client, monkeypatch):
+    """A session_id belonging to a different anonymous visitor 404s
+    (never 403) for every session-scoped action -- existence and
+    ownership are indistinguishable from the outside."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    with TestClient(server.app) as other_browser:
+        assert other_browser.post(f"/sessions/{session_id}/bookmark", json={"bookmarked": True}).status_code == 404
+        assert other_browser.delete(f"/sessions/{session_id}").status_code == 404
+        assert other_browser.post(
+            f"/sessions/{session_id}/messages", json={"content": "hi"}
+        ).status_code == 404
+
+
+def test_request_magic_link_always_reports_sent_regardless_of_email(client):
+    """Never reveals whether the email matched an existing account --
+    the email-enumeration defense every real auth system needs."""
+    res = client.post("/auth/request-link", json={"email": "nobody-yet@example.com"})
+    assert res.json() == {"sent": True}
+
+
+def test_verify_magic_link_logs_in_and_claims_anonymous_journeys(client, monkeypatch):
+    """The actual value proposition of claim-on-login: a Journey begun
+    before signing up must still be there afterward, under the new
+    account -- and gone from the anonymous view, since it's no longer
+    that browser's alone."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _login(client, email="claims-test@example.com")
+
+    res = client.get("/auth/me")
+    assert res.json() == {"authenticated": True, "email": "claims-test@example.com"}
+    assert session_id in [s["id"] for s in client.get("/sessions").json()]
+
+
+def test_verify_magic_link_rejects_an_unknown_token(client):
+    res = client.post("/auth/verify", json={"token": "not-a-real-token"})
+    assert res.status_code == 404
+
+
+def test_verify_magic_link_token_is_single_use(client):
+    client.post("/auth/request-link", json={"email": "reuse-test@example.com"})
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        token = conn.execute(
+            "SELECT token FROM magic_links WHERE email = ?", ("reuse-test@example.com",)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert client.post("/auth/verify", json={"token": token}).status_code == 200
+    # Same token again -- already consumed, must not log in a second time.
+    assert client.post("/auth/verify", json={"token": token}).status_code == 404
+
+
+def test_logout_clears_the_session_cookie(client):
+    _login(client, email="logout-test@example.com")
+    assert client.get("/auth/me").json()["authenticated"] is True
+
+    assert client.post("/auth/logout").status_code == 204
+    assert client.get("/auth/me").json() == {"authenticated": False, "email": None}
+
+
+def test_anonymous_sender_is_blocked_after_the_response_limit(client, monkeypatch):
+    """ANONYMOUS_MESSAGE_LIMIT (see src/api/server.py) -- exactly 10 user
+    messages succeed for free; the 11th is turned away with a stable,
+    frontend-checkable error rather than a generic failure."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("Thinking out loud.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    for _ in range(10):
+        res = client.post(f"/sessions/{session_id}/messages", json={"content": "Thinking out loud."})
+        assert res.status_code == 200
+
+    res = client.post(f"/sessions/{session_id}/messages", json={"content": "one more thing"})
+    assert res.status_code == 401
+    assert res.json()["detail"] == "response_limit_reached"
+
+
+def test_signed_in_sender_is_never_capped(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("Thinking out loud.")),
+    )
+    _login(client, email="no-cap-test@example.com")
+    session_id = client.post("/sessions").json()["id"]
+    for _ in range(11):
+        res = client.post(f"/sessions/{session_id}/messages", json={"content": "Thinking out loud."})
+        assert res.status_code == 200
+
+
 def test_preview_text_stays_stable_across_later_turns(client, monkeypatch):
     """Regression test for a real, live-observed issue (see
     engine/decisions.md "Frontend UX pass"): previously this field was
@@ -1043,7 +1193,17 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
     uvicorn in a background thread against a real loopback socket instead
     -- this is what actually exercises asyncio.Queue's cross-thread
     call_soon_threadsafe handoff (see server.py's send_message) the way
-    the deployed app really will."""
+    the deployed app really will.
+
+    Uses one shared `httpx.Client()` across all three calls (basic auth,
+    see engine/decisions.md) rather than three one-off `httpx.post`/
+    `httpx.stream` calls -- the first request mints this "browser"'s own
+    anonymous-id cookie (src/api/server.py's `resolve_identity`), and
+    every later call needs to carry that SAME cookie for the session it
+    created to still be owned by whoever's asking; three independent,
+    cookie-less requests would each look like a different anonymous
+    visitor and 404 on ownership, same as three separate real browsers
+    would."""
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "stream_test.db")
     monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT))
     monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
@@ -1068,30 +1228,31 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
 
     try:
         base = f"http://127.0.0.1:{port}"
-        session_id = httpx.post(f"{base}/sessions").json()["id"]
+        with httpx.Client(base_url=base) as http_client:
+            session_id = http_client.post("/sessions").json()["id"]
 
-        received: list[str] = []
-        connected = threading.Event()
+            received: list[str] = []
+            connected = threading.Event()
 
-        def _listen():
-            with httpx.stream("GET", f"{base}/sessions/{session_id}/stream", timeout=10) as response:
-                connected.set()
-                for line in response.iter_lines():
-                    if line.startswith("data: "):
-                        received.append(json.loads(line[len("data: "):])["stage"])
-                    if len(received) >= 4:
-                        break
+            def _listen():
+                with http_client.stream("GET", f"/sessions/{session_id}/stream", timeout=10) as response:
+                    connected.set()
+                    for line in response.iter_lines():
+                        if line.startswith("data: "):
+                            received.append(json.loads(line[len("data: "):])["stage"])
+                        if len(received) >= 4:
+                            break
 
-        listener = threading.Thread(target=_listen, daemon=True)
-        listener.start()
-        assert connected.wait(timeout=2), "stream never connected"
+            listener = threading.Thread(target=_listen, daemon=True)
+            listener.start()
+            assert connected.wait(timeout=2), "stream never connected"
 
-        res = httpx.post(
-            f"{base}/sessions/{session_id}/messages", json={"content": "I want to move teams."}, timeout=10
-        )
-        assert res.status_code == 200
+            res = http_client.post(
+                f"/sessions/{session_id}/messages", json={"content": "I want to move teams."}, timeout=10
+            )
+            assert res.status_code == 200
 
-        listener.join(timeout=5)
+            listener.join(timeout=5)
         assert not listener.is_alive()
         assert received == ["interpretation", "judgment", "planner", "response"]
         # Same process, same imported server module -- uvicorn.Server was
@@ -1108,11 +1269,23 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
 
 
 def test_privacy_settings_default_to_cross_session_learning_enabled(client):
+    _login(client)
     res = client.get("/privacy/settings")
     assert res.json() == {"cross_session_learning_enabled": True}
 
 
+def test_privacy_settings_requires_login(client):
+    """Direct regression test for the gate itself (basic auth, see
+    engine/decisions.md "Auth, the low-friction way") -- an anonymous
+    caller (no _login call here) must be turned away, not served the
+    single global setting."""
+    res = client.get("/privacy/settings")
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
 def test_privacy_settings_can_be_disabled_and_persist(client):
+    _login(client)
     res = client.post("/privacy/settings", json={"cross_session_learning_enabled": False})
     assert res.json() == {"cross_session_learning_enabled": False}
 
@@ -1166,6 +1339,7 @@ def test_privacy_export_includes_sessions_messages_and_readable_world_state(clie
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
+    _login(client)
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
 
@@ -1188,6 +1362,7 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
+    _login(client)
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
     db.replace_learned_patterns([

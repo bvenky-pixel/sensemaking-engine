@@ -10,16 +10,26 @@ import * as api from '../lib/api.js';
 // that a permanent delete link was "too much... I risk losing data every
 // time." Bookmark lives in the same menu now too. Mocking lib/api.js
 // (rather than fetch) matches every other screen test's own boundary.
-vi.mock('../lib/api.js', () => ({
-  getMessages: vi.fn(),
-  sendMessage: vi.fn(),
-  getClarityBrief: vi.fn(),
-  getUnderstanding: vi.fn(),
-  openStageStream: vi.fn(),
-  deleteSession: vi.fn(),
-  getBookmark: vi.fn(),
-  setBookmark: vi.fn(),
-}));
+// Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+// low-friction way"): `ApiError` is passed through from the REAL
+// module (via importOriginal), not stubbed with vi.fn() like
+// everything else here -- Journey.svelte's own catch block does
+// `err instanceof ApiError`, which needs a real class to check against,
+// not a mock function standing in for one.
+vi.mock('../lib/api.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    getMessages: vi.fn(),
+    sendMessage: vi.fn(),
+    getClarityBrief: vi.fn(),
+    getUnderstanding: vi.fn(),
+    openStageStream: vi.fn(),
+    deleteSession: vi.fn(),
+    getBookmark: vi.fn(),
+    setBookmark: vi.fn(),
+    ApiError: actual.ApiError,
+  };
+});
 
 describe('Journey overflow menu', () => {
   beforeEach(() => {
@@ -28,6 +38,7 @@ describe('Journey overflow menu', () => {
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.openStageStream.mockReturnValue(vi.fn());
   });
 
   it('does not show any actions until the menu is opened', async () => {
@@ -168,5 +179,62 @@ describe('Journey: only populated after a real message is shared', () => {
 
     await waitFor(() => expect(onBack).toHaveBeenCalled());
     expect(api.deleteSession).not.toHaveBeenCalled();
+  });
+});
+
+// Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+// low-friction way"): ANONYMOUS_MESSAGE_LIMIT's frontend half --
+// src/api/server.py's send_message rejects with
+// `ApiError(401, "response_limit_reached")` once an anonymous
+// conversation's cap is hit.
+describe('Journey: response limit reached', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getMessages.mockResolvedValue([{ role: 'user', content: 'Already said something.', created_at: '' }]);
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.openStageStream.mockReturnValue(vi.fn());
+  });
+
+  it('shows a login prompt instead of the composer, and rolls back the unsent message', async () => {
+    api.sendMessage.mockRejectedValue(new api.ApiError(401, 'response_limit_reached'));
+    const { getByPlaceholderText, getByText, queryByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText('Already said something.'));
+    const textarea = getByPlaceholderText("What's on your mind?");
+    await fireEvent.input(textarea, { target: { value: 'One more thing.' } });
+    await fireEvent.click(getByText('Share this'));
+
+    await waitFor(() => {
+      expect(getByText(/reached the free limit/)).toBeTruthy();
+    });
+    // The optimistically-added message was never actually recorded --
+    // the transcript shouldn't claim otherwise.
+    expect(queryByText('One more thing.')).toBeNull();
+    expect(queryByText('Share this')).toBeNull();
+  });
+
+  it('shows a generic failure message (not the login gate) for an unrelated error', async () => {
+    api.sendMessage.mockRejectedValue(new Error('network exploded'));
+    const { getByPlaceholderText, getByText, queryByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText('Already said something.'));
+    const textarea = getByPlaceholderText("What's on your mind?");
+    await fireEvent.input(textarea, { target: { value: 'One more thing.' } });
+    await fireEvent.click(getByText('Share this'));
+
+    await waitFor(() => {
+      expect(getByText("I couldn't reach Confidant just now. Please try again in a moment.")).toBeTruthy();
+    });
+    expect(queryByText(/reached the free limit/)).toBeNull();
+    // Unlike the limit case, a generic failure keeps the composer and
+    // the message the person actually typed.
+    expect(getByText('One more thing.')).toBeTruthy();
+    expect(getByText('Share this')).toBeTruthy();
   });
 });

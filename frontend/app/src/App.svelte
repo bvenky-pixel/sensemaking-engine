@@ -3,13 +3,30 @@
   // Journey, Settings. Local state, not a router library -- three
   // screens with no deep-linking requirement don't need one yet (see
   // frontend/specs/screen-design-v1.md's own "out of scope" note).
+  import { onMount } from 'svelte';
   import Home from './screens/Home.svelte';
   import Journey from './screens/Journey.svelte';
   import ModeSelect from './screens/ModeSelect.svelte';
   import Settings from './screens/Settings.svelte';
+  import { checkAuth, consumeMagicLinkFromUrl } from './lib/auth.svelte.js';
 
   let screen = $state('home');
   let sessionId = $state(null);
+
+  // Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+  // low-friction way"): a clicked magic link lands back on this exact
+  // page as `/?token=...` (there's no separate frontend route for it --
+  // see src/api/server.py's /auth/request-link docstring for why the
+  // link points at the plain root). If a token is present this
+  // exchanges it for a real session cookie and strips it from the
+  // address bar; either way, checkAuth() is skipped in that case since
+  // consumeMagicLinkFromUrl already updated the same shared auth state
+  // directly from its own response -- a second /auth/me round trip
+  // right after would be redundant.
+  onMount(async () => {
+    const consumed = await consumeMagicLinkFromUrl();
+    if (!consumed) await checkAuth();
+  });
 
   function openJourney(id) {
     sessionId = id;

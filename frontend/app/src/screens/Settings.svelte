@@ -40,6 +40,14 @@
   // rather than left as an empty shell -- information-architecture-v1.md's
   // three-named-sections framing is now two real ones (Privacy,
   // Account), not three where one is hollow.
+  //
+  // Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
+  // direct founder brief -- "will need login to access settings and
+  // privacy features" -- so the ENTIRE screen (both Privacy and
+  // Account, reduce-motion included) now gates behind sign-in, not
+  // just the two backend-persisted controls. Account's own placeholder
+  // note above is no longer accurate for a signed-in visitor -- it now
+  // shows the real, signed-in email and a Log out control.
   import { onMount } from 'svelte';
   import {
     getPrivacySettings,
@@ -48,8 +56,21 @@
     resetAllData,
   } from '../lib/api.js';
   import { getReduceMotionOverride, setReduceMotionOverride, applyReduceMotionAttribute } from '../lib/motionPreference.js';
+  import { authState, logout } from '../lib/auth.svelte.js';
+  import LoginGate from '../components/LoginGate.svelte';
 
   let { onBack } = $props();
+
+  let loggingOut = $state(false);
+
+  async function handleLogout() {
+    loggingOut = true;
+    try {
+      await logout();
+    } finally {
+      loggingOut = false;
+    }
+  }
 
   let reduceMotion = $state(false);
   let crossSessionLearning = $state(true);
@@ -59,8 +80,16 @@
 
   onMount(async () => {
     reduceMotion = getReduceMotionOverride();
-    const privacy = await getPrivacySettings();
-    crossSessionLearning = privacy.cross_session_learning_enabled;
+    // Gated behind sign-in (see script comment) -- App.svelte's own
+    // onMount already resolved authState before this screen could ever
+    // be reached by navigation, so this check never races a still-pending
+    // auth check. Skipping the call entirely when logged out, rather
+    // than firing it and handling the resulting 401, avoids a doomed
+    // request nobody needs.
+    if (authState.authenticated) {
+      const privacy = await getPrivacySettings();
+      crossSessionLearning = privacy.cross_session_learning_enabled;
+    }
   });
 
   function toggleReduceMotion() {
@@ -116,77 +145,93 @@
 
   <p class="display">Settings</p>
 
-  <section class="card setting-section">
-    <div class="setting-heading">
-      <span class="dot" style="--dot-tint: var(--accent-2)"></span>
-      <p class="ui-label">Privacy</p>
-    </div>
-    <p class="setting-body">Controls for what Confidant remembers and how it's used.</p>
-
-    <div class="toggle-row">
-      <div>
-        <p class="toggle-label">Learn across Journeys</p>
-        <p class="toggle-hint">Lets Confidant notice patterns across your Journeys and build a standing sense of who you are over time. Turning this off keeps every Journey completely separate -- nothing said in one is ever used in another.</p>
+  {#if !authState.checked}
+    <!-- Waiting on App.svelte's own boot-time auth check -- see script
+         comment. Practically instantaneous in normal use, so no
+         skeleton/spinner is worth building for it. -->
+  {:else if !authState.authenticated}
+    <section class="card setting-section">
+      <LoginGate message="Log in to access Settings and Privacy controls." />
+    </section>
+  {:else}
+    <section class="card setting-section">
+      <div class="setting-heading">
+        <span class="dot" style="--dot-tint: var(--accent-2)"></span>
+        <p class="ui-label">Privacy</p>
       </div>
-      <button
-        type="button"
-        class="toggle"
-        class:on={crossSessionLearning}
-        role="switch"
-        aria-checked={crossSessionLearning}
-        aria-label="Learn across Journeys"
-        onclick={toggleCrossSessionLearning}
-      >
-        <span class="toggle-thumb"></span>
-      </button>
-    </div>
+      <p class="setting-body">Controls for what Confidant remembers and how it's used.</p>
 
-    <div class="privacy-actions">
-      <button type="button" class="link-button" onclick={handleExport} disabled={exporting}>
-        {exporting ? 'Preparing export…' : 'Export your data'}
-      </button>
-
-      {#if pendingReset}
-        <span class="confirm">
-          <span class="voice">Forget everything Confidant knows about you? This can't be undone.</span>
-          <button type="button" class="link-button danger" onclick={confirmReset} disabled={resetting}>
-            {resetting ? 'Forgetting…' : 'Yes, forget everything'}
-          </button>
-          <button type="button" class="link-button" onclick={cancelReset}>Cancel</button>
-        </span>
-      {:else}
-        <button type="button" class="link-button danger" onclick={askToReset}>
-          Forget everything
+      <div class="toggle-row">
+        <div>
+          <p class="toggle-label">Learn across Journeys</p>
+          <p class="toggle-hint">Lets Confidant notice patterns across your Journeys and build a standing sense of who you are over time. Turning this off keeps every Journey completely separate -- nothing said in one is ever used in another.</p>
+        </div>
+        <button
+          type="button"
+          class="toggle"
+          class:on={crossSessionLearning}
+          role="switch"
+          aria-checked={crossSessionLearning}
+          aria-label="Learn across Journeys"
+          onclick={toggleCrossSessionLearning}
+        >
+          <span class="toggle-thumb"></span>
         </button>
-      {/if}
-    </div>
-  </section>
-
-  <section class="card setting-section">
-    <div class="setting-heading">
-      <span class="dot" style="--dot-tint: var(--accent-3)"></span>
-      <p class="ui-label">Account</p>
-    </div>
-    <p class="setting-body">Basic account details.</p>
-
-    <div class="toggle-row">
-      <div>
-        <p class="toggle-label">Reduce motion</p>
-        <p class="toggle-hint">Calms the breathing orb and other motion throughout Confidant, on top of your device's own accessibility setting.</p>
       </div>
-      <button
-        type="button"
-        class="toggle"
-        class:on={reduceMotion}
-        role="switch"
-        aria-checked={reduceMotion}
-        aria-label="Reduce motion"
-        onclick={toggleReduceMotion}
-      >
-        <span class="toggle-thumb"></span>
-      </button>
-    </div>
-  </section>
+
+      <div class="privacy-actions">
+        <button type="button" class="link-button" onclick={handleExport} disabled={exporting}>
+          {exporting ? 'Preparing export…' : 'Export your data'}
+        </button>
+
+        {#if pendingReset}
+          <span class="confirm">
+            <span class="voice">Forget everything Confidant knows about you? This can't be undone.</span>
+            <button type="button" class="link-button danger" onclick={confirmReset} disabled={resetting}>
+              {resetting ? 'Forgetting…' : 'Yes, forget everything'}
+            </button>
+            <button type="button" class="link-button" onclick={cancelReset}>Cancel</button>
+          </span>
+        {:else}
+          <button type="button" class="link-button danger" onclick={askToReset}>
+            Forget everything
+          </button>
+        {/if}
+      </div>
+    </section>
+
+    <section class="card setting-section">
+      <div class="setting-heading">
+        <span class="dot" style="--dot-tint: var(--accent-3)"></span>
+        <p class="ui-label">Account</p>
+      </div>
+      <p class="setting-body">Signed in as <strong>{authState.email}</strong>.</p>
+
+      <div class="toggle-row">
+        <div>
+          <p class="toggle-label">Reduce motion</p>
+          <p class="toggle-hint">Calms the breathing orb and other motion throughout Confidant, on top of your device's own accessibility setting.</p>
+        </div>
+        <button
+          type="button"
+          class="toggle"
+          class:on={reduceMotion}
+          role="switch"
+          aria-checked={reduceMotion}
+          aria-label="Reduce motion"
+          onclick={toggleReduceMotion}
+        >
+          <span class="toggle-thumb"></span>
+        </button>
+      </div>
+
+      <div class="privacy-actions">
+        <button type="button" class="link-button" onclick={handleLogout} disabled={loggingOut}>
+          {loggingOut ? 'Logging out…' : 'Log out'}
+        </button>
+      </div>
+    </section>
+  {/if}
 </div>
 
 <style>

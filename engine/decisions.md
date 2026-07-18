@@ -8241,3 +8241,114 @@ Verified: `test_list_sessions_includes_chosen_mode` and
 `test_list_sessions_mode_is_null_when_none_was_chosen` in
 `tests/test_api_server.py`. Full suite: 441 passed.
 passed (431 existing + 5 new).
+
+## Basic auth: users, magic links, owner-scoped Journeys (2026-07-18)
+
+Direct founder brief: a ChatGPT-style auth layer -- usable without
+login, login required to access Settings/Privacy and to continue a
+conversation beyond a response cap, "as low friction and easy as
+possible" (see frontend/decisions.md "Auth, the low-friction way" for
+the full framing and frontend half). This is the backend half.
+
+**The real discovery**: `src/api/db.py`'s own module docstring already
+flagged, for the `behavioral_events` table, that "there is no `users`
+table or auth anywhere in this codebase today... a stated single-user
+simplification, revisit if/when multi-user support exists." Turned out
+to be true of `sessions` too -- `GET /sessions` returned literally
+every Journey in the database to every visitor, full stop. Adding
+login meant introducing real data ownership for the first time, not
+just gating two screens.
+
+**Three new tables** (`src/api/db.py`): `users` (id, email,
+created_at -- email is the only real field, magic-link auth never
+needs a password hash), `magic_links` (opaque `secrets.token_urlsafe`
+tokens, 15-minute expiry, single-use via `used_at`, carries the
+requesting browser's `anonymous_id` so claim-on-login doesn't need a
+second round trip), `auth_sessions` (the signed-in cookie's own
+backing row, 30-day expiry -- named to avoid colliding with the
+pre-existing `sessions` table, which means "Journey" everywhere else in
+this codebase). All three are opaque, DB-revocable tokens looked up
+directly -- not JWTs, matching this file's "no ORM, plain SQLite"
+simplicity elsewhere; no secret-rotation story needed for an app this
+size.
+
+**Two new nullable owner columns on `sessions`** (`user_id`,
+`anonymous_id`, additive `ALTER TABLE`, same idempotent pattern as
+`bookmarked`/`mode`) -- exactly one is set per Journey going forward.
+`db.claim_anonymous_sessions(anonymous_id, user_id)` re-points every
+Journey a browser's anonymous id owns onto a newly-created account
+(clearing `anonymous_id` in the same statement) the moment a magic
+link is verified -- signing up must not cost a person the Journey they
+were already in. A Journey created before this round has neither
+column set and is simply never returned to anyone by the now
+owner-scoped `list_sessions`/`_require_owned_session` -- a documented,
+honest consequence of introducing ownership after the fact (there is
+no "claim a legacy session" flow), not a silent gap.
+
+**`resolve_identity`** (`src/api/server.py`) is the one place a
+request's identity gets decided: a valid `confidant_session` cookie
+wins outright; otherwise an existing `confidant_anon_id` cookie is
+reused, or a fresh one is minted right there (via the SAME `Response`
+object FastAPI shares across a request's whole dependency tree, so the
+Set-Cookie reaches the client even though this function never returns
+a Response itself). Every session-scoped endpoint depends on it and
+calls the new `_require_owned_session(session_id, identity)` instead
+of the old existence-only `_require_session` -- existence AND
+ownership collapse into the same 404 either way, so a session_id
+belonging to someone else reveals nothing about whether it even
+exists.
+
+**The response cap** (`ANONYMOUS_MESSAGE_LIMIT = 10`): per-conversation,
+not cumulative across every anonymous Journey a browser has started
+(read directly from the founder's own phrasing -- "continue A
+conversation beyond a certain number of responses"). Checked in
+`send_message` before `db.load_state`/`run_turn` are ever called, so a
+blocked 11th message costs nothing -- no LLM call happens at all.
+Never applies to a signed-in sender, by construction:
+`_require_owned_session` already confirmed they own the session, so
+there's nothing left to gate.
+
+**Email delivery** (`src/api/email.py`): a single `send_magic_link_email`
+function, swappable rather than a provider SDK threaded through the
+rest of `src/api/`. Until `RESEND_API_KEY` is set (a Fly secret, never
+committed -- the founder has a Resend account and key ready; the
+deploy step will need `fly secrets set RESEND_API_KEY=...`), and always
+in tests, it just logs the link to stdout -- same "no paid/external
+calls unless explicitly configured" discipline this codebase already
+holds for LLM calls in tests. Sends from Resend's own shared
+`onboarding@resend.dev` sender until a verified domain exists; nothing
+else about the function needs to change when one does.
+
+**Deliberately bounded scope**: `privacy_settings`, `learned_patterns`,
+`insights`, and `personal_operating_model` all stay the single,
+global, cross-visitor models they already were. `GET/POST
+/privacy/settings`, `GET /privacy/export`, and `POST /privacy/reset`
+now require `Depends(require_user)` (a stable `detail="login_required"`
+401 the frontend checks for) -- but the underlying data behind them is
+NOT yet split per-account, so today every signed-in visitor shares one
+setting/export/reset target. Gating ACCESS behind login is what was
+asked for and is what's built; making Learning/Insight Engine/POM/
+Privacy genuinely per-account is a real, separate project, flagged
+here rather than silently assumed away -- the same "stated
+simplification, not a silent gap" discipline this file already applies
+elsewhere.
+
+Verified: 12 new tests in `tests/test_api_server.py` -- two anonymous
+browsers (two independent `TestClient(server.app)` instances against
+one db) never see each other's Journeys or can access one another's
+session_id-scoped endpoints (404, not 403); `/auth/request-link`
+always reports `sent: true` regardless of the email (no
+email-enumeration leak); `/auth/verify` logs in AND claims a prior
+anonymous Journey onto the new account in one call; an unknown token
+404s; a token is provably single-use (same token rejected on reuse);
+`/auth/logout` clears the cookie; the response cap fires at exactly
+the 10th->11th boundary and never applies to a signed-in sender; and a
+direct regression test that `/privacy/settings` 401s for an anonymous
+caller. Fixed one real ripple: the existing live SSE test
+(`test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn`)
+made three independent, cookie-less `httpx` calls against a real
+uvicorn thread -- correct before ownership existed, now three
+different "anonymous visitors" that can't see each other's session;
+switched it to one shared `httpx.Client()` so the anon cookie the
+first call mints actually carries across the stream-open and the
+POST, same as a real browser tab would. Full suite: 451 passed.

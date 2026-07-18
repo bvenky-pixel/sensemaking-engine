@@ -28,16 +28,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api import db
+from src.api.email import send_magic_link_email
 from src.api.schema import (
+    AuthStatusOut,
     ClarityBriefResponse,
     CreateSessionRequest,
     CreateSessionResponse,
@@ -46,6 +50,8 @@ from src.api.schema import (
     MessageOut,
     ModeOut,
     PrivacySettingsOut,
+    RequestMagicLinkRequest,
+    RequestMagicLinkResponse,
     ResponseOptionOut,
     SendMessageRequest,
     SendMessageResponse,
@@ -54,6 +60,7 @@ from src.api.schema import (
     SetPrivacySettingsRequest,
     UnderstandingResponse,
     UnderstandingStatementOut,
+    VerifyMagicLinkRequest,
 )
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.executor.voice import to_second_person
@@ -109,75 +116,188 @@ app = FastAPI(title="Confidant MVP API", lifespan=_lifespan)
 _stage_queues: dict[str, Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
 
 
-def _require_session(session_id: str) -> None:
-    if not db.session_exists(session_id):
+# Basic auth (2026-07-18, see engine/decisions.md, frontend/decisions.md
+# "Auth, the low-friction way") -- two cookies, one per identity a
+# request can carry. `_ANON_COOKIE` is minted by this server the first
+# time ANY browser shows up with neither cookie set (see
+# `resolve_identity` below) -- it exists purely so Journeys begun before
+# signing up have a stable owner to be scoped by and later claimed onto
+# an account (db.claim_anonymous_sessions). `_SESSION_COOKIE` only
+# exists once a magic link has actually been clicked. `SameSite=Lax` +
+# `httponly` on the session cookie (never on the anon one, which the
+# frontend never needs to read directly either, but there's no reason
+# to withhold the same protections) -- `secure` is deliberately NOT
+# hardcoded here: Fly.io terminates TLS in front of this app, so from
+# uvicorn's own point of view every request already looks like plain
+# HTTP, and marking cookies `secure` unconditionally would silently
+# break local `http://localhost` dev entirely.
+_ANON_COOKIE = "confidant_anon_id"
+_SESSION_COOKIE = "confidant_session"
+_ANON_COOKIE_MAX_AGE = int(db.AUTH_SESSION_LIFETIME.total_seconds())
+_SESSION_COOKIE_MAX_AGE = int(db.AUTH_SESSION_LIFETIME.total_seconds())
+
+# How many responses an anonymous visitor gets in ONE conversation
+# before being asked to log in to continue it (direct founder framing:
+# "continue A conversation beyond a certain number of responses" -- a
+# per-Journey cap, not a cumulative one across every anonymous Journey a
+# browser has ever started). Counted as prior USER messages already in
+# the session, so exactly this many turns complete for free before the
+# next attempt is blocked.
+ANONYMOUS_MESSAGE_LIMIT = 10
+
+
+@dataclass
+class Identity:
+    """Whichever of the two a request resolves to -- see
+    `resolve_identity`. Never both at once by construction: a request
+    carrying a valid session cookie is always treated as that user,
+    full stop, regardless of whatever stale anon cookie also happens to
+    be sitting in the same browser."""
+
+    user_id: Optional[str]
+    anonymous_id: Optional[str]
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.user_id is not None
+
+
+def resolve_identity(request: Request, response: Response) -> Identity:
+    """The one place a request's identity is decided -- every
+    session-scoped endpoint below depends on this rather than reading
+    cookies itself. A valid `_SESSION_COOKIE` wins outright. Otherwise,
+    an existing `_ANON_COOKIE` is reused; a browser with neither gets a
+    freshly minted one set on `response` right here (the same `Response`
+    object FastAPI hands to the eventual route, so this Set-Cookie
+    reaches the client even though this function never returns a
+    Response itself)."""
+    session_token = request.cookies.get(_SESSION_COOKIE)
+    if session_token:
+        user_id = db.get_user_id_for_auth_session(session_token)
+        if user_id is not None:
+            return Identity(user_id=user_id, anonymous_id=None)
+
+    anonymous_id = request.cookies.get(_ANON_COOKIE)
+    if not anonymous_id:
+        anonymous_id = str(uuid.uuid4())
+        response.set_cookie(
+            _ANON_COOKIE, anonymous_id, max_age=_ANON_COOKIE_MAX_AGE,
+            httponly=True, samesite="lax",
+        )
+    return Identity(user_id=None, anonymous_id=anonymous_id)
+
+
+def require_user(identity: Identity = Depends(resolve_identity)) -> str:
+    """Guards Settings/Privacy endpoints (see engine/decisions.md) --
+    `detail="login_required"` is a stable string the frontend checks
+    for (see lib/api.js), not just prose for a human reading the
+    response."""
+    if identity.user_id is None:
+        raise HTTPException(status_code=401, detail="login_required")
+    return identity.user_id
+
+
+def _require_owned_session(session_id: str, identity: Identity) -> None:
+    """Existence AND ownership -- returning 404 (never 403) either way,
+    so a session_id belonging to someone else reveals nothing about
+    whether it exists at all. A session with neither owner column set
+    (created before this feature existed -- see src/api/db.py's own
+    module docstring) matches no identity and 404s for everyone,
+    including whoever was using it before auth existed; there is no
+    "claim a legacy session" flow, a deliberate, documented consequence
+    of introducing ownership after the fact rather than a silent gap."""
+    owner = db.session_owner(session_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail=f"No session {session_id!r}")
+    owner_user_id, owner_anonymous_id = owner
+    owned = (
+        (identity.user_id is not None and identity.user_id == owner_user_id)
+        or (identity.user_id is None and identity.anonymous_id == owner_anonymous_id)
+    )
+    if not owned:
         raise HTTPException(status_code=404, detail=f"No session {session_id!r}")
 
 
 @app.post("/sessions", response_model=CreateSessionResponse)
-def create_session(body: CreateSessionRequest = CreateSessionRequest()) -> CreateSessionResponse:
-    return CreateSessionResponse(id=db.create_session(mode=body.mode))
+def create_session(
+    body: CreateSessionRequest = CreateSessionRequest(),
+    identity: Identity = Depends(resolve_identity),
+) -> CreateSessionResponse:
+    return CreateSessionResponse(
+        id=db.create_session(mode=body.mode, user_id=identity.user_id, anonymous_id=identity.anonymous_id)
+    )
 
 
 @app.get("/modes", response_model=list[ModeOut])
 def list_modes() -> list[ModeOut]:
     """Backs the mode-select screen shown before a new Journey begins
     (see frontend/app/src/screens/ModeSelect.svelte, engine/decisions.md
-    "Counseling modes") -- never session-scoped, so no `_require_session`
+    "Counseling modes") -- never session-scoped, so no `_require_owned_session`
     guard, unlike every other endpoint in this file."""
     return [ModeOut(id=mode_id, **copy) for mode_id, copy in MODE_COPY.items()]
 
 
 @app.get("/sessions", response_model=list[SessionSummary])
-def list_sessions(bookmarked_only: bool = False) -> list[SessionSummary]:
+def list_sessions(
+    bookmarked_only: bool = False, identity: Identity = Depends(resolve_identity)
+) -> list[SessionSummary]:
     """Backs the real frontend's Home screen (a list of a person's
     Journeys) -- see frontend/decisions.md "Build the real Confidant
     frontend". `bookmarked_only` backs Home's All/Bookmarked filter
-    (added for the Home redesign, see frontend/decisions.md)."""
-    return db.list_sessions(bookmarked_only=bookmarked_only)
+    (added for the Home redesign, see frontend/decisions.md). Scoped to
+    the caller's own identity (basic auth, see engine/decisions.md) --
+    this is the endpoint that used to return literally every Journey in
+    the database to every visitor."""
+    return db.list_sessions(
+        bookmarked_only=bookmarked_only, user_id=identity.user_id, anonymous_id=identity.anonymous_id
+    )
 
 
 @app.post("/sessions/{session_id}/bookmark", response_model=SetBookmarkRequest)
-def set_bookmark(session_id: str, body: SetBookmarkRequest) -> SetBookmarkRequest:
+def set_bookmark(
+    session_id: str, body: SetBookmarkRequest, identity: Identity = Depends(resolve_identity)
+) -> SetBookmarkRequest:
     """Added for the Home redesign (see frontend/decisions.md) -- returns
     the same shape back so the frontend can update optimistically without
     a second round trip to re-fetch the session list."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     db.set_bookmark(session_id, body.bookmarked)
     return body
 
 
 @app.get("/sessions/{session_id}/bookmark", response_model=SetBookmarkRequest)
-def get_bookmark(session_id: str) -> SetBookmarkRequest:
+def get_bookmark(session_id: str, identity: Identity = Depends(resolve_identity)) -> SetBookmarkRequest:
     """Added for Journey's own overflow menu (see frontend/decisions.md
     "Tuck destructive/secondary Journey actions behind an overflow
     menu") -- Journey.svelte never fetches the full session list the
     way Home does, so it has no other way to know this session's
     current bookmark state before rendering the toggle. Same response
     shape as the existing POST, reused rather than duplicated."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     return SetBookmarkRequest(bookmarked=db.get_bookmark(session_id))
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
-def delete_session(session_id: str) -> None:
+def delete_session(session_id: str, identity: Identity = Depends(resolve_identity)) -> None:
     """Added for Settings' Data section (see engine/decisions.md
     "Frontend UX pass") -- removes a Journey and every row that
     references it (see db.delete_session's own docstring for exactly
     what that means for insight_sessions specifically). Irreversible,
     same as any real delete -- no soft-delete/undo exists yet."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     db.delete_session(session_id)
 
 
 @app.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
-def list_messages(session_id: str) -> list[MessageOut]:
-    _require_session(session_id)
+def list_messages(session_id: str, identity: Identity = Depends(resolve_identity)) -> list[MessageOut]:
+    _require_owned_session(session_id, identity)
     return db.get_messages(session_id)
 
 
 @app.get("/sessions/{session_id}/stream")
-async def stream_stages(session_id: str) -> StreamingResponse:
+async def stream_stages(
+    session_id: str, identity: Identity = Depends(resolve_identity)
+) -> StreamingResponse:
     """Server-Sent Events -- one `{"stage": "<internal_id>"}` event per
     pipeline stage that finishes during the turn this session's next
     POST /messages runs (see src/orchestrator/engine.py's on_stage_complete,
@@ -197,7 +317,7 @@ async def stream_stages(session_id: str) -> StreamingResponse:
     async def + asyncio.Queue, not a sync generator over queue.Queue --
     see _stage_queues' own docstring for why the sync version was a
     real thread-leak bug, not just a style choice."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     stage_queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     entry = (stage_queue, loop)
@@ -227,8 +347,23 @@ async def stream_stages(session_id: str) -> StreamingResponse:
 
 
 @app.post("/sessions/{session_id}/messages", response_model=SendMessageResponse)
-def send_message(session_id: str, body: SendMessageRequest) -> SendMessageResponse:
-    _require_session(session_id)
+def send_message(
+    session_id: str, body: SendMessageRequest, identity: Identity = Depends(resolve_identity)
+) -> SendMessageResponse:
+    _require_owned_session(session_id, identity)
+
+    # Basic auth's response-limit gate (see ANONYMOUS_MESSAGE_LIMIT's own
+    # docstring above) -- checked BEFORE running the turn, so a blocked
+    # message never reaches the LLM at all. Only ever applies to an
+    # anonymous caller; a signed-in user's own session (which
+    # `_require_owned_session` above already confirmed they own) has no
+    # cap. `detail="response_limit_reached"` is a stable string the
+    # frontend checks for (see lib/api.js) to show a login prompt
+    # instead of a generic error.
+    if not identity.is_authenticated:
+        prior_user_messages = sum(1 for m in db.get_messages(session_id) if m.role == "user")
+        if prior_user_messages >= ANONYMOUS_MESSAGE_LIMIT:
+            raise HTTPException(status_code=401, detail="response_limit_reached")
 
     state = db.load_state(session_id)
     tracker = UsageTracker()  # per-session, never the shared default -- see module docstring
@@ -319,18 +454,20 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
 
 
 @app.get("/sessions/{session_id}/debug")
-def get_debug(session_id: str) -> dict:
-    _require_session(session_id)
+def get_debug(session_id: str, identity: Identity = Depends(resolve_identity)) -> dict:
+    _require_owned_session(session_id, identity)
     return db.load_debug(session_id) or {}
 
 
 @app.get("/sessions/{session_id}/clarity-brief", response_model=ClarityBriefResponse)
-def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
+def get_clarity_brief(
+    session_id: str, identity: Identity = Depends(resolve_identity)
+) -> ClarityBriefResponse:
     """Unlike /debug, this is meant to be shown to the actual user -- see
     src/api/schema.py's ClarityBriefResponse docstring. 404s until at
     least one turn has completed Judgment and Planner (a turn that failed
     before those stages has nothing to build a brief from yet)."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     debug = db.load_debug(session_id)
     if not debug or not debug.get("judgment") or not debug.get("planner"):
         raise HTTPException(status_code=404, detail="Nothing to summarize yet")
@@ -362,14 +499,16 @@ def get_clarity_brief(session_id: str) -> ClarityBriefResponse:
 
 
 @app.get("/sessions/{session_id}/understanding", response_model=UnderstandingResponse)
-def get_understanding(session_id: str) -> UnderstandingResponse:
+def get_understanding(
+    session_id: str, identity: Identity = Depends(resolve_identity)
+) -> UnderstandingResponse:
     """Unlike /clarity-brief, this never 404s -- Tier 1
     (src/understanding/engine.py::build_tier1_statements) is computed
     unconditionally every turn (src/orchestrator/engine.py::run_turn),
     so even a brand-new session's first turn has SOME content. An empty
     tier1/tier2 list (e.g. before any turn has completed) is a valid,
     correct response -- nothing understood yet, not an error."""
-    _require_session(session_id)
+    _require_owned_session(session_id, identity)
     state = db.load_state(session_id)
     return UnderstandingResponse(
         tier1=[UnderstandingStatementOut(**s.model_dump()) for s in state.understanding.tier1],
@@ -422,22 +561,35 @@ def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
 
 
 @app.get("/privacy/settings", response_model=PrivacySettingsOut)
-def get_privacy_settings() -> PrivacySettingsOut:
+def get_privacy_settings(user_id: str = Depends(require_user)) -> PrivacySettingsOut:
     """Privacy, made real (2026-07-18, see frontend/decisions.md) --
     backs Settings' Privacy card. See src/api/db.py's `privacy_settings`
     table docstring for exactly what `cross_session_learning_enabled`
-    gates."""
+    gates.
+
+    Gated behind `require_user` (basic auth, see engine/decisions.md
+    "Auth, the low-friction way") -- direct founder request: Settings
+    and Privacy need a login. NOTE this gates ACCESS only; the
+    underlying `privacy_settings` row is still the single, global
+    singleton it already was (see src/api/db.py's own docstring on
+    that table) -- it is not yet split per-account, so today every
+    signed-in visitor shares the same setting. Making it genuinely
+    per-account is a real, separate project (same carve-out as
+    Learning/Insight Engine/POM), flagged here rather than silently
+    assumed away."""
     return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled())
 
 
 @app.post("/privacy/settings", response_model=PrivacySettingsOut)
-def set_privacy_settings(body: SetPrivacySettingsRequest) -> PrivacySettingsOut:
+def set_privacy_settings(
+    body: SetPrivacySettingsRequest, user_id: str = Depends(require_user)
+) -> PrivacySettingsOut:
     db.set_cross_session_learning_enabled(body.cross_session_learning_enabled)
     return PrivacySettingsOut(cross_session_learning_enabled=body.cross_session_learning_enabled)
 
 
 @app.get("/privacy/export")
-def export_privacy_data() -> Response:
+def export_privacy_data(user_id: str = Depends(require_user)) -> Response:
     """Everything Confidant has ever stored about this person, as one
     downloadable JSON file (see src/api/db.py::export_all_data's own
     docstring for exactly what's included). A plain `Response` with an
@@ -453,7 +605,7 @@ def export_privacy_data() -> Response:
 
 
 @app.post("/privacy/reset", status_code=204)
-def reset_privacy_data() -> None:
+def reset_privacy_data(user_id: str = Depends(require_user)) -> None:
     """"Forget everything" -- irreversible (see
     src/api/db.py::reset_all_data's own docstring). Deliberately no
     request body/confirmation param here: the frontend's own two-step
@@ -462,6 +614,79 @@ def reset_privacy_data() -> None:
     action in this API (DELETE /sessions/{id} has no confirmation
     param either)."""
     db.reset_all_data()
+
+
+@app.post("/auth/request-link", response_model=RequestMagicLinkResponse)
+def request_magic_link(
+    body: RequestMagicLinkRequest, request: Request, identity: Identity = Depends(resolve_identity)
+) -> RequestMagicLinkResponse:
+    """Low-friction signup/login (see engine/decisions.md "Auth, the
+    low-friction way"): there's no separate "create an account" step --
+    requesting a link for an email that's never been seen creates the
+    account right here, deferred until the link is actually clicked
+    (`get_or_create_user` isn't called until /auth/verify, so an
+    unclicked link never litters the users table with an unverified
+    row). Always returns `sent: true` regardless of anything about the
+    email -- never reveals whether it matched an existing account,
+    same email-enumeration defense every real auth system needs.
+    `identity.anonymous_id` (this browser's own, minted by
+    `resolve_identity` if it didn't already have one) rides along on
+    the token so /auth/verify can claim this browser's anonymous
+    Journeys onto the account once the link is clicked."""
+    token = db.create_magic_link(body.email, anonymous_id=identity.anonymous_id)
+    origin = str(request.base_url).rstrip("/")
+    send_magic_link_email(body.email, f"{origin}/?token={token}")
+    return RequestMagicLinkResponse(sent=True)
+
+
+@app.post("/auth/verify", response_model=AuthStatusOut)
+def verify_magic_link(body: VerifyMagicLinkRequest, response: Response) -> AuthStatusOut:
+    """Exchanges a clicked magic-link token for a real, httpOnly session
+    cookie -- see db.consume_magic_link's own docstring for why an
+    invalid/expired/already-used token all collapse into the same 404
+    here rather than telling the caller which. Claims this browser's
+    prior anonymous Journeys onto the account in the same request
+    (db.claim_anonymous_sessions) -- signing up must not cost a person
+    the Journey they were already in the middle of."""
+    consumed = db.consume_magic_link(body.token)
+    if consumed is None:
+        raise HTTPException(status_code=404, detail="That link isn't valid. Request a new one.")
+    email, anonymous_id = consumed
+    user_id = db.get_or_create_user(email)
+    if anonymous_id:
+        db.claim_anonymous_sessions(anonymous_id, user_id)
+    session_token = db.create_auth_session(user_id)
+    response.set_cookie(
+        _SESSION_COOKIE, session_token, max_age=_SESSION_COOKIE_MAX_AGE,
+        httponly=True, samesite="lax",
+    )
+    return AuthStatusOut(authenticated=True, email=email)
+
+
+@app.post("/auth/logout", status_code=204)
+def logout(request: Request, response: Response) -> None:
+    session_token = request.cookies.get(_SESSION_COOKIE)
+    if session_token:
+        db.delete_auth_session(session_token)
+    response.delete_cookie(_SESSION_COOKIE)
+
+
+@app.get("/auth/me", response_model=AuthStatusOut)
+def get_auth_status(request: Request, response: Response) -> AuthStatusOut:
+    """The frontend's one source of truth for sign-in state on boot
+    (see lib/auth.svelte.js) -- deliberately NOT `Depends(resolve_identity)`
+    directly, since a fresh visitor hitting this on app load shouldn't
+    mint an anon cookie a split second before their very first real
+    request would have minted the same one anyway; reading the cookie
+    directly here just to check "is there a valid session" avoids that
+    redundant Set-Cookie."""
+    session_token = request.cookies.get(_SESSION_COOKIE)
+    if session_token:
+        user_id = db.get_user_id_for_auth_session(session_token)
+        if user_id is not None:
+            email = db.get_user_email(user_id)
+            return AuthStatusOut(authenticated=True, email=email)
+    return AuthStatusOut(authenticated=False)
 
 
 if _FRONTEND_DIR.exists():

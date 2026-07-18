@@ -10,6 +10,7 @@
     deleteSession,
     getBookmark,
     setBookmark,
+    ApiError,
   } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
@@ -18,6 +19,7 @@
   import AmbientPresence from '../components/AmbientPresence.svelte';
   import BreathingOrb from '../components/BreathingOrb.svelte';
   import Understanding from '../components/Understanding.svelte';
+  import LoginGate from '../components/LoginGate.svelte';
 
   // Major update (2026-07-11, see engine/decisions.md): a visible opening
   // prompt for a brand-new Journey, distinct from Composer's own
@@ -75,6 +77,13 @@
   let togglingBookmark = $state(false);
   let pendingDelete = $state(false);
   let deleting = $state(false);
+  // Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
+  // low-friction way") -- set when the backend turns away a message
+  // with `detail: "response_limit_reached"` (ANONYMOUS_MESSAGE_LIMIT,
+  // src/api/server.py). Replaces the Composer with a login prompt
+  // rather than disabling it silently -- the whole point of the limit
+  // is to ask for a login, not to just stop working.
+  let responseLimitReached = $state(false);
 
   async function refreshBrief() {
     const previous = brief;
@@ -134,10 +143,17 @@
       // where Response Generator itself failed.
       await refreshUnderstanding();
     } catch (err) {
-      messages = [
-        ...messages,
-        { role: 'assistant', content: "I couldn't reach Confidant just now. Please try again in a moment.", created_at: '' },
-      ];
+      if (err instanceof ApiError && err.status === 401 && err.detail === 'response_limit_reached') {
+        // Roll back the optimistic user message above -- it was never
+        // actually recorded, so the transcript shouldn't claim it was.
+        messages = messages.slice(0, -1);
+        responseLimitReached = true;
+      } else {
+        messages = [
+          ...messages,
+          { role: 'assistant', content: "I couldn't reach Confidant just now. Please try again in a moment.", created_at: '' },
+        ];
+      }
     } finally {
       sending = false;
       stageLabel = '';
@@ -305,7 +321,13 @@
       {/if}
     </div>
   {/if}
-  <Composer disabled={sending} onSend={handleSend} />
+  {#if responseLimitReached}
+    <div class="limit-gate card" in:fade={{ duration: 220 }}>
+      <LoginGate message="You've reached the free limit for one conversation. Log in to keep going -- your Journey will be right here." />
+    </div>
+  {:else}
+    <Composer disabled={sending} onSend={handleSend} />
+  {/if}
 
   <Understanding {brief} {tier2} {deepeningClarityNote} />
 </div>
@@ -378,6 +400,15 @@
   .opening-hero {
     text-align: center;
     margin: var(--space-4) 0;
+  }
+
+  /* Response-limit login gate (see script comment on
+     responseLimitReached) -- same .card recipe Settings' own gated
+     screen uses, standing in for the Composer at exactly the same
+     spot in the layout rather than appearing as an unrelated overlay. */
+  .limit-gate {
+    margin-top: var(--space-4);
+    padding: var(--space-3);
   }
 
   .opening-prompt {

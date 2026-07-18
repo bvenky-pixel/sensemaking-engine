@@ -1218,3 +1218,114 @@ Playwright screenshot against a real served build with a mix of
 bookmarked/unbookmarked Journeys across periods and modes: only one
 "All"-shaped control remains on screen (the period row), the bookmark
 toggle reads as a single star pill that highlights when active.
+
+## Auth, the low-friction way (2026-07-18)
+
+Direct founder brief: "let's move towards building a basic
+authentication layer... we will approach this like how chatgpt
+launched -- the chat is available for use without login but will need
+login to access settings and privacy features it will also need login
+to continue a conversation beyond a certain number of responses...
+login and signup should be as low friction and easy as possible."
+
+This turned out to be a bigger shift than "add two gates" -- this
+codebase had NO concept of data ownership anywhere until now (see
+src/api/db.py's own module docstring, already flagging this as "a
+stated single-user simplification, revisit if/when multi-user support
+exists"). Every visitor to the deployed app was seeing the exact same
+global Journey list. Fixing that was a precondition for the rest of
+this feature meaning anything at all.
+
+**Method chosen**: magic link (passwordless email), over Google OAuth
+or email+password -- the founder's own explicit choice after being
+shown the tradeoffs (OAuth needs a Google Cloud Console app registered
+by the founder before any code could use it; password is the only
+option needing zero external services, but is the highest-friction of
+the three). Magic link needs a transactional email provider
+(Resend, chosen for its simple API and generous free tier) -- until an
+API key is configured, and always in tests, `src/api/email.py` just
+logs the link to stdout rather than sending it, so login can always be
+completed locally by reading server output (or, in tests, by reading
+the pending token straight out of SQLite) -- same "no paid/external
+calls unless explicitly configured" discipline this codebase already
+applies to LLM calls in tests.
+
+**Anonymous identity, introduced for the first time**: the server
+mints an `anon_id` httpOnly cookie on a visitor's first request if none
+exists (`resolve_identity` in src/api/server.py). Every Journey now has
+exactly one owner -- `anonymous_id` if begun logged out, `user_id` if
+begun signed in -- and `GET /sessions` is scoped to the caller's own
+identity instead of returning literally everything. Signing up
+(clicking the magic link) claims that browser's anonymous Journeys
+onto the new account (`db.claim_anonymous_sessions`) -- signing up
+must not cost a person the Journey they were already in the middle of,
+which is the whole point of doing this the ChatGPT way rather than
+requiring login upfront.
+
+**Sessions**: an httpOnly, `SameSite=Lax` cookie backed by a plain
+`auth_sessions` table (30-day lifetime, "as low friction as possible"
+meaning not asking someone to log in again every few days) -- not a
+JWT, matching this codebase's "no ORM, plain SQLite" simplicity
+elsewhere; logout is a plain row delete.
+
+**Where the two gates live**:
+- Settings (both Privacy AND Account, reduce-motion included) gates
+  behind sign-in entirely -- the founder's own phrasing ("access
+  settings and privacy features") didn't carve out an exception for
+  the one purely client-side preference already living there, so
+  neither did this. A new shared `LoginGate.svelte` (email input ->
+  "check your email" state, magic link only, no password field
+  anywhere in this codebase) replaces the whole screen's content when
+  signed out.
+- The response cap (`ANONYMOUS_MESSAGE_LIMIT = 10` in
+  src/api/server.py) is per-CONVERSATION, not cumulative across every
+  anonymous Journey a browser has started -- read from the founder's
+  own phrasing ("continue A conversation beyond a certain number of
+  responses"). Checked server-side, before the turn runs, so a blocked
+  11th message never reaches the LLM at all. Journey.svelte's
+  `handleSend` rolls back the just-added optimistic user message when
+  this fires (it was never actually recorded) and swaps the Composer
+  for the same `LoginGate`, rather than leaving the transcript
+  claiming something that didn't happen.
+
+**Deliberately out of scope**: `privacy_settings`/`personal_operating_model`/
+`learned_patterns`/`insights` all stay the single, global,
+cross-visitor models they already were -- gating ACCESS to Settings
+behind login is straightforward; making the underlying data genuinely
+per-account is a real, separate project (documented plainly in both
+this file and engine/decisions.md, not silently assumed away). A
+Journey begun before this round (no owner columns set) is not
+retroactively assigned one -- it simply stops being returned to
+anyone, an honest, documented consequence of introducing ownership
+after the fact, not a silent data-loss bug.
+
+**Not built, and a known rough edge**: clicking a magic link reloads
+the whole app fresh (this codebase has no router -- see App.svelte's
+own comment), so logging in from the response-limit gate mid-Journey
+lands back on Home, not the exact conversation that triggered it. The
+Journey itself is never lost (it's right there in the signed-in
+account's list to reopen) -- just not resumed automatically. Building
+that would mean threading a return-to-session id through the emailed
+link itself, real but modest extra scope, deliberately deferred rather
+than silently promised.
+
+Verified: 12 new backend tests (`tests/test_api_server.py`) covering
+anonymous isolation between two browsers, 404-not-403 on a
+guessed/foreign session_id, the full request-link/verify/claim flow, a
+single-use token rejecting reuse, logout, the response cap firing at
+exactly 10 and never applying to a signed-in sender, and Settings'
+`login_required` gate. Full backend suite: 451 passed. Frontend: new
+`lib/auth.svelte.js` (7 tests), extended `Settings.test.js` (signed-in
+Account/logout + a new signed-out describe block, 8 tests total) and
+`Journey.test.js` (response-limit gate + rollback, and a regression
+test confirming an unrelated error still shows the generic honest-failure
+message rather than the login gate, 11 tests total). Full frontend
+suite: 59 passed, `npm run build` green. Live Playwright verification
+against a real served build end to end: an anonymous visitor started a
+Journey and saw only their own on Home; Settings showed the login
+gate; requesting a link logged the real link via the dev-mode email
+fallback; clicking it (same browser cookie) claimed the Journey onto a
+new account and unlocked Settings with the real signed-in email;
+logging out re-gated Settings; and a separately-seeded 10-message
+anonymous Journey correctly blocked an 11th send with the login
+prompt, with the unsent message never appearing in the transcript.

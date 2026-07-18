@@ -234,3 +234,29 @@ class PrivacySettingsOut(BaseModel):
 
 class SetPrivacySettingsRequest(BaseModel):
     cross_session_learning_enabled: bool
+
+
+class RequestMagicLinkRequest(BaseModel):
+    email: str
+
+
+class RequestMagicLinkResponse(BaseModel):
+    """Deliberately just a bare acknowledgement -- see
+    src/api/server.py's POST /auth/request-link docstring for why this
+    never reveals whether the email matched an existing account, and
+    never includes the link/token itself."""
+
+    sent: bool
+
+
+class VerifyMagicLinkRequest(BaseModel):
+    token: str
+
+
+class AuthStatusOut(BaseModel):
+    """GET /auth/me -- the frontend's one source of truth for whether
+    the current browser is signed in (see lib/auth.svelte.js).
+    `email` is None whenever `authenticated` is False."""
+
+    authenticated: bool
+    email: Optional[str] = None

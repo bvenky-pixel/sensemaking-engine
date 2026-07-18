@@ -75,16 +75,68 @@ One more table, added for Privacy, made real (see frontend/decisions.md):
   the same opt-out honored at both the read path (what a live
   conversation sees) and the write path (what gets computed about this
   person in the first place).
+
+Three more tables, added for basic auth (2026-07-18, see
+frontend/decisions.md "Auth, the low-friction way" and engine/decisions.md):
+this is the "revisit if/when multi-user support exists" moment the
+`behavioral_events` docstring above already flagged -- there was no
+`users` table or any notion of data ownership anywhere in this
+codebase until now, meaning every visitor to the deployed app saw the
+exact same global Journey list. Fixed by giving `sessions` two new
+nullable owner columns (`user_id`, `anonymous_id` -- see the `sessions`
+ALTER TABLE block in `init_db`) rather than a separate ownership table,
+matching this file's own "plain columns over join tables for a single
+scalar fact" precedent (`bookmarked`, `mode`). Exactly one of the two
+is set on any session created after this round: a session begun while
+signed in gets `user_id`; a session begun anonymously gets
+`anonymous_id` (a random id the server mints into a cookie on first
+contact -- see src/api/server.py's `resolve_identity`) and, if that
+browser later signs up, gets its `anonymous_id` cleared and `user_id`
+set instead (`claim_anonymous_sessions` below) -- signing up must not
+cost a person the Journeys they were already in the middle of. Sessions
+created BEFORE this round have neither column set; per this file's own
+"no ORM, no migrations, additive-only" discipline, no backfill migration
+was written to guess an owner for them, so they are simply not returned
+to anyone by the now-owner-scoped `list_sessions`/`_require_owned_session`
+-- an honest consequence of introducing ownership after the fact, not
+silently swept under a rug (flagged plainly in engine/decisions.md).
+Scope is bounded deliberately to Journeys alone: `privacy_settings`,
+`personal_operating_model`, `learned_patterns`, and `insights` all stay
+the single, global, cross-visitor models they already were (the
+`behavioral_events` docstring's own "stated single-user simplification")
+-- making Learning/Insight Engine/POM genuinely per-account is a real,
+separate project, out of scope for what was asked here (login gating
+Settings/Privacy access and a per-conversation response cap, not
+per-account personalization).
+
+- `users`: one row per account. `email` is the only real field --
+  magic-link auth never needs a password hash to store.
+- `magic_links`: a one-time login token per requested link. `token` is
+  the primary key (a `secrets.token_urlsafe` value, looked up directly
+  -- opaque and DB-revocable, not a signed/self-describing JWT, matching
+  this file's "no ORM, plain SQLite" simplicity elsewhere). `anonymous_id`
+  travels with the request so `consume_magic_link` can hand it straight
+  to `claim_anonymous_sessions` without a second round trip. `used_at`
+  makes a token single-use -- set the moment it's consumed, checked
+  before honoring one, so a link can't be replayed after its first
+  click even if it's still within its expiry window.
+- `auth_sessions`: the signed-in browser's own login session, looked up
+  by the httpOnly cookie value on every request needing identity.
+  Named `auth_sessions`, not `sessions`, specifically to avoid colliding
+  with the pre-existing `sessions` table (which means "Journey"
+  everywhere else in this codebase) -- reusing that name here would
+  have been a genuinely confusing collision, not just a style nit.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
@@ -174,7 +226,39 @@ CREATE TABLE IF NOT EXISTS privacy_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS magic_links (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    anonymous_id TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
 """
+
+# Magic links are single-use and short-lived -- long enough that a
+# person checking a somewhat-delayed email notification doesn't lose
+# the race, short enough that a link sitting unread in an inbox isn't a
+# standing credential. Auth sessions (the signed-in cookie itself) are
+# long-lived on purpose -- "as low friction as possible" (the founder's
+# own framing) means not asking someone to log in again every few days.
+MAGIC_LINK_LIFETIME = timedelta(minutes=15)
+AUTH_SESSION_LIFETIME = timedelta(days=30)
 
 
 def _now() -> str:
@@ -223,6 +307,18 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute("ALTER TABLE sessions ADD COLUMN mode TEXT")
         except sqlite3.OperationalError:
             pass
+        # Same pattern for the two new owner columns (basic auth, see
+        # module docstring) -- a session from before this feature has
+        # neither, which is exactly the "nobody's data, not returned to
+        # anyone" state that docstring already explains.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN anonymous_id TEXT")
+        except sqlite3.OperationalError:
+            pass
         # privacy_settings is a real singleton (unlike
         # personal_operating_model, which correctly has no row until
         # first computed) -- get_cross_session_learning_enabled must
@@ -235,7 +331,11 @@ def init_db(db_path: Optional[Path] = None) -> None:
         )
 
 
-def create_session(mode: Optional[str] = None) -> str:
+def create_session(
+    mode: Optional[str] = None,
+    user_id: Optional[str] = None,
+    anonymous_id: Optional[str] = None,
+) -> str:
     """`mode` (Counseling modes, see engine/decisions.md and
     src/orchestrator/modes.py): chosen once, at creation, and fixed for
     the Journey's lifetime -- there is no `set_mode`, matching how
@@ -243,16 +343,164 @@ def create_session(mode: Optional[str] = None) -> str:
     a person change after the fact; mode is deliberately not one of
     those. `None` (every caller before this feature existed, and a
     person who skips picking one) is a completely valid, permanent
-    state, not a placeholder awaiting a later choice."""
+    state, not a placeholder awaiting a later choice.
+
+    `user_id`/`anonymous_id` (basic auth, see module docstring): the
+    caller (src/api/server.py's `create_session`, via `resolve_identity`)
+    passes exactly one of these, never both -- a session begun while
+    signed in belongs to that account; a session begun anonymously
+    belongs to that browser's own anonymous id until/unless it's later
+    claimed (see `claim_anonymous_sessions`)."""
     session_id = str(uuid.uuid4())
     now = _now()
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, world_state_json, debug_json, created_at, updated_at, mode) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, WorldState().model_dump_json(), None, now, now, mode),
+            "INSERT INTO sessions (id, world_state_json, debug_json, created_at, updated_at, mode, user_id, anonymous_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, WorldState().model_dump_json(), None, now, now, mode, user_id, anonymous_id),
         )
     return session_id
+
+
+def session_owner(session_id: str) -> Optional[Tuple[Optional[str], Optional[str]]]:
+    """Returns (user_id, anonymous_id) for an existing session, or None
+    if it doesn't exist -- src/api/server.py's `_require_owned_session`
+    uses this to decide whether the caller's own resolved identity
+    matches. A pre-auth session (see module docstring) returns
+    (None, None), which never matches any real identity -- it's owned
+    by nobody, not by whoever happens to ask."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT user_id, anonymous_id FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+    return tuple(row) if row else None
+
+
+def get_or_create_user(email: str) -> str:
+    """One row per email, created the first time it's ever seen -- there
+    is no separate signup step distinct from "request a magic link for
+    an email we haven't seen before" (matching the "as low friction as
+    possible" brief: no separate account-creation form). Idempotent on
+    a repeat email, matching every other `get_or_create_*`-shaped
+    function's own convention elsewhere in this codebase."""
+    with _connect() as conn:
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if row:
+            return row[0]
+        user_id = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)",
+            (user_id, email, _now()),
+        )
+    return user_id
+
+
+def get_user_email(user_id: str) -> Optional[str]:
+    with _connect() as conn:
+        row = conn.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row[0] if row else None
+
+
+def create_magic_link(email: str, anonymous_id: Optional[str] = None) -> str:
+    """`anonymous_id` (the requesting browser's own, if any -- see
+    src/api/server.py's `resolve_identity`) rides along with the token
+    so `consume_magic_link` can hand it straight to
+    `claim_anonymous_sessions` once the link is actually clicked,
+    without asking the browser to prove it twice."""
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO magic_links (token, email, anonymous_id, created_at, expires_at, used_at) "
+            "VALUES (?, ?, ?, ?, ?, NULL)",
+            (token, email, anonymous_id, now.isoformat(), (now + MAGIC_LINK_LIFETIME).isoformat()),
+        )
+    return token
+
+
+def consume_magic_link(token: str) -> Optional[Tuple[str, Optional[str]]]:
+    """Validates and immediately burns a magic-link token -- returns
+    (email, anonymous_id) on success, None if the token is unknown,
+    already used, or past its 15-minute window (three distinct failure
+    modes src/api/server.py's own /auth/verify deliberately collapses
+    into one generic "that link isn't valid" response, rather than
+    telling a caller WHICH of the three it hit -- confirming "used" or
+    "expired" specifically to an unauthenticated caller would leak
+    whether a given token was ever real). Single-use: `used_at` is set
+    in the same transaction as the read, so a token can't be raced or
+    replayed even if the two are milliseconds apart."""
+    now = datetime.now(timezone.utc)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT email, anonymous_id, expires_at, used_at FROM magic_links WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if row is None:
+            return None
+        email, anonymous_id, expires_at, used_at = row
+        if used_at is not None:
+            return None
+        if datetime.fromisoformat(expires_at) < now:
+            return None
+        conn.execute(
+            "UPDATE magic_links SET used_at = ? WHERE token = ?", (now.isoformat(), token)
+        )
+    return email, anonymous_id
+
+
+def create_auth_session(user_id: str) -> str:
+    """The signed-in browser's own long-lived login session (see module
+    docstring for why 30 days) -- the resulting token is what
+    src/api/server.py sets as an httpOnly cookie. Opaque and
+    DB-revocable by design (`delete_auth_session` is a plain row
+    delete), not a signed/self-describing JWT -- no secret-rotation
+    story needed for an MVP this size."""
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO auth_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, now.isoformat(), (now + AUTH_SESSION_LIFETIME).isoformat()),
+        )
+    return token
+
+
+def get_user_id_for_auth_session(token: str) -> Optional[str]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?", (token,)
+        ).fetchone()
+    if row is None:
+        return None
+    user_id, expires_at = row
+    if datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+        return None
+    return user_id
+
+
+def delete_auth_session(token: str) -> None:
+    """Logout -- a plain row delete, same "no soft-delete" honesty as
+    every other delete in this file. Silently a no-op for an
+    already-gone/unknown token, matching `delete_session`'s own
+    tolerance of a caller that's already lost the race."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+
+
+def claim_anonymous_sessions(anonymous_id: str, user_id: str) -> None:
+    """Signing up must not cost a person the Journeys they were already
+    in the middle of (see module docstring) -- every session this
+    browser's anonymous id owns gets handed to the new account instead,
+    `anonymous_id` cleared in the same statement so the row now has
+    exactly one owner, same invariant every freshly-created session
+    already holds. Called once, right after a magic link is consumed
+    (src/api/server.py's /auth/verify) -- a no-op if this browser had no
+    anonymous Journeys yet (a brand-new visitor logging in immediately)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET user_id = ?, anonymous_id = NULL WHERE anonymous_id = ?",
+            (user_id, anonymous_id),
+        )
 
 
 def get_session_mode(session_id: str) -> Optional[str]:
@@ -267,7 +515,11 @@ def session_exists(session_id: str) -> bool:
     return row is not None
 
 
-def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
+def list_sessions(
+    bookmarked_only: bool = False,
+    user_id: Optional[str] = None,
+    anonymous_id: Optional[str] = None,
+) -> List[SessionSummary]:
     """
     Added for the real frontend's Home screen (see
     frontend/decisions.md "Build the real Confidant frontend") --
@@ -320,14 +572,30 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     deliberately stay unfiltered -- an empty WorldState contributes
     nothing to Learning/Insight Engine/POM computation either way, so
     there's no reason to touch those.
+
+    `user_id`/`anonymous_id` (basic auth, see module docstring): the
+    caller passes exactly one, resolved from the request's own identity
+    (src/api/server.py's `resolve_identity`) -- this is what actually
+    fixes the pre-auth "everyone sees the same global list" gap, not
+    just an additional filter alongside `bookmarked_only`. A session
+    with neither owner column set (created before this feature existed)
+    matches no identity and is simply never returned, same as
+    `_require_owned_session`'s own treatment of one.
     """
     query = "SELECT id, world_state_json, updated_at, bookmarked, mode FROM sessions " \
             "WHERE id IN (SELECT DISTINCT session_id FROM messages WHERE role = 'user')"
+    params: List[Optional[str]]
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params = [user_id]
+    else:
+        query += " AND anonymous_id = ?"
+        params = [anonymous_id]
     if bookmarked_only:
         query += " AND bookmarked = 1"
     query += " ORDER BY updated_at DESC"
     with _connect() as conn:
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute(query, params).fetchall()
         insight_rows = conn.execute(
             "SELECT insight_sessions.session_id, insights.theme, insights.detail "
             "FROM insight_sessions JOIN insights ON insights.id = insight_sessions.insight_id "

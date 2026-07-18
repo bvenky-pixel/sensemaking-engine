@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import Settings from '../screens/Settings.svelte';
 import * as api from '../lib/api.js';
+import { authState } from '../lib/auth.svelte.js';
 
 // Privacy, made real (2026-07-18, see frontend/decisions.md): Settings
 // calls getPrivacySettings on mount, setCrossSessionLearningEnabled/
@@ -13,11 +14,23 @@ import * as api from '../lib/api.js';
 // frontend/decisions.md): listSessions/deleteSession moved out of this
 // file along with Settings' own Data section -- see Journey.test.js
 // for the delete-a-Journey coverage now.
+//
+// Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
+// getAuthStatus/requestMagicLink/verifyMagicLink/logout are mocked here
+// too since lib/auth.svelte.js (which Settings now imports) calls them
+// -- unused by most tests below, but needed so those imports resolve
+// to real mock functions rather than undefined. `authState` itself is
+// a real, shared module -- NOT mocked -- since it's plain reactive
+// state, not a network boundary; tests set it directly instead.
 vi.mock('../lib/api.js', () => ({
   getPrivacySettings: vi.fn(),
   setCrossSessionLearningEnabled: vi.fn(),
   exportPrivacyData: vi.fn(),
   resetAllData: vi.fn(),
+  getAuthStatus: vi.fn(),
+  requestMagicLink: vi.fn(),
+  verifyMagicLink: vi.fn(),
+  logout: vi.fn(),
 }));
 
 describe('Settings', () => {
@@ -25,6 +38,14 @@ describe('Settings', () => {
     vi.clearAllMocks();
     // Default resolved value every test gets unless it overrides.
     api.getPrivacySettings.mockResolvedValue({ cross_session_learning_enabled: true });
+    // Every existing test below exercises the signed-in screen -- see
+    // the new describe block further down for the signed-out gate
+    // itself. Reset explicitly rather than relying on a previous
+    // test's leftover state, since `authState` is one shared module
+    // object across every test in this file.
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
   });
 
   it('reflects the current cross-session-learning setting on load', async () => {
@@ -92,6 +113,57 @@ describe('Settings', () => {
 
     await waitFor(() => {
       expect(api.exportPrivacyData).toHaveBeenCalled();
+    });
+  });
+
+  it('shows the signed-in email and logs out via the API', async () => {
+    api.logout.mockResolvedValue(undefined);
+
+    const { getByText } = render(Settings, { props: { onBack: () => {} } });
+
+    await waitFor(() => getByText('person@example.com'));
+    await fireEvent.click(getByText('Log out'));
+
+    await waitFor(() => {
+      expect(api.logout).toHaveBeenCalled();
+    });
+  });
+});
+
+// Auth, the low-friction way (2026-07-18, see frontend/decisions.md
+// "Auth, the low-friction way") -- direct founder brief: the whole
+// screen, not just the two backend-persisted controls, needs a login.
+describe('Settings: signed out', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+  });
+
+  it('shows a login prompt instead of Privacy/Account content', async () => {
+    const { getByText, queryByText } = render(Settings, { props: { onBack: () => {} } });
+
+    await waitFor(() => getByText('Log in to access Settings and Privacy controls.'));
+    expect(queryByText('Learn across Journeys')).toBeNull();
+    expect(queryByText('Reduce motion')).toBeNull();
+    // Never calls the privacy endpoint while logged out -- a doomed
+    // request nobody needs (see Settings.svelte's own onMount comment).
+    expect(api.getPrivacySettings).not.toHaveBeenCalled();
+  });
+
+  it('requests a magic link from the login gate', async () => {
+    api.requestMagicLink.mockResolvedValue({ sent: true });
+
+    const { getByPlaceholderText, getByText } = render(Settings, { props: { onBack: () => {} } });
+
+    const emailInput = await waitFor(() => getByPlaceholderText('you@example.com'));
+    await fireEvent.input(emailInput, { target: { value: 'me@example.com' } });
+    await fireEvent.click(getByText('Send me a login link'));
+
+    await waitFor(() => {
+      expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com');
+      expect(getByText(/Check/)).toBeTruthy();
     });
   });
 });
