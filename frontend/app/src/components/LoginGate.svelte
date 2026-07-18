@@ -8,7 +8,12 @@
   // matching the founder's own "as low friction as possible" brief.
   import { sendLoginLink } from '../lib/auth.svelte.js';
 
-  let { message = 'Log in to continue.' } = $props();
+  // `returnSessionId` (response-limit login UX gap fix, 2026-07-18, see
+  // frontend/decisions.md "Return to the same Journey after magic-link
+  // verify") -- the Journey this gate is showing inside of, if any.
+  // Settings' own screen-wide gate has no session context, so it's
+  // simply never passed there and stays null.
+  let { message = 'Log in to continue.', returnSessionId = null } = $props();
 
   let email = $state('');
   let sending = $state(false);
@@ -20,7 +25,7 @@
     sending = true;
     error = '';
     try {
-      await sendLoginLink(email.trim());
+      await sendLoginLink(email.trim(), returnSessionId);
       sent = true;
     } catch {
       error = "Couldn't send that link. Check the address and try again.";

@@ -780,8 +780,59 @@ def test_verify_magic_link_logs_in_and_claims_anonymous_journeys(client, monkeyp
     _login(client, email="claims-test@example.com")
 
     res = client.get("/auth/me")
-    assert res.json() == {"authenticated": True, "email": "claims-test@example.com"}
+    assert res.json() == {
+        "authenticated": True, "email": "claims-test@example.com", "return_session_id": None,
+    }
     assert session_id in [s["id"] for s in client.get("/sessions").json()]
+
+
+def test_verify_magic_link_returns_the_session_id_it_was_requested_with(client, monkeypatch):
+    """Response-limit login UX gap fix (2026-07-18, see engine/decisions.md
+    "Return to the same Journey after magic-link verify"): the whole
+    point of return_session_id is that clicking the link actually
+    returns a person to the Journey they were in, not just Home."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("Thinking out loud.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "one thing"})
+
+    client.post(
+        "/auth/request-link",
+        json={"email": "return-test@example.com", "return_session_id": session_id},
+    )
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT token FROM magic_links WHERE email = ? ORDER BY created_at DESC LIMIT 1",
+            ("return-test@example.com",),
+        ).fetchone()
+    finally:
+        conn.close()
+    res = client.post("/auth/verify", json={"token": row[0]})
+    assert res.json()["return_session_id"] == session_id
+
+
+def test_verify_magic_link_omits_return_session_id_when_not_actually_owned(client):
+    """A foreign/stale return_session_id (never claimed by this browser,
+    e.g. a tampered request or a Journey deleted since) degrades to no
+    redirect at all -- App.svelte falls back to Home -- rather than
+    handing back an id this account doesn't actually own."""
+    client.post(
+        "/auth/request-link",
+        json={"email": "no-claim-test@example.com", "return_session_id": "not-a-real-session-id"},
+    )
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT token FROM magic_links WHERE email = ? ORDER BY created_at DESC LIMIT 1",
+            ("no-claim-test@example.com",),
+        ).fetchone()
+    finally:
+        conn.close()
+    res = client.post("/auth/verify", json={"token": row[0]})
+    assert res.json()["return_session_id"] is None
 
 
 def test_verify_magic_link_rejects_an_unknown_token(client):
@@ -809,7 +860,9 @@ def test_logout_clears_the_session_cookie(client):
     assert client.get("/auth/me").json()["authenticated"] is True
 
     assert client.post("/auth/logout").status_code == 204
-    assert client.get("/auth/me").json() == {"authenticated": False, "email": None}
+    assert client.get("/auth/me").json() == {
+        "authenticated": False, "email": None, "return_session_id": None,
+    }
 
 
 def test_anonymous_sender_is_blocked_after_the_response_limit(client, monkeypatch):

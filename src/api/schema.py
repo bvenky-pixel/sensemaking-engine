@@ -238,6 +238,12 @@ class SetPrivacySettingsRequest(BaseModel):
 
 class RequestMagicLinkRequest(BaseModel):
     email: str
+    # Response-limit login UX gap fix (2026-07-18, see engine/decisions.md
+    # "Return to the same Journey after magic-link verify") -- the
+    # Journey the caller was actually in when they hit a login wall, if
+    # any. Optional: Settings' own screen-wide login gate has no
+    # session context at all, and still omits this entirely.
+    return_session_id: Optional[str] = None
 
 
 class RequestMagicLinkResponse(BaseModel):
@@ -256,7 +262,15 @@ class VerifyMagicLinkRequest(BaseModel):
 class AuthStatusOut(BaseModel):
     """GET /auth/me -- the frontend's one source of truth for whether
     the current browser is signed in (see lib/auth.svelte.js).
-    `email` is None whenever `authenticated` is False."""
+    `email` is None whenever `authenticated` is False.
+
+    `return_session_id` (response-limit login UX gap fix, 2026-07-18,
+    see engine/decisions.md "Return to the same Journey after
+    magic-link verify"): only ever set by POST /auth/verify, and only
+    when the magic link that was just clicked carried one AND it still
+    resolves to a Journey this account now genuinely owns -- GET
+    /auth/me (plain page-load sign-in check) never sets it."""
 
     authenticated: bool
     email: Optional[str] = None
+    return_session_id: Optional[str] = None

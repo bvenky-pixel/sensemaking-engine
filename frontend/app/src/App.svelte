@@ -23,9 +23,20 @@
   // consumeMagicLinkFromUrl already updated the same shared auth state
   // directly from its own response -- a second /auth/me round trip
   // right after would be redundant.
+  //
+  // Response-limit login UX gap fix (2026-07-18, see
+  // frontend/decisions.md "Return to the same Journey after
+  // magic-link verify"): when `returnSessionId` comes back set, open
+  // that Journey directly instead of landing on Home -- the whole
+  // point of threading it through was that "It'll bring you right
+  // back here" (LoginGate's own copy) should actually be true.
   onMount(async () => {
     const consumed = await consumeMagicLinkFromUrl();
-    if (!consumed) await checkAuth();
+    if (!consumed) {
+      await checkAuth();
+    } else if (consumed.returnSessionId) {
+      openJourney(consumed.returnSessionId);
+    }
   });
 
   function openJourney(id) {

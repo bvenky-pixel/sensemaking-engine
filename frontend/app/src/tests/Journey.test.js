@@ -292,8 +292,104 @@ describe('Journey overflow menu: signed out', () => {
     await fireEvent.input(getByPlaceholderText('you@example.com'), { target: { value: 'me@example.com' } });
     await fireEvent.click(getByText('Send me a login link'));
 
-    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com'));
+    // returnSessionId (2026-07-18, see frontend/decisions.md "Return to
+    // the same Journey after magic-link verify") -- this gate lives
+    // inside a specific Journey, so it carries that Journey's own id.
+    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
     expect(api.setBookmark).not.toHaveBeenCalled();
     expect(api.deleteSession).not.toHaveBeenCalled();
+  });
+});
+
+// Proximity login nudge (2026-07-18, see frontend/decisions.md "Two
+// earlier login nudges") -- a soft, dismissible note once an anonymous
+// Journey gets close to the hard response-limit wall, ahead of actually
+// hitting it.
+function userMessages(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    role: 'user', content: `message ${i + 1}`, created_at: '',
+  }));
+}
+
+describe('Journey proximity login nudge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.openStageStream.mockReturnValue(vi.fn());
+  });
+
+  it('does not show below the threshold', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    api.getMessages.mockResolvedValue(userMessages(6));
+
+    const { queryByText } = render(Journey, { props: { sessionId: 's1', onBack: vi.fn() } });
+
+    await waitFor(() => expect(api.getMessages).toHaveBeenCalled());
+    expect(queryByText(/Free replies are limited/)).toBeNull();
+  });
+
+  it('shows once the threshold is reached, signed out', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    api.getMessages.mockResolvedValue(userMessages(7));
+
+    const { getByText } = render(Journey, { props: { sessionId: 's1', onBack: vi.fn() } });
+
+    await waitFor(() => getByText(/Free replies are limited/));
+  });
+
+  it('never shows when signed in, regardless of message count', async () => {
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+    api.getMessages.mockResolvedValue(userMessages(9));
+
+    const { queryByText } = render(Journey, { props: { sessionId: 's1', onBack: vi.fn() } });
+
+    await waitFor(() => expect(api.getMessages).toHaveBeenCalled());
+    expect(queryByText(/Free replies are limited/)).toBeNull();
+  });
+
+  it('dismissing hides it without calling the API', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    api.getMessages.mockResolvedValue(userMessages(7));
+
+    const { getByText, getByLabelText, queryByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Free replies are limited/));
+    await fireEvent.click(getByLabelText('Dismiss'));
+
+    expect(queryByText(/Free replies are limited/)).toBeNull();
+    expect(api.requestMagicLink).not.toHaveBeenCalled();
+  });
+
+  it('tapping Sign in reveals the login gate, carrying this Journey\'s id', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    api.getMessages.mockResolvedValue(userMessages(7));
+    api.requestMagicLink.mockResolvedValue({ sent: true });
+
+    const { getByText, getByPlaceholderText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Free replies are limited/));
+    await fireEvent.click(getByText('Sign in'));
+    await fireEvent.input(await waitFor(() => getByPlaceholderText('you@example.com')), {
+      target: { value: 'me@example.com' },
+    });
+    await fireEvent.click(getByText('Send me a login link'));
+
+    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
   });
 });

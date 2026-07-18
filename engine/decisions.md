@@ -9051,3 +9051,54 @@ keyword). Not yet live-verified, consistent with every other prompt-
 text-only change this session -- worth checking in the next live
 dispatch round that a real model's behavior actually changes once a POM
 dimension fills in, not just that the Python gate computes correctly.
+
+## Return to the same Journey after magic-link verify (2026-07-18)
+
+Backend half of a known, documented rough edge from "Auth, the
+low-friction way" above: clicking the magic link from the
+response-limit gate mid-Journey reloaded the whole app and landed on
+Home, not the Journey that actually triggered it -- even though
+LoginGate's own copy already promised "It'll bring you right back
+here." Picked up together with a founder-requested earlier-login-nudge
+feature (frontend-only, see frontend/decisions.md "Two earlier login
+nudges") as the two remaining backlog items from that round.
+
+**Design**: rather than embed `return_session_id` as a second, raw,
+independently-tamperable query param in the emailed URL alongside the
+token, it rides the SAME already-trusted, single-use token the whole
+flow already depends on -- `magic_links` gains a nullable
+`return_session_id` column (additive `ALTER TABLE`, same pattern as
+`anonymous_id`/`user_id` on `sessions`); `create_magic_link` stores
+whatever `POST /auth/request-link` was given; `consume_magic_link`
+hands it back out alongside `(email, anonymous_id)` when the token is
+verified. The emailed link's own URL text is completely unchanged
+(`?token=...` only) -- only the server-side record behind that token
+carries the extra field.
+
+**Ownership check happens AFTER the claim, not before**: `POST
+/auth/verify` claims this browser's anonymous Journeys onto the new
+account first (existing behavior), then checks
+`db.session_owner(return_session_id) == (user_id, None)` before
+including it in the response -- a stale, foreign, or since-deleted id
+degrades to simply not being returned (the frontend falls back to
+Home) rather than a 404/500 on an otherwise-successful login. This
+also protects against a hand-edited `return_session_id` in the
+original request body: the id only ever gets handed back if the
+account that just verified genuinely owns it.
+
+`AuthStatusOut` gains `return_session_id: Optional[str] = None` --
+only ever set by `/auth/verify`; `GET /auth/me` (plain page-load check)
+never sets it, since it never claims or verifies anything.
+
+Verified: `tests/test_api_server.py` -- 2 new tests
+(`test_verify_magic_link_returns_the_session_id_it_was_requested_with`,
+`test_verify_magic_link_omits_return_session_id_when_not_actually_owned`)
+plus the two existing `/auth/me` assertions updated for the new field.
+Full suite: `pytest` 481 passed (479 + 2). Not live-dispatched (no LLM
+call involved in this change at all -- pure auth/session plumbing), but
+also not yet Playwright-verified end-to-end: doing so would mean
+sending real messages through a live Journey to reach the response cap,
+which calls the real LLM pipeline -- held per the founder's standing
+"don't run another validation test now" instruction. Frontend half
+(App.svelte/auth.svelte.js/LoginGate.svelte wiring) documented
+separately in frontend/decisions.md.

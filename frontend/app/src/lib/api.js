@@ -188,11 +188,11 @@ export async function getAuthStatus() {
   return _json(res);
 }
 
-export async function requestMagicLink(email) {
+export async function requestMagicLink(email, returnSessionId) {
   const res = await fetch('/auth/request-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, return_session_id: returnSessionId || null }),
   });
   return _json(res);
 }

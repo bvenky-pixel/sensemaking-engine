@@ -686,8 +686,17 @@ def request_magic_link(
     `identity.anonymous_id` (this browser's own, minted by
     `resolve_identity` if it didn't already have one) rides along on
     the token so /auth/verify can claim this browser's anonymous
-    Journeys onto the account once the link is clicked."""
-    token = db.create_magic_link(body.email, anonymous_id=identity.anonymous_id)
+    Journeys onto the account once the link is clicked.
+
+    `body.return_session_id` (response-limit login UX gap fix, see
+    engine/decisions.md "Return to the same Journey after magic-link
+    verify") rides along the same way, purely server-side -- the
+    emailed link itself stays the plain `?token=...` URL it always was;
+    /auth/verify hands the Journey id back in its own response once the
+    token is actually consumed."""
+    token = db.create_magic_link(
+        body.email, anonymous_id=identity.anonymous_id, return_session_id=body.return_session_id,
+    )
     origin = str(request.base_url).rstrip("/")
     send_magic_link_email(body.email, f"{origin}/?token={token}")
     return RequestMagicLinkResponse(sent=True)
@@ -701,11 +710,20 @@ def verify_magic_link(body: VerifyMagicLinkRequest, response: Response) -> AuthS
     here rather than telling the caller which. Claims this browser's
     prior anonymous Journeys onto the account in the same request
     (db.claim_anonymous_sessions) -- signing up must not cost a person
-    the Journey they were already in the middle of."""
+    the Journey they were already in the middle of.
+
+    Response-limit login UX gap fix (2026-07-18, see engine/decisions.md
+    "Return to the same Journey after magic-link verify"): if the
+    request that created this token carried a `return_session_id`,
+    confirm it's actually owned by this account AFTER the claim above
+    (not just that it was requested) before handing it back -- a stale
+    or foreign id degrades to simply not being returned (App.svelte
+    falls back to Home), never a 404/500 on an otherwise-successful
+    login."""
     consumed = db.consume_magic_link(body.token)
     if consumed is None:
         raise HTTPException(status_code=404, detail="That link isn't valid. Request a new one.")
-    email, anonymous_id = consumed
+    email, anonymous_id, return_session_id = consumed
     user_id = db.get_or_create_user(email)
     if anonymous_id:
         db.claim_anonymous_sessions(anonymous_id, user_id)
@@ -714,7 +732,9 @@ def verify_magic_link(body: VerifyMagicLinkRequest, response: Response) -> AuthS
         _SESSION_COOKIE, session_token, max_age=_SESSION_COOKIE_MAX_AGE,
         httponly=True, samesite="lax",
     )
-    return AuthStatusOut(authenticated=True, email=email)
+    if return_session_id and db.session_owner(return_session_id) != (user_id, None):
+        return_session_id = None
+    return AuthStatusOut(authenticated=True, email=email, return_session_id=return_session_id)
 
 
 @app.post("/auth/logout", status_code=204)

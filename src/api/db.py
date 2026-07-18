@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS magic_links (
     token TEXT PRIMARY KEY,
     email TEXT NOT NULL,
     anonymous_id TEXT,
+    return_session_id TEXT,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     used_at TEXT
@@ -331,6 +332,16 @@ def init_db(db_path: Optional[Path] = None) -> None:
             pass
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN anonymous_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+        # Same pattern for `return_session_id` (response-limit login UX
+        # gap fix, see engine/decisions.md "Return to the same Journey
+        # after magic-link verify") -- a magic-link row from before this
+        # feature has none, which is exactly what NULL -> "don't reopen
+        # any particular Journey after verify, same as before this
+        # feature existed" already means.
+        try:
+            conn.execute("ALTER TABLE magic_links ADD COLUMN return_session_id TEXT")
         except sqlite3.OperationalError:
             pass
         # privacy_settings is a real singleton (unlike
@@ -445,43 +456,57 @@ def get_user_email(user_id: str) -> Optional[str]:
     return row[0] if row else None
 
 
-def create_magic_link(email: str, anonymous_id: Optional[str] = None) -> str:
+def create_magic_link(
+    email: str, anonymous_id: Optional[str] = None, return_session_id: Optional[str] = None
+) -> str:
     """`anonymous_id` (the requesting browser's own, if any -- see
     src/api/server.py's `resolve_identity`) rides along with the token
     so `consume_magic_link` can hand it straight to
     `claim_anonymous_sessions` once the link is actually clicked,
-    without asking the browser to prove it twice."""
+    without asking the browser to prove it twice.
+
+    `return_session_id` (response-limit login UX gap fix, 2026-07-18,
+    see engine/decisions.md "Return to the same Journey after
+    magic-link verify"): the Journey the caller was actually in when
+    they hit a login wall, if any -- rides along the same way so
+    `consume_magic_link` can hand it back to /auth/verify without a
+    second, separately-tamperable round trip through the emailed URL
+    itself."""
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO magic_links (token, email, anonymous_id, created_at, expires_at, used_at) "
-            "VALUES (?, ?, ?, ?, ?, NULL)",
-            (token, email, anonymous_id, now.isoformat(), (now + MAGIC_LINK_LIFETIME).isoformat()),
+            "INSERT INTO magic_links (token, email, anonymous_id, return_session_id, created_at, expires_at, used_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL)",
+            (
+                token, email, anonymous_id, return_session_id,
+                now.isoformat(), (now + MAGIC_LINK_LIFETIME).isoformat(),
+            ),
         )
     return token
 
 
-def consume_magic_link(token: str) -> Optional[Tuple[str, Optional[str]]]:
+def consume_magic_link(token: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
     """Validates and immediately burns a magic-link token -- returns
-    (email, anonymous_id) on success, None if the token is unknown,
-    already used, or past its 15-minute window (three distinct failure
-    modes src/api/server.py's own /auth/verify deliberately collapses
-    into one generic "that link isn't valid" response, rather than
-    telling a caller WHICH of the three it hit -- confirming "used" or
-    "expired" specifically to an unauthenticated caller would leak
-    whether a given token was ever real). Single-use: `used_at` is set
-    in the same transaction as the read, so a token can't be raced or
-    replayed even if the two are milliseconds apart."""
+    (email, anonymous_id, return_session_id) on success, None if the
+    token is unknown, already used, or past its 15-minute window (three
+    distinct failure modes src/api/server.py's own /auth/verify
+    deliberately collapses into one generic "that link isn't valid"
+    response, rather than telling a caller WHICH of the three it hit --
+    confirming "used" or "expired" specifically to an unauthenticated
+    caller would leak whether a given token was ever real). Single-use:
+    `used_at` is set in the same transaction as the read, so a token
+    can't be raced or replayed even if the two are milliseconds apart."""
     now = datetime.now(timezone.utc)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT email, anonymous_id, expires_at, used_at FROM magic_links WHERE token = ?",
+            "SELECT email, anonymous_id, return_session_id, expires_at, used_at "
+            "FROM magic_links WHERE token = ?",
             (token,),
         ).fetchone()
         if row is None:
             return None
-        email, anonymous_id, expires_at, used_at = row
+        email, anonymous_id, return_session_id, expires_at, used_at = row
         if used_at is not None:
             return None
         if datetime.fromisoformat(expires_at) < now:
@@ -489,7 +514,7 @@ def consume_magic_link(token: str) -> Optional[Tuple[str, Optional[str]]]:
         conn.execute(
             "UPDATE magic_links SET used_at = ? WHERE token = ?", (now.isoformat(), token)
         )
-    return email, anonymous_id
+    return email, anonymous_id, return_session_id
 
 
 def create_auth_session(user_id: str) -> str:

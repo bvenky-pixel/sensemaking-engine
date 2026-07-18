@@ -60,7 +60,7 @@ describe('lib/auth.svelte.js', () => {
 
     const consumed = await consumeMagicLinkFromUrl();
 
-    expect(consumed).toBe(true);
+    expect(consumed).toEqual({ authenticated: true, returnSessionId: null });
     expect(api.verifyMagicLink).toHaveBeenCalledWith('abc123');
     expect(authState.checked).toBe(true);
     expect(authState.authenticated).toBe(true);
@@ -68,6 +68,21 @@ describe('lib/auth.svelte.js', () => {
     // Token removed, but an unrelated param survives -- a person
     // shouldn't lose whatever else was in the URL.
     expect(window.location.search).toBe('?foo=bar');
+  });
+
+  it('consumeMagicLinkFromUrl surfaces return_session_id from the verify response', async () => {
+    // Response-limit login UX gap fix (2026-07-18, see
+    // frontend/decisions.md "Return to the same Journey after
+    // magic-link verify") -- App.svelte reads this straight off the
+    // return value to reopen the right Journey.
+    window.history.replaceState({}, '', '/?token=abc123');
+    api.verifyMagicLink.mockResolvedValue({
+      authenticated: true, email: 'claimed@example.com', return_session_id: 's1',
+    });
+
+    const consumed = await consumeMagicLinkFromUrl();
+
+    expect(consumed).toEqual({ authenticated: true, returnSessionId: 's1' });
   });
 
   it('consumeMagicLinkFromUrl strips the token even when it is invalid, without crashing', async () => {
@@ -85,7 +100,15 @@ describe('lib/auth.svelte.js', () => {
 
     await sendLoginLink('me@example.com');
 
-    expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com');
+    expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', undefined);
+  });
+
+  it('sendLoginLink passes a return session id through to requestMagicLink', async () => {
+    api.requestMagicLink.mockResolvedValue({ sent: true });
+
+    await sendLoginLink('me@example.com', 's1');
+
+    expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1');
   });
 
   it('logout clears the shared auth state', async () => {

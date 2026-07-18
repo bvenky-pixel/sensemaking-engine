@@ -1465,3 +1465,100 @@ call): confirmed the login gate still applies to Settings as a whole;
 after signing in, all three sections render together (Privacy,
 Account, You) with every populated POM system showing real prose and
 Competence correctly absent since it was seeded "unclear."
+
+## Two earlier login nudges + return to the same Journey after magic-link verify (2026-07-18)
+
+The two remaining items on the auth-layer backlog (#185/#186), tackled
+together. Prompted by a founder question about getting richer POM
+signal faster ("have one POM question asked before Home") -- declined
+as designed (a mandatory pre-Home gate is exactly the kind of forced,
+survey-shaped touchpoint the "no manufactured urgency"/three-sanctioned-
+spaces philosophy exists to avoid), but it surfaced that the app's OWN
+login funnel had the identical problem in miniature: today a
+signed-out visitor looks identical to a signed-in one until they hit a
+hard wall (Settings, bookmark/delete, or the response cap) -- no softer
+nudge exists anywhere before that.
+
+**Nudge 1 -- Journey completion** (`lib/loginNudge.svelte.js`, new
+module-level `$state`, same pattern as `auth.svelte.js`): leaving a
+Journey that actually has real content (`Journey.svelte`'s own
+`handleBack`, the `else if (loaded)` branch alongside the existing
+empty-Journey-delete branch) is the "winds down" moment -- calls
+`markJourneyCompleted(sessionId)`, which is a no-op if already signed
+in or if this browser has EVER seen the nudge before
+(`localStorage`-backed `confidant_completion_nudge_seen`, checked at
+mark-time so several Journeys completed before Home ever renders still
+only ever flags once). Home's own `onMount` calls
+`consumeCompletionNudge()` once, which marks "seen" the moment it's
+actually shown (not on dismiss) and renders a quiet, dismissible card
+above the Journey list -- "Want to keep that accessible everywhere? Sign in"
+-- that expands into the real `LoginGate` (carrying the completed
+Journey's own id as `returnSessionId`, so signing in from here also
+reopens that Journey, not just Home) only once tapped.
+
+**Nudge 2 -- proximity to the hard cap** (`Journey.svelte`): a small,
+dismissible note above the still-functioning Composer once an
+anonymous Journey's own user-message count reaches
+`PROXIMITY_NUDGE_THRESHOLD = 7` -- 3 messages before
+`ANONYMOUS_MESSAGE_LIMIT` (10, `src/api/server.py`) actually blocks
+anything. Hardcoded, not fetched from the backend (this codebase has no
+shared-constants mechanism between the two) -- a real, acknowledged
+coupling to keep in sync by hand if the backend limit ever changes.
+Dismissing only hides it for the REST of this one Journey (in-memory,
+not persisted) -- a different Journey that also gets close to the
+limit shows it again, since it's a factually true, non-repeating-
+within-one-conversation note, not a nagging global gate (deliberately
+different discipline from the completion nudge's "once, ever" --
+they're solving different problems: one is a single moment worth
+mentioning once anywhere, the other is a per-conversation fact that's
+true again each time it recurs).
+
+Both nudges reuse the exact same `LoginGate` component every other
+login surface in this app already uses -- no new form, no new copy
+pattern, just two new places it can appear.
+
+**#186 -- return to the same Journey after magic-link verify** (the
+"known rough edge" flagged in "Auth, the low-friction way" above, and
+the direct reason both `LoginGate` usages above now pass
+`returnSessionId`): every `LoginGate` render site (`Journey.svelte`'s
+two gates, the new completion nudge) now threads its own relevant
+session id through `sendLoginLink(email, returnSessionId)` ->
+`requestMagicLink` -> `POST /auth/request-link`; Settings' own
+screen-wide gate has no session context and simply omits it (stays
+`null`, the component's own default). `consumeMagicLinkFromUrl`'s
+return shape changed from a bare `boolean` to `{ authenticated,
+returnSessionId } | false` -- `App.svelte`'s `onMount` now calls
+`openJourney(consumed.returnSessionId)` instead of landing on Home
+whenever the server's own verify response actually included one (see
+engine/decisions.md "Return to the same Journey after magic-link
+verify" for why that value is server-authoritative, not read back out
+of the URL). `Journey.svelte`'s own `onMount` is now wrapped in
+try/catch, falling back to `onBack()` on failure -- the first time an
+id reaching this screen ISN'T simply copied from Home's own
+`session.id` list (a stale/foreign/deleted id degrading gracefully to
+Home, not a permanently blank screen).
+
+Verified: 3 new unit-test files/blocks --
+`tests/loginNudge.test.js` (6 tests: pending/no-op-while-signed-in/
+no-op-once-seen/consume-marks-seen/consume-returns-null-when-nothing-
+pending/doesn't-burn-the-flag-on-an-unshown-nudge), a new "Home:
+Journey-completion login nudge" describe block in `Home.test.js` (4
+tests: shows once signed out, never shows signed in, dismiss hides it,
+Sign in reveals the gate carrying the right session id), and a new
+"Journey proximity login nudge" describe block in `Journey.test.js` (5
+tests: below threshold, at threshold, never while signed in, dismiss,
+Sign in carries the right session id) -- plus `auth.test.js` updated
+for `consumeMagicLinkFromUrl`'s new return shape and `sendLoginLink`'s
+new second argument, and `Settings.test.js`/`Journey.test.js`'s
+existing login-gate tests updated for the extra `return_session_id`
+argument now on every `requestMagicLink` call. Full frontend suite: 85
+passed (was 70; +15 new). `npm run build` green. Backend: see
+engine/decisions.md's own entry -- 481 passed. Not Playwright-verified
+end to end: reaching the response cap or completing a real Journey
+requires sending real messages through the live LLM pipeline, which
+the founder's own standing "don't run another validation test now"
+instruction holds off on -- unit/component coverage above exercises
+every new code path (the nudges' visibility gates, dismiss, the
+LoginGate wiring, the return-session round trip) with the LLM layer
+mocked out, same boundary every other screen test in this app already
+draws.

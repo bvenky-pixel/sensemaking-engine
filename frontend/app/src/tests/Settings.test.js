@@ -169,7 +169,10 @@ describe('Settings: signed out', () => {
     await fireEvent.click(getByText('Send me a login link'));
 
     await waitFor(() => {
-      expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com');
+      // Settings' own gate has no Journey to return to (see
+      // LoginGate.svelte's returnSessionId default) -- null, not a
+      // real session id.
+      expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', null);
       expect(getByText(/Check/)).toBeTruthy();
     });
   });

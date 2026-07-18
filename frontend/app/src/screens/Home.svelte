@@ -88,6 +88,7 @@
   import ModePicker from '../components/ModePicker.svelte';
   import LoginGate from '../components/LoginGate.svelte';
   import { authState } from '../lib/auth.svelte.js';
+  import { consumeCompletionNudge } from '../lib/loginNudge.svelte.js';
   import { tintFor } from '../lib/modeTints.js';
 
   let { onOpen, onSettings, onBeginNew } = $props();
@@ -95,6 +96,13 @@
   let sessions = $state([]);
   let showBookmarkedOnly = $state(false);
   let showLoginGate = $state(false);
+  // Journey-completion login nudge (2026-07-18, see frontend/decisions.md
+  // "Two earlier login nudges") -- `completionNudge` is non-null at
+  // most once per browser, ever (see loginNudge.svelte.js's own
+  // docstring); `showCompletionLoginForm` swaps its quiet one-line
+  // message for the real LoginGate once someone actually taps "Sign in".
+  let completionNudge = $state(null);
+  let showCompletionLoginForm = $state(false);
   // Guards against a one-frame flash of the hero (orb + mode picker)
   // before the first real listSessions() call resolves -- unlike the
   // old single-button design, the hero and the journey list are now
@@ -159,6 +167,7 @@
     await refresh();
     const modes = await getModes();
     modeLabels = Object.fromEntries(modes.map((m) => [m.id, m.label]));
+    completionNudge = consumeCompletionNudge();
   });
 
   async function toggleFilter(bookmarkedOnly) {
@@ -213,6 +222,32 @@
   {#if showLoginGate}
     <div class="login-gate-card card" in:fade={{ duration: 220 }}>
       <LoginGate message="Log in to bookmark Journeys." />
+    </div>
+  {/if}
+
+  {#if completionNudge}
+    <div class="completion-nudge card" in:fade={{ duration: 220 }}>
+      {#if showCompletionLoginForm}
+        <LoginGate
+          message="Sign in to keep that Journey accessible everywhere."
+          returnSessionId={completionNudge.sessionId}
+        />
+      {:else}
+        <p class="voice completion-message">
+          Want to keep that accessible everywhere?
+          <button type="button" class="link-button" onclick={() => (showCompletionLoginForm = true)}>
+            Sign in
+          </button>
+        </p>
+        <button
+          type="button"
+          class="dismiss"
+          aria-label="Dismiss"
+          onclick={() => (completionNudge = null)}
+        >
+          &times;
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -520,5 +555,28 @@
   .login-gate-card {
     margin-bottom: var(--space-3);
     padding: var(--space-3);
+  }
+
+  /* Journey-completion login nudge (2026-07-18, see frontend/decisions.md
+     "Two earlier login nudges") -- same quiet, dismissible recipe as
+     Journey.svelte's own .proximity-nudge. */
+  .completion-nudge {
+    position: relative;
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-5) var(--space-2) var(--space-3);
+  }
+
+  .completion-message {
+    margin: 0;
+  }
+
+  .dismiss {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    font-size: 18px;
+    line-height: 1;
+    color: var(--ink-muted);
+    padding: var(--space-1);
   }
 </style>

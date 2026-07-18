@@ -3,6 +3,7 @@ import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import Home from '../screens/Home.svelte';
 import * as api from '../lib/api.js';
 import { authState } from '../lib/auth.svelte.js';
+import { loginNudgeState, markJourneyCompleted } from '../lib/loginNudge.svelte.js';
 
 // Home: time period + mode filtering (2026-07-18, see
 // frontend/decisions.md) -- the first dedicated test file for
@@ -250,5 +251,95 @@ describe('Home: bookmark requires login, and a Log in link at the bottom', () =>
     await fireEvent.click(star);
 
     await waitFor(() => expect(api.setBookmark).toHaveBeenCalledWith('s1', true));
+  });
+});
+
+// Two earlier login nudges (2026-07-18, see frontend/decisions.md) --
+// the Journey-completion half of it. loginNudgeState is a real,
+// module-level singleton (see loginNudge.svelte.js's own docstring for
+// why), so each test drives it directly via markJourneyCompleted the
+// same way Journey.svelte's handleBack does, rather than mocking the
+// module.
+describe('Home: Journey-completion login nudge', () => {
+  const NO_SESSIONS = [];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.clearAllMocks();
+    localStorage.clear();
+    loginNudgeState.pending = false;
+    loginNudgeState.sessionId = null;
+    api.getModes.mockResolvedValue(MODES);
+    api.listSessions.mockResolvedValue(NO_SESSIONS);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows the nudge once a Journey has just completed, signed out', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    markJourneyCompleted('s1');
+
+    const { getByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
+  });
+
+  it('never shows the nudge when already signed in', async () => {
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+    markJourneyCompleted('s1');
+
+    const { queryByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => expect(api.listSessions).toHaveBeenCalled());
+    expect(queryByText(/Want to keep that accessible everywhere/)).toBeNull();
+  });
+
+  it('dismissing the nudge hides it without calling the API', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    markJourneyCompleted('s1');
+
+    const { getByText, getByLabelText, queryByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
+    await fireEvent.click(getByLabelText('Dismiss'));
+
+    expect(queryByText(/Want to keep that accessible everywhere/)).toBeNull();
+    expect(api.requestMagicLink).not.toHaveBeenCalled();
+  });
+
+  it('tapping Sign in reveals the login gate, carrying the completed Journey id', async () => {
+    authState.checked = true;
+    authState.authenticated = false;
+    authState.email = null;
+    markJourneyCompleted('s1');
+    api.requestMagicLink.mockResolvedValue({ sent: true });
+
+    const { getByText, getByPlaceholderText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
+    await fireEvent.click(getByText('Sign in'));
+    await fireEvent.input(await waitFor(() => getByPlaceholderText('you@example.com')), {
+      target: { value: 'me@example.com' },
+    });
+    await fireEvent.click(getByText('Send me a login link'));
+
+    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
   });
 });

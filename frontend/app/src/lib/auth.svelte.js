@@ -34,6 +34,12 @@ export async function checkAuth() {
 // from App.svelte's own onMount, before checkAuth -- verifying already
 // tells us the resulting auth state directly, so a second /auth/me
 // round trip right after would be redundant.
+//
+// Returns `false` when there was no token to consume (App.svelte falls
+// back to its own checkAuth in that case); otherwise
+// `{ authenticated, returnSessionId }` -- `returnSessionId` is non-null
+// only when the clicked link should reopen a specific Journey (see
+// "Return to the same Journey after magic-link verify" above).
 export async function consumeMagicLinkFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
@@ -48,7 +54,13 @@ export async function consumeMagicLinkFromUrl() {
     authState.checked = true;
     authState.authenticated = status.authenticated;
     authState.email = status.email;
-    return true;
+    // Response-limit login UX gap fix (2026-07-18, see
+    // frontend/decisions.md "Return to the same Journey after
+    // magic-link verify") -- `status.return_session_id` is the
+    // server's own authoritative answer (only ever set when the
+    // clicked link actually carried one AND it survived the
+    // ownership check post-claim), never read from the URL itself.
+    return { authenticated: status.authenticated, returnSessionId: status.return_session_id || null };
   } catch {
     // An invalid/expired/already-used token (see db.consume_magic_link's
     // own docstring for why those three collapse into one 404) -- the
@@ -58,8 +70,8 @@ export async function consumeMagicLinkFromUrl() {
   }
 }
 
-export async function sendLoginLink(email) {
-  await requestMagicLink(email);
+export async function sendLoginLink(email, returnSessionId) {
+  await requestMagicLink(email, returnSessionId);
 }
 
 export async function logout() {

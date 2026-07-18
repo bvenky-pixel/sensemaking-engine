@@ -21,6 +21,16 @@
   import Understanding from '../components/Understanding.svelte';
   import LoginGate from '../components/LoginGate.svelte';
   import { authState } from '../lib/auth.svelte.js';
+  import { markJourneyCompleted } from '../lib/loginNudge.svelte.js';
+
+  // Proximity login nudge (2026-07-18, see frontend/decisions.md "Two
+  // earlier login nudges"): a soft, dismissible note ahead of the hard
+  // response-limit wall, not just at it. 7 is deliberately below
+  // ANONYMOUS_MESSAGE_LIMIT (10, src/api/server.py) -- not fetched from
+  // the backend (this codebase has no shared-constants mechanism
+  // between the two), so keep this in sync by hand if that number ever
+  // changes.
+  const PROXIMITY_NUDGE_THRESHOLD = 7;
 
   // Major update (2026-07-11, see engine/decisions.md): a visible opening
   // prompt for a brand-new Journey, distinct from Composer's own
@@ -92,6 +102,14 @@
   // replacing the Composer, since being signed out doesn't stop the
   // conversation itself, only these two actions.
   let showActionsLoginGate = $state(false);
+  // Same proximity-nudge feature as PROXIMITY_NUDGE_THRESHOLD above --
+  // dismissing just hides it for the rest of THIS Journey (in-memory
+  // only, not persisted); a later Journey that also gets close to the
+  // limit shows it again, since it's a factually true, non-repeating-
+  // within-one-conversation note, not a nagging global gate.
+  let proximityNudgeDismissed = $state(false);
+  let showProximityLoginForm = $state(false);
+  let userMessageCount = $derived(messages.filter((m) => m.role === 'user').length);
 
   async function refreshBrief() {
     const previous = brief;
@@ -112,13 +130,25 @@
     tier2 = next?.tier2 ?? [];
   }
 
+  // Wrapped in try/catch (2026-07-18, see frontend/decisions.md "Return
+  // to the same Journey after magic-link verify") -- the return-session
+  // path from a just-verified magic link is the first way an id that
+  // ISN'T simply copied from Home's own `session.id` can reach this
+  // screen (a stale/foreign/already-deleted id, post the server's own
+  // ownership check -- see AuthStatusOut's own docstring). A normal
+  // open from Home never hits this catch; a bad id degrades to Home
+  // instead of an unhandled rejection and a permanently blank screen.
   onMount(async () => {
-    messages = await getMessages(sessionId);
-    loaded = true;
-    await refreshBrief();
-    await refreshUnderstanding();
-    const bookmark = await getBookmark(sessionId);
-    bookmarked = bookmark.bookmarked;
+    try {
+      messages = await getMessages(sessionId);
+      loaded = true;
+      await refreshBrief();
+      await refreshUnderstanding();
+      const bookmark = await getBookmark(sessionId);
+      bookmarked = bookmark.bookmarked;
+    } catch {
+      onBack();
+    }
   });
 
   async function handleSend(content) {
@@ -256,6 +286,13 @@
     // exists to prevent.
     if (loaded && messages.length === 0) {
       await deleteSession(sessionId);
+    } else if (loaded) {
+      // Journey-completion login nudge (2026-07-18, see
+      // frontend/decisions.md "Two earlier login nudges") -- leaving a
+      // Journey that actually has content is the "winds down" moment;
+      // markJourneyCompleted itself is a no-op once already signed in
+      // or once this browser has ever seen the nudge before.
+      markJourneyCompleted(sessionId);
     }
     onBack();
   }
@@ -323,7 +360,7 @@
 
   {#if showActionsLoginGate}
     <div class="actions-gate card" in:fade={{ duration: 220 }}>
-      <LoginGate message="Log in to bookmark or delete this Journey." />
+      <LoginGate message="Log in to bookmark or delete this Journey." returnSessionId={sessionId} />
     </div>
   {/if}
 
@@ -347,9 +384,37 @@
   {/if}
   {#if responseLimitReached}
     <div class="limit-gate card" in:fade={{ duration: 220 }}>
-      <LoginGate message="You've reached the free limit for one conversation. Log in to keep going -- your Journey will be right here." />
+      <LoginGate
+        message="You've reached the free limit for one conversation. Log in to keep going -- your Journey will be right here."
+        returnSessionId={sessionId}
+      />
     </div>
   {:else}
+    {#if !authState.authenticated && userMessageCount >= PROXIMITY_NUDGE_THRESHOLD && !proximityNudgeDismissed}
+      <div class="proximity-nudge card" in:fade={{ duration: 200 }}>
+        {#if showProximityLoginForm}
+          <LoginGate
+            message="Sign in for unlimited replies in this conversation."
+            returnSessionId={sessionId}
+          />
+        {:else}
+          <p class="voice aside proximity-message">
+            Free replies are limited per conversation.
+            <button type="button" class="link-button" onclick={() => (showProximityLoginForm = true)}>
+              Sign in
+            </button> to keep going without a limit.
+          </p>
+          <button
+            type="button"
+            class="dismiss"
+            aria-label="Dismiss"
+            onclick={() => (proximityNudgeDismissed = true)}
+          >
+            &times;
+          </button>
+        {/if}
+      </div>
+    {/if}
     <Composer disabled={sending} onSend={handleSend} />
   {/if}
 
@@ -442,6 +507,31 @@
   .actions-gate {
     margin-bottom: var(--space-3);
     padding: var(--space-3);
+  }
+
+  /* Proximity login nudge (2026-07-18, see frontend/decisions.md "Two
+     earlier login nudges") -- deliberately quieter than .limit-gate:
+     sits ABOVE the still-functioning Composer rather than replacing
+     it, and is dismissible, since hitting this threshold doesn't
+     actually stop anything yet. */
+  .proximity-nudge {
+    position: relative;
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-5) var(--space-2) var(--space-3);
+  }
+
+  .proximity-message {
+    margin: 0;
+  }
+
+  .dismiss {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    font-size: 18px;
+    line-height: 1;
+    color: var(--ink-muted);
+    padding: var(--space-1);
   }
 
   .opening-prompt {
