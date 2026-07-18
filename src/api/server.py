@@ -421,9 +421,14 @@ def send_message(
     # in-session experience (Interpretation/Judgment/Planner/Response,
     # this session's own history) is completely unaffected either way.
     if db.get_cross_session_learning_enabled():
+        # Learning made per-account (2026-07-18, see engine/decisions.md
+        # "Learning made per-account") -- same "anonymous caller has no
+        # stable account to own a standing profile" rule POM's own read
+        # just below already follows; an anonymous sender's turn never
+        # sees ANY account's patterns, not even a stale global blend.
         patterns = [
             Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
-            for p in db.get_learned_patterns()
+            for p in (db.get_learned_patterns(identity.user_id) if identity.user_id else [])
         ]
         insights = [
             Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
@@ -548,16 +553,23 @@ def get_understanding(
 
 
 @app.get("/patterns", response_model=list[LearnedPatternOut])
-def get_patterns() -> list[LearnedPatternOut]:
-    """Phase 1 Learning's output (see engine/specs/architecture-roadmap-v1.md).
-    Read-only -- serves whatever scripts/run_learning.py last computed
-    offline; never computes anything live. Empty until that script has
-    been run at least once, and stays empty below its evidence floor --
-    both correct, not an error state. Not yet consumed by the frontend:
-    the exact "something noticed across Journeys" surfacing form is its
-    own, separate, not-yet-done design pass (see
+def get_patterns(user_id: str = Depends(require_user)) -> list[LearnedPatternOut]:
+    """Phase 1 Learning's output (see engine/specs/architecture-roadmap-v1.md,
+    engine/specs/learning-specification-v1.md). Read-only -- serves
+    whatever scripts/run_learning.py last computed offline for THIS
+    account; never computes anything live. Empty until that script has
+    been run at least once for this account, and stays empty below its
+    evidence floor -- both correct, not an error state.
+
+    Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account") -- now requires login, same as
+    /personal-operating-model, since `learned_patterns` is no longer a
+    global, unattributable model an anonymous caller could safely see:
+    it's this account's own behavioral history. Not yet consumed by the
+    frontend: the exact "something noticed across Journeys" surfacing
+    form is its own, separate, not-yet-done design pass (see
     frontend/specs/interaction-model-v4.md)."""
-    return db.get_learned_patterns()
+    return db.get_learned_patterns(user_id)
 
 
 @app.get("/insights", response_model=list[InsightOut])

@@ -16,6 +16,14 @@ deliberately BELOW the evidence floor, to confirm Learning stays silent
 on thin evidence rather than reporting a one-off as a pattern -- the
 failure mode this whole feature exists to avoid.
 
+Learning made per-account (2026-07-18, see engine/decisions.md
+"Learning made per-account"): all four sessions now belong to one
+fixed demo account (`db.create_session(user_id=DEMO_USER_ID)`, same
+pattern scripts/run_pom_walkthrough.py already established), not bare
+hand-picked session_id strings with no corresponding `sessions` row --
+`get_events_for_user` joins through `sessions.user_id`, so a session
+with no real row there would silently contribute nothing.
+
 Not part of the automated test suite: this makes real, billable API
 calls. Run manually, or via the "Learning walkthrough" GitHub Actions
 workflow (workflow_dispatch). Requires CONFIDANT_RECORD_EVENTS=1 (off by
@@ -36,29 +44,32 @@ from src.learning.engine import MIN_EVIDENCE, compute_behavioral_patterns
 from src.orchestrator.engine import run_turn
 from src.state.world_state import WorldState
 
+DEMO_USER_ID = "learning-walkthrough-demo-user"
+
 # Each session: two turns, the second a clear, unambiguous deferral of the
 # decision opened in the first -- crafted deliberately unambiguous so real
 # Interpretation has the best real chance of extracting a decision_events
 # signal (see engine/specs/interpretation-spec-v1.1.md's decision_events
 # field, whose extraction reliability was verified in earlier rounds this
-# project already ran).
+# project already ran). Labels only, not real session ids -- see
+# DEMO_USER_ID's own docstring paragraph above for why.
 DEFERRAL_SESSIONS = [
     (
-        "walkthrough-defer-1",
+        "defer-1",
         [
             "I'm weighing whether to take the new consulting offer or stay in my current role.",
             "I've decided to hold off on the consulting offer for now -- I need more time to think it through.",
         ],
     ),
     (
-        "walkthrough-defer-2",
+        "defer-2",
         [
             "I'm trying to decide whether to sign the new apartment lease this week.",
             "I'm putting off signing the lease for now, I want to see a couple more places first.",
         ],
     ),
     (
-        "walkthrough-defer-3",
+        "defer-3",
         [
             "I need to decide whether to enroll in the certification program before the deadline.",
             "I'm going to defer enrolling in the certification program -- the timing isn't right yet.",
@@ -69,7 +80,7 @@ DEFERRAL_SESSIONS = [
 # Deliberately only one deferral -- below MIN_EVIDENCE -- to confirm
 # Learning stays silent on thin evidence.
 LOW_EVIDENCE_SESSION = (
-    "walkthrough-defer-lowevidence",
+    "defer-lowevidence",
     [
         "I'm deciding whether to switch banks for a better savings rate.",
         "I'm deferring the bank switch decision until next month.",
@@ -77,8 +88,9 @@ LOW_EVIDENCE_SESSION = (
 )
 
 
-def _run_session(session_id: str, messages: list[str], tracker: UsageTracker) -> None:
-    print(f"\n{'=' * 70}\nSESSION {session_id}\n{'=' * 70}")
+def _run_session(label: str, messages: list[str], tracker: UsageTracker) -> None:
+    session_id = db.create_session(user_id=DEMO_USER_ID)
+    print(f"\n{'=' * 70}\nSESSION {label} ({session_id})\n{'=' * 70}")
     state = WorldState()
     for i, message in enumerate(messages, start=1):
         print(f"\n--- turn {i}: {message}")
@@ -102,16 +114,16 @@ def main() -> int:
     db.init_db()
     tracker = UsageTracker()
 
-    for session_id, messages in DEFERRAL_SESSIONS + [LOW_EVIDENCE_SESSION]:
-        _run_session(session_id, messages, tracker)
+    for label, messages in DEFERRAL_SESSIONS + [LOW_EVIDENCE_SESSION]:
+        _run_session(label, messages, tracker)
 
-    events = db.get_all_events()
-    print(f"\n{'=' * 70}\nTotal behavioral_events recorded: {len(events)}")
+    events = db.get_events_for_user(DEMO_USER_ID)
+    print(f"\n{'=' * 70}\nTotal behavioral_events recorded for {DEMO_USER_ID}: {len(events)}")
     for e in events:
         print(f"- [{e.session_id}] {e.event_type}: {e.old_status} -> {e.new_status} ({e.detail!r})")
 
     patterns = compute_behavioral_patterns(events)
-    db.replace_learned_patterns(patterns)
+    db.replace_learned_patterns(DEMO_USER_ID, patterns)
 
     print(f"\nComputed {len(patterns)} pattern(s) (min_evidence={MIN_EVIDENCE}):")
     for p in patterns:

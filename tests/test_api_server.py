@@ -308,7 +308,13 @@ def test_send_message_threads_retrieved_context_into_judgment_prompt(client, mon
     src/retrieval/engine.py): patterns/insights already stored in the DB
     by Learning/Insight Engine must actually reach Judgment's own prompt
     on the next live turn -- not just be readable via GET /learned-patterns
-    and GET /insights."""
+    and GET /insights.
+
+    Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account"): this now requires a signed-in caller
+    for the patterns half, since an anonymous caller has no account to
+    own stored patterns (insights remain a global, cross-account model,
+    unaffected)."""
     seen = {}
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
@@ -323,7 +329,9 @@ def test_send_message_threads_retrieved_context_into_judgment_prompt(client, mon
     monkeypatch.setattr(
         "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
     )
-    db.replace_learned_patterns([
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
     db.replace_insights([
@@ -1144,27 +1152,59 @@ def test_real_goal_status_change_is_recorded_to_memory_store_when_enabled(client
     assert events[0].session_id == session_id
 
 
+def test_patterns_endpoint_requires_login(client):
+    """Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account"): /patterns now requires a signed-in
+    caller, same as /personal-operating-model -- learned_patterns is no
+    longer a global model an anonymous caller could safely see."""
+    res = client.get("/patterns")
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
 def test_patterns_endpoint_empty_before_learning_has_run(client):
+    _login(client)
     assert client.get("/patterns").json() == []
 
 
 def test_patterns_endpoint_reflects_last_computed_batch(client):
-    """GET /patterns serves whatever scripts/run_learning.py last wrote --
-    exercised here at the db layer directly, since the endpoint itself
-    must stay read-only (see engine/specs/architecture-roadmap-v1.md:
-    Learning runs offline, never inside a live request)."""
+    """GET /patterns serves whatever scripts/run_learning.py last wrote
+    for THIS account -- exercised here at the db layer directly, since
+    the endpoint itself must stay read-only (see engine/specs/
+    architecture-roadmap-v1.md: Learning runs offline, never inside a
+    live request)."""
     from src.learning.engine import Pattern
 
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
     db.replace_learned_patterns(
-        [Pattern(pattern_type="decision_status_changed", detail="3 of your decisions...", evidence_count=3)]
+        user_id, [Pattern(pattern_type="decision_status_changed", detail="3 of your decisions...", evidence_count=3)]
     )
 
     body = client.get("/patterns").json()
     assert len(body) == 1
     assert body[0]["evidence_count"] == 3
 
-    # Truncate-and-replace, not append -- a second run must not accumulate.
-    db.replace_learned_patterns([])
+    # Truncate-and-replace per account, not append -- a second run must
+    # not accumulate.
+    db.replace_learned_patterns(user_id, [])
+    assert client.get("/patterns").json() == []
+
+
+def test_patterns_endpoint_never_returns_another_accounts_patterns(client):
+    """Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account"): the direct regression test for the
+    bug this round fixed -- a brand-new signed-in account must not
+    inherit whatever patterns were computed from a different account's
+    own behavioral events."""
+    from src.learning.engine import Pattern
+
+    other_user_id = db.get_or_create_user("someone-else-patterns@example.com")
+    db.replace_learned_patterns(
+        other_user_id, [Pattern(pattern_type="decision_status_changed", detail="Someone else's pattern.", evidence_count=3)]
+    )
+
+    _login(client, email="fresh-account-patterns@example.com")
     assert client.get("/patterns").json() == []
 
 
@@ -1444,7 +1484,9 @@ def test_send_message_omits_retrieved_context_when_cross_session_learning_disabl
     monkeypatch.setattr(
         "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
     )
-    db.replace_learned_patterns([
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
     db.replace_insights([
@@ -1481,6 +1523,7 @@ def test_privacy_export_includes_sessions_messages_and_readable_world_state(clie
     # back into a real nested object here, not left as an escaped string.
     assert isinstance(payload["sessions"][0]["world_state"], dict)
     assert len(payload["messages"]) == 2  # the user turn + the assistant reply
+    assert payload["learned_patterns"] == []  # never computed in this test
     assert payload["personal_operating_model"] is None  # never computed in this test
 
 
@@ -1489,10 +1532,11 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
-    _login(client)
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
     session_id = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
-    db.replace_learned_patterns([
+    db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
     db.set_cross_session_learning_enabled(False)
@@ -1501,13 +1545,12 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     assert res.status_code == 204
 
     assert client.get("/sessions").json() == []
-    # export/reset scoped to one account (2026-07-18, see
-    # engine/decisions.md "POM made per-user"): learned_patterns has no
-    # per-session evidence linkage at all, so there's no way to
-    # attribute any of it to one account -- it's excluded from
-    # per-account reset entirely and must survive, unlike before this
-    # fix when "Forget everything" wiped it for every account at once.
-    assert len(db.get_learned_patterns()) == 1
+    # Learning made per-account (2026-07-18, see engine/decisions.md
+    # "Learning made per-account"): learned_patterns now HAS real
+    # per-account attribution, so "Forget everything" deletes this
+    # account's own patterns too -- unlike before that fix, when the
+    # table had no owner column at all and had to be left untouched.
+    assert db.get_learned_patterns(user_id) == []
     # The person's own stated privacy preference survives a data reset --
     # resetting journal content isn't the same action as reverting a
     # setting they deliberately chose.
@@ -1537,6 +1580,33 @@ def test_privacy_export_never_includes_another_accounts_sessions(client, monkeyp
     session_ids = {s["id"] for s in payload["sessions"]}
     assert session_ids == {own_session_id}
     assert other_session_id not in session_ids
+
+
+def test_privacy_export_and_reset_scope_learned_patterns_to_one_account(client):
+    """Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account") -- direct regression test that export
+    includes only this account's own learned_patterns, and reset
+    deletes only this account's own rows, leaving another account's
+    patterns untouched by either."""
+    from src.learning.engine import Pattern
+
+    other_user_id = db.get_or_create_user("other-patterns-account@example.com")
+    db.replace_learned_patterns(
+        other_user_id, [Pattern(pattern_type="decision_status_changed", detail="Someone else's pattern.", evidence_count=3)]
+    )
+
+    email = _login(client, email="own-patterns-account@example.com")
+    user_id = db.get_or_create_user(email)
+    db.replace_learned_patterns(
+        user_id, [Pattern(pattern_type="decision_status_changed", detail="My own pattern.", evidence_count=3)]
+    )
+
+    payload = client.get("/privacy/export").json()
+    assert [p["detail"] for p in payload["learned_patterns"]] == ["My own pattern."]
+
+    assert client.post("/privacy/reset").status_code == 204
+    assert db.get_learned_patterns(user_id) == []
+    assert [p.detail for p in db.get_learned_patterns(other_user_id)] == ["Someone else's pattern."]
 
 
 def test_privacy_reset_never_deletes_another_accounts_sessions(client, monkeypatch):

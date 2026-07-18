@@ -210,10 +210,12 @@ CREATE TABLE IF NOT EXISTS behavioral_events (
 
 CREATE TABLE IF NOT EXISTS learned_patterns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
     pattern_type TEXT NOT NULL,
     detail TEXT NOT NULL,
     evidence_count INTEGER NOT NULL,
-    computed_at TEXT NOT NULL
+    computed_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS insights (
@@ -383,6 +385,31 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute(
                 "CREATE TABLE personal_operating_model ("
                 "user_id TEXT PRIMARY KEY, pom_json TEXT NOT NULL, computed_at TEXT NOT NULL)"
+            )
+        # Learning made per-account (2026-07-18, see engine/decisions.md
+        # "Learning made per-account" and engine/specs/learning-
+        # specification-v1.md) -- same non-additive-migration reasoning
+        # as personal_operating_model just above: `learned_patterns` was
+        # a genuine global aggregate with no owner column at all before
+        # this round. Detected via the same PRAGMA table_info technique
+        # -- the old shape's absence of `user_id` is the one thing that
+        # differs (unlike POM's old shape, this table's `id` column
+        # exists in BOTH old and new shape, so `user_id` is the correct
+        # differentiator here instead). The existing aggregate rows (if
+        # any) are, by construction, no more attributable to one account
+        # than POM's old singleton was -- same "drop rather than guess
+        # an owner" conclusion, not a special case.
+        learned_patterns_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(learned_patterns)").fetchall()
+        }
+        if learned_patterns_columns and "user_id" not in learned_patterns_columns:
+            conn.execute("DROP TABLE learned_patterns")
+            conn.execute(
+                "CREATE TABLE learned_patterns ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, "
+                "pattern_type TEXT NOT NULL, detail TEXT NOT NULL, "
+                "evidence_count INTEGER NOT NULL, computed_at TEXT NOT NULL, "
+                "FOREIGN KEY (user_id) REFERENCES users(id))"
             )
 
 
@@ -859,9 +886,15 @@ def save_events(session_id: str, events: List[BehavioralEvent]) -> None:
 
 
 def get_all_events() -> List[BehavioralEvent]:
-    """Read-only, used only by scripts/run_learning.py -- the entire
-    Memory Store across every session (single-user scope, see module
-    docstring)."""
+    """Read-only, unscoped across every account -- kept only as an
+    internal/test helper (used by tests/test_api_server.py's own
+    behavioral-events assertions), never called from a live request or
+    an offline computation script. Learning made per-account (2026-07-18,
+    see engine/decisions.md "Learning made per-account") -- the real
+    computation path is `get_events_for_user` below; this function
+    intentionally stays a global, unscoped read, same "global views are
+    for internal debugging only, never a live/user-facing surface"
+    principle "POM made per-user" already established."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT event_type, session_id, turn, detail, old_status, new_status, created_at "
@@ -876,25 +909,59 @@ def get_all_events() -> List[BehavioralEvent]:
     ]
 
 
-def replace_learned_patterns(patterns: List[Pattern]) -> None:
-    """Truncate-and-replace, not append -- see module docstring's
-    reasoning (mirrors save_turn_result's overwrite-on-write precedent).
+def get_events_for_user(user_id: str) -> List[BehavioralEvent]:
+    """Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account") -- the real per-account counterpart to
+    `get_all_events` above. `behavioral_events` has no `user_id` column
+    of its own (only `session_id`), so this joins through `sessions` to
+    scope to THIS account's own Journeys only, same pattern
+    `get_aggregated_knowledge_for_pom` already uses for POM. What
+    `scripts/run_learning.py` now actually calls, once per account."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT be.event_type, be.session_id, be.turn, be.detail, be.old_status, "
+            "be.new_status, be.created_at FROM behavioral_events be "
+            "JOIN sessions s ON be.session_id = s.id "
+            "WHERE s.user_id = ? ORDER BY be.id ASC",
+            (user_id,),
+        ).fetchall()
+    return [
+        BehavioralEvent(
+            event_type=r[0], session_id=r[1], turn=r[2], detail=r[3],
+            old_status=r[4], new_status=r[5], timestamp=r[6],
+        )
+        for r in rows
+    ]
+
+
+def replace_learned_patterns(user_id: str, patterns: List[Pattern]) -> None:
+    """Truncate-and-replace per account, not append or global truncate
+    (2026-07-18, see engine/decisions.md "Learning made per-account") --
+    same "latest wins, scoped to one owner" precedent
+    `replace_personal_operating_model` already established for POM.
     Called only by scripts/run_learning.py, never from a live request."""
     now = _now()
     with _connect() as conn:
-        conn.execute("DELETE FROM learned_patterns")
+        conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
         if patterns:
             conn.executemany(
-                "INSERT INTO learned_patterns (pattern_type, detail, evidence_count, computed_at) "
-                "VALUES (?, ?, ?, ?)",
-                [(p.pattern_type, p.detail, p.evidence_count, now) for p in patterns],
+                "INSERT INTO learned_patterns (user_id, pattern_type, detail, evidence_count, computed_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(user_id, p.pattern_type, p.detail, p.evidence_count, now) for p in patterns],
             )
 
 
-def get_learned_patterns() -> List[LearnedPatternOut]:
+def get_learned_patterns(user_id: str) -> List[LearnedPatternOut]:
+    """Learning made per-account (2026-07-18, see engine/decisions.md
+    "Learning made per-account") -- returns None-equivalent empty list
+    until scripts/run_learning.py has computed THIS account's own
+    patterns at least once; never another account's, same "POM made
+    per-user" precedent."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT pattern_type, detail, evidence_count FROM learned_patterns ORDER BY id ASC"
+            "SELECT pattern_type, detail, evidence_count FROM learned_patterns "
+            "WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
         ).fetchall()
     return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]
 
@@ -1121,15 +1188,17 @@ def export_all_data(user_id: str) -> dict:
     insight_sessions rows -- an Insight is a genuine cross-account
     theme that may also be evidenced by someone else's Journey, so the
     row itself isn't "this account's data" the way a session is, but a
-    theme actually showing up in their own history is. `learned_patterns`
-    is excluded entirely, unlike insights -- it has no per-session
-    evidence linkage at all (just aggregate stats), so there is no way
-    to attribute any of it to one account; including the whole shared
-    model under one person's export would misleadingly imply it's
-    theirs. `*_json` TEXT columns are parsed back into real nested
-    objects rather than left as escaped strings, so the exported file
-    is actually readable by a person, not just re-ingestable by this
-    codebase."""
+    theme actually showing up in their own history is.
+
+    `learned_patterns` (2026-07-18, see engine/decisions.md "Learning
+    made per-account") is now included too, scoped to THIS account's
+    own `user_id` -- previously excluded entirely because the table had
+    no per-account attribution at all; now that it does, the same
+    "include what's genuinely this account's own" rule POM's row
+    already follows applies here too. `*_json` TEXT columns are parsed
+    back into real nested objects rather than left as escaped strings,
+    so the exported file is actually readable by a person, not just
+    re-ingestable by this codebase."""
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         sessions = [dict(row) for row in conn.execute(
@@ -1141,6 +1210,9 @@ def export_all_data(user_id: str) -> dict:
         insight_sessions = _rows_for_session_ids(conn, "insight_sessions", session_ids)
         insight_ids = sorted({row["insight_id"] for row in insight_sessions})
         insights = _rows_for_ids(conn, "insights", insight_ids)
+        learned_patterns = [dict(row) for row in conn.execute(
+            "SELECT * FROM learned_patterns WHERE user_id = ?", (user_id,)
+        )]
         pom_row = conn.execute(
             "SELECT * FROM personal_operating_model WHERE user_id = ?", (user_id,)
         ).fetchone()
@@ -1163,6 +1235,7 @@ def export_all_data(user_id: str) -> dict:
         "behavioral_events": behavioral_events,
         "insights": insights,
         "insight_sessions": insight_sessions,
+        "learned_patterns": learned_patterns,
         "personal_operating_model": pom_row,
     }
 
@@ -1190,16 +1263,22 @@ def reset_all_data(user_id: str) -> None:
     docstring for the full reasoning).
 
     Deletes this account's own sessions, messages, behavioral events,
-    this account's own insight_sessions evidence links, and this
-    account's own Personal Operating Model row. Deliberately does NOT
-    touch `insights`/`learned_patterns` -- both are genuine
-    cross-account models (an Insight may still be evidenced by someone
-    else's Journey even after this account's own evidence link is
-    removed; `learned_patterns` has no per-account attribution at all
-    to selectively remove) -- and does NOT touch `privacy_settings`,
-    same as before: a person clearing their journal data is not also
-    asking to have their own stated cross-session-learning preference
-    silently reset back to the default."""
+    this account's own insight_sessions evidence links, this account's
+    own learned_patterns rows, and this account's own Personal
+    Operating Model row. Deliberately does NOT touch `insights` -- a
+    genuine cross-account model (an Insight may still be evidenced by
+    someone else's Journey even after this account's own evidence link
+    is removed) -- or `privacy_settings`, same as before: a person
+    clearing their journal data is not also asking to have their own
+    stated cross-session-learning preference silently reset back to the
+    default.
+
+    `learned_patterns` (2026-07-18, see engine/decisions.md "Learning
+    made per-account") IS now deleted here, unlike before -- previously
+    excluded for the same reason `insights` still is (no way to
+    attribute one account's share of a shared aggregate), but now that
+    `learned_patterns` has real per-account ownership, "forget
+    everything" can and should actually forget it."""
     with _connect() as conn:
         session_ids = [
             row[0] for row in conn.execute("SELECT id FROM sessions WHERE user_id = ?", (user_id,)).fetchall()
@@ -1210,4 +1289,5 @@ def reset_all_data(user_id: str) -> None:
             conn.execute(f"DELETE FROM behavioral_events WHERE session_id IN ({placeholders})", session_ids)
             conn.execute(f"DELETE FROM insight_sessions WHERE session_id IN ({placeholders})", session_ids)
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))

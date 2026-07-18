@@ -61,48 +61,44 @@ unstarted increment.
 
 ## Open questions — the real sequencing, consolidated
 
-These three items were previously scattered across
-`src/instrumentation/events.py`'s docstring, `frontend/specs/
-trust-and-privacy-ux-v1.md`'s Principle 6, and backlog #257. Written
-together here because they form one real dependency chain, not three
-independent nice-to-haves:
+Three items were previously scattered across `src/instrumentation/
+events.py`'s docstring, `frontend/specs/trust-and-privacy-ux-v1.md`'s
+Principle 6, and backlog #257 — written together because they form one
+real dependency chain, not three independent nice-to-haves.
 
-1. **No per-account scoping.** `get_all_events()`'s own docstring
-   admits "single-user scope, no user_id column" — every account's
-   behavioral events are aggregated together into one shared
-   `learned_patterns` table with no way to attribute a row back to one
-   account. This is the exact same class of bug already found and
-   fixed for POM (`personal_operating_model` made per-user after a
-   real cross-account leak, see engine/decisions.md "POM made
-   per-user"). Today `reset_all_data(user_id)` deletes an account's
-   own raw `behavioral_events`, but NOT their contribution to
-   `learned_patterns` — once aggregated, a person's own evidence can
-   no longer be separated back out. Surfacing "your patterns" to a
-   real user while this is true would show them a blend of every
-   account's behavior, not just their own — both misattributed and a
-   real privacy leak once more than one real account exists.
+1. **No per-account scoping — RESOLVED 2026-07-18** (see
+   engine/decisions.md "Learning made per-account"). `learned_patterns`
+   now carries a real `user_id` (same non-additive migration pattern
+   `personal_operating_model` used); `get_events_for_user(user_id)`,
+   `replace_learned_patterns(user_id, ...)`, `get_learned_patterns(user_id)`
+   all scope correctly; `GET /patterns` now requires login;
+   `export_all_data`/`reset_all_data` both now include/delete a
+   person's own share correctly. The cross-account leak this item
+   described is closed.
 2. **No frontend disclosure surface.** `frontend/specs/
    trust-and-privacy-ux-v1.md`'s Principle 6 requires, before real
    behavioral data should accumulate: patterns traceable to real,
    inspectable evidence (the `{statement, evidence, evidence_count}`
    shape already used elsewhere), and a way to see them at all.
-   Nothing in the frontend surfaces `GET /patterns` today.
+   Nothing in the frontend surfaces `GET /patterns` today (backlog
+   #214, now unblocked by (1) above).
 3. **No deletion path for `learned_patterns` independent of a full
-   database wipe.** Principle 6 also requires a person be able to
-   delete their own accumulated behavioral history — genuinely hard
-   while (1) is unresolved, since there's nothing to selectively
-   delete once evidence is aggregated without attribution.
+   database wipe — RESOLVED alongside (1)**: `reset_all_data(user_id)`
+   now deletes exactly this account's own `learned_patterns` rows,
+   real per-account attribution having made this possible for the
+   first time.
 
-**The real order, given these three are entangled**: (1) must be
-resolved (or explicitly, knowingly accepted as a temporary risk at
-today's real user scale) before (2) can honestly ship, and (2)+a real
-deletion path must exist before `CONFIDANT_RECORD_EVENTS` should be
-turned on in production (`src/instrumentation/events.py`'s own
-docstring: "turning this on in production is a deliberate
-product/privacy decision, not an engineering default"). Backlog #213
-(calibrating `MIN_EVIDENCE` against real data) is blocked behind all
-three, since it needs real accumulated production data to calibrate
-against in the first place.
+**The real order, now that (1) and (3) are resolved**: #214 (frontend
+disclosure) can be built without the correctness gap this section
+originally flagged. `CONFIDANT_RECORD_EVENTS` should still only be
+turned on in production (#211) once #214 actually ships — a real
+disclosure surface existing in code isn't the same as it being live for
+real users to see (`src/instrumentation/events.py`'s own docstring:
+"turning this on in production is a deliberate product/privacy
+decision, not an engineering default"). Backlog #213 (calibrating
+`MIN_EVIDENCE` against real data) is still blocked behind #211, since
+it needs real accumulated production data to calibrate against in the
+first place.
 
 ## Verification
 

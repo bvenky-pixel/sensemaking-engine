@@ -9209,3 +9209,81 @@ sequence #211 (enable in production) given the three-item chain above
 (per-account scoping) first, or build the frontend disclosure surface
 (#214) as a genuinely separate, honestly-scoped-down thing in the
 meantime.
+
+## Learning made per-account (2026-07-18)
+
+Founder's own answer to the sequencing question above: "fix per-account
+scoping first, then the rest." Same class of bug already found and
+fixed for POM (see "POM made per-user") -- `learned_patterns` had zero
+per-account attribution, aggregating every account's behavioral history
+into one shared, unowned table.
+
+**Schema migration**, same non-additive pattern `personal_operating_model`
+used: `learned_patterns` gains `user_id TEXT NOT NULL` (`FOREIGN KEY ->
+users(id)`). Detected via `PRAGMA table_info` checking for `user_id`'s
+absence (the inverse differentiator from POM's own migration, since
+`id` exists in both this table's old AND new shape, unlike POM's). The
+old aggregate rows are, by the same reasoning POM's old singleton
+already established, fundamentally non-attributable to any one
+account -- dropped outright on migration, not preserved under a guessed
+owner.
+
+**Read/write scoping**:
+- New `get_events_for_user(user_id)` joins `behavioral_events` through
+  `sessions` (the events table itself has no `user_id` column, only
+  `session_id`) -- the real per-account counterpart to `get_all_events`,
+  which stays unscoped but is now explicitly documented as an
+  internal/test-only helper, never called from a live request or
+  offline script.
+- `replace_learned_patterns(user_id, patterns)` / `get_learned_patterns(user_id)`
+  now key on that account's own rows -- same "truncate-and-replace per
+  owner, not globally" precedent `replace_personal_operating_model`
+  already set.
+- `GET /patterns` now requires login (`Depends(require_user)`, same
+  gate `/personal-operating-model` already has) -- `learned_patterns`
+  is no longer a global model an anonymous caller could safely see.
+- `send_message`'s own Retrieval read now scopes to
+  `identity.user_id`, `[]` for an anonymous caller -- same "no stable
+  account, no standing profile" rule POM's own read already follows.
+
+**Export/reset, closing a gap POM's own round explicitly left open**:
+`export_all_data(user_id)` now includes this account's own
+`learned_patterns` rows (previously excluded entirely -- "no way to
+attribute any of it to one account," no longer true); `reset_all_data(user_id)`
+now deletes them too -- previously the one exception "Forget everything"
+couldn't actually honor. `insights` remains untouched by both, correctly
+-- unlike `learned_patterns`, it already has real per-account evidence
+linkage via `insight_sessions`, and a cross-account theme must survive
+if other accounts' sessions still evidence it.
+
+**Offline scripts, mirroring `run_pom_computation.py`'s own per-account
+loop**: `scripts/run_learning.py` now loops `get_all_user_ids_with_sessions()`,
+computing and storing one account's patterns at a time.
+`scripts/run_learning_walkthrough.py`'s four demo sessions now all
+belong to one fixed demo account (`learning-walkthrough-demo-user`,
+via real `db.create_session(user_id=...)` rows instead of bare
+hand-picked session_id strings with no corresponding `sessions` row --
+the new join-based `get_events_for_user` would have silently found
+nothing for those otherwise).
+
+New regression tests (`tests/test_api_server.py`): `/patterns` requires
+login; a fresh account never inherits another's patterns; export/reset
+each scope `learned_patterns` to one account only (mirroring the exact
+POM regression-test shape from "POM made per-user"). Three existing
+tests updated for the new signatures and the corrected reset behavior
+(patterns now DO get deleted on reset, where the old test asserted they
+survived).
+
+Full suite: `pytest` 484 passed (481 + 3 new). Migration verified
+directly against a simulated pre-migration DB (old shape's un-attributable
+row confirmed dropped, new `user_id` column confirmed present).
+Deliberately NOT touched this round: `privacy_settings` remains the
+single global singleton it already was (a separate, not-yet-started
+project, same carve-out POM's own round left standing) -- #257 is now
+considered done for `learned_patterns`/Learning specifically;
+`privacy_settings` stays open.
+
+Unblocks the rest of the Learning sequencing chain from
+"Learning: docstring reconciliation + first versioned spec" above --
+#214 (frontend disclosure surface) can now be built without the
+per-account correctness gap that entry flagged.
