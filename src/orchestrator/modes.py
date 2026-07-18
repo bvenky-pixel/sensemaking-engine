@@ -105,20 +105,36 @@ exists once enough conversation has touched each of the 6 LLM-inferred
 systems (Identity, Motivation/SDT, Learning Style, Stress, Narrative,
 Theory of Mind; Belief/Relationship are mechanical and already seed from
 turn one regardless of mode). Each mode's own natural question already
-sits near one of these dimensions, so RESPONSE_MODE_FOCUS below adds one
-`turn_count % 3 == 0` clause per mode -- deterministic, same discipline
-Realign's own rotation already established, since a vague "occasionally
-ask about X" instruction doesn't reliably produce real variety from a
-memoryless generator. Mapping: Vent->Stress, Strategize->Motivation,
-Commit->Motivation (competence), Explore->Learning Style. Realign is
-deliberately UNCHANGED -- its existing turn_count % 5 rotation already
-asks an Identity/Narrative-flavored question EVERY turn by design (not
-occasionally), so it already satisfies its own mapping (Identity +
-Narrative) without a competing modulo gate. Theory of Mind isn't
-mode-specific -- it's about how the person reads named OTHER people, not
-something a single mode's own register naturally elicits -- so no mode
-gained a Theory-of-Mind clause; it's still (correctly) whatever
-naturally comes up whenever a named person is central to a turn.
+sits near one of these dimensions. Mapping: Vent->Stress,
+Strategize->Motivation, Commit->Motivation (competence), Explore->
+Learning Style. Realign is deliberately UNCHANGED -- its existing
+turn_count % 5 rotation already asks an Identity/Narrative-flavored
+question EVERY turn by design (not occasionally), so it already
+satisfies its own mapping (Identity + Narrative) without a competing
+modulo gate. Theory of Mind isn't mode-specific -- it's about how the
+person reads named OTHER people, not something a single mode's own
+register naturally elicits -- so no mode gained a Theory-of-Mind
+clause; it's still (correctly) whatever naturally comes up whenever a
+named person is central to a turn.
+
+Thinnest-system-aware targeting (2026-07-18, same day, see
+engine/decisions.md "POM early seeding: thinnest-system-aware
+targeting"): the FIRST version above fired its `turn_count % 3 == 0`
+clause blindly, regardless of whether the mapped dimension was already
+well-established for this specific account, and asked the MODEL to
+evaluate that modulo itself -- exactly the arithmetic/selection
+unreliability the Realign saga (see "Realign rotation precomputed in
+Python") already showed doesn't hold up across models. `_should_seed_pom`
+now combines the same `turn_count % 3` cadence with a Python-computed
+check of whether THIS account's own mapped dimension is still thin
+(`_pom_dimension_is_thin`, using the account's real, per-user POM --
+threaded from src/api/server.py through run_turn/run_response_generator)
+-- once a dimension is no longer thin, its mode's deeper probe stops
+firing entirely, and the model is never asked to compute or choose
+anything. `_POM_SEED_CLAUSES` holds each mode's supplementary clause
+alone; RESPONSE_MODE_FOCUS's own baseline entries no longer mention POM
+seeding at all.
+
 Deliberately a light structural nudge, never a mandate: each clause is
 strictly secondary to the mode's own primary job and grounded in what
 was actually said, never inventing content to manufacture a data point.
@@ -127,6 +143,8 @@ was actually said, never inventing content to manufacture a data point.
 from __future__ import annotations
 
 from typing import Dict, Literal, Optional
+
+from src.pom.schema import PersonalOperatingModel
 
 CounselingMode = Literal["vent", "strategize", "commit", "explore", "realign", "adaptive"]
 
@@ -303,19 +321,7 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "question around whatever the person specifically just said, not "
         "the same phrasing as an earlier turn in this same Journey; "
         "repeating an identical check-in turn after turn reads as "
-        "mechanical, not attentive.\n"
-        "\n"
-        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
-        "early seeding via mode design\"): on every third turn "
-        "(`turn_count % 3 == 0`), let sentence 2 go one layer deeper into "
-        "what this feeling is actually carrying -- how long it's been "
-        "building, or what's making it feel heavier right now than usual "
-        "(e.g. something like 'Has this been building for a while, or did "
-        "today just make it worse?') -- still purely validating, never "
-        "diagnostic, and grounded only in what's already been said. On "
-        "every OTHER turn, stay with the lighter check-in register above; "
-        "this deeper probe is occasional by design, not a checklist item "
-        "to hit every turn."
+        "mechanical, not attentive."
     ),
     "strategize": (
         "This Journey was started in Strategize mode: the person wants "
@@ -331,18 +337,7 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "pose the framing question itself (e.g. something like 'Which of "
         "these feels closer to the right call?'), staying short, exactly "
         "as the STRUCTURE rule already requires -- still grounded, never "
-        "inventing an option nothing upstream actually named.\n"
-        "\n"
-        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
-        "early seeding via mode design\"): on every third turn "
-        "(`turn_count % 3 == 0`), replace the framing question with one "
-        "that asks WHY the option they're leaning toward actually appeals "
-        "to them personally -- e.g. something like 'What is it about that "
-        "one that feels right to you -- that you'd be doing it your own "
-        "way, that you'd feel confident pulling it off, or something "
-        "else?' -- grounded in what they've actually said, never inventing "
-        "a reason for them. On every OTHER turn, use the plain framing "
-        "question above instead."
+        "inventing an option nothing upstream actually named."
     ),
     "commit": (
         "This Journey was started in Commit mode: you are, in this mode, "
@@ -356,17 +351,7 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "count for THIS turn (e.g. if it now says a longer duration than "
         "last turn, say that, not a fixed count copied forward from an "
         "earlier turn) -- still grounded in what stagnation_notes actually "
-        "says right now, never an invented or stale characterization.\n"
-        "\n"
-        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
-        "early seeding via mode design\"): on every third turn "
-        "(`turn_count % 3 == 0`), alongside the dated-commitment question, "
-        "also ask what's actually making follow-through hard for them "
-        "specifically -- e.g. something like 'Is it that you don't feel "
-        "set up to pull this off, or is something else getting in the "
-        "way?' -- grounded in what's already been said, never a generic "
-        "diagnostic question detached from this turn's content. On every "
-        "OTHER turn, stick to the plain dated-commitment question above."
+        "says right now, never an invented or stale characterization."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -378,17 +363,7 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "Still grounded (never invent a new critique WorldState/Judgment "
         "didn't support) and still respects user agency: challenging their "
         "thinking means surfacing a real tension for them to examine, never "
-        "asserting they're wrong or telling them what to conclude.\n"
-        "\n"
-        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
-        "early seeding via mode design\"): on every third turn "
-        "(`turn_count % 3 == 0`), phrase the challenge as a question about "
-        "how they'd actually go about checking whether the assumption is "
-        "true -- e.g. something like 'How would you actually find out -- "
-        "ask them directly, look for evidence yourself, or something "
-        "else?' -- this reveals how they approach uncertainty, not just "
-        "what they currently assume. On every OTHER turn, use the direct "
-        "challenge register above instead."
+        "asserting they're wrong or telling them what to conclude."
     ),
     "realign": (
         "This Journey was started in Realign mode: you are, in this mode, "
@@ -425,6 +400,116 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "frame more specific than what WorldState actually supports."
     ),
 }
+
+# POM early seeding, thinnest-system-aware (2026-07-18, see
+# engine/decisions.md "POM early seeding: thinnest-system-aware
+# targeting"): the FIRST version of this (see the module docstring's own
+# "POM early seeding via mode design" section) fired the deeper probe on
+# a blind `turn_count % 3 == 0` schedule regardless of whether the
+# mapped POM dimension was already well-established for this account --
+# meaning Vent kept nudging toward Stress content forever, even for an
+# account whose Stress reading was already confident and well-evidenced.
+# Also, that first version asked the MODEL to evaluate `turn_count % 3 ==
+# 0` itself -- exactly the kind of arithmetic/selection step the Realign
+# saga (see "Realign rotation precomputed in Python") already showed is
+# unreliable across models. Both are fixed the same way here: the gate
+# is now computed in Python (_should_seed_pom), combining the same
+# turn_count % 3 cadence with a check of whether THIS account's own
+# mapped POM dimension is still thin (unclear/no evidence) -- once it's
+# no longer thin, the deeper probe stops firing entirely, and the model
+# is never asked to evaluate anything itself.
+#
+# Each entry is the SUPPLEMENTARY clause alone (appended to the mode's
+# baseline RESPONSE_MODE_FOCUS text only when _should_seed_pom is True)
+# -- not a self-contained "on turn N do X, otherwise do Y" instruction,
+# since Python now decides which turns qualify, not the model.
+_POM_SEED_CLAUSES: Dict[str, str] = {
+    "vent": (
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding: thinnest-system-aware targeting\"): this "
+        "account's own Stress reading is still thin, so THIS turn, let "
+        "sentence 2 go one layer deeper into what this feeling is "
+        "actually carrying -- how long it's been building, or what's "
+        "making it feel heavier right now than usual (e.g. something "
+        "like 'Has this been building for a while, or did today just "
+        "make it worse?') -- still purely validating, never diagnostic, "
+        "and grounded only in what's already been said."
+    ),
+    "strategize": (
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding: thinnest-system-aware targeting\"): this "
+        "account's own Motivation reading is still thin, so THIS turn, "
+        "replace the framing question with one that asks WHY the option "
+        "they're leaning toward actually appeals to them personally -- "
+        "e.g. something like 'What is it about that one that feels right "
+        "to you -- that you'd be doing it your own way, that you'd feel "
+        "confident pulling it off, or something else?' -- grounded in "
+        "what they've actually said, never inventing a reason for them."
+    ),
+    "commit": (
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding: thinnest-system-aware targeting\"): this "
+        "account's own Motivation/competence reading is still thin, so "
+        "THIS turn, alongside the dated-commitment question, also ask "
+        "what's actually making follow-through hard for them "
+        "specifically -- e.g. something like 'Is it that you don't feel "
+        "set up to pull this off, or is something else getting in the "
+        "way?' -- grounded in what's already been said, never a generic "
+        "diagnostic question detached from this turn's content."
+    ),
+    "explore": (
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding: thinnest-system-aware targeting\"): this "
+        "account's own Learning Style reading is still thin, so THIS "
+        "turn, phrase the challenge as a question about how they'd "
+        "actually go about checking whether the assumption is true -- "
+        "e.g. something like 'How would you actually find out -- ask "
+        "them directly, look for evidence yourself, or something else?' "
+        "-- this reveals how they approach uncertainty, not just what "
+        "they currently assume."
+    ),
+}
+
+
+def _pom_dimension_is_thin(mode: str, pom: Optional[PersonalOperatingModel]) -> bool:
+    """True when this account's own POM reading for the dimension `mode`
+    maps to (see _POM_SEED_CLAUSES above) is still unclear/unevidenced --
+    including when `pom` itself is None (never computed yet, or an
+    anonymous caller with no standing profile at all), which is the
+    thinnest possible state. Once a dimension has a confident,
+    evidenced reading, this returns False permanently for that
+    dimension -- the deeper probe stops being asked once it's no longer
+    needed, same "omit rather than show a hollow signal" discipline
+    already used when POM itself decides whether to render a system at
+    all (see PersonalOperatingModel.svelte)."""
+    if pom is None:
+        return True
+    if mode == "vent":
+        return pom.stress.level == "unclear" or not pom.stress.evidence
+    if mode == "strategize":
+        return (
+            pom.motivation.autonomy == "unclear" or not pom.motivation.autonomy_evidence
+        ) or (
+            pom.motivation.competence == "unclear" or not pom.motivation.competence_evidence
+        )
+    if mode == "commit":
+        return pom.motivation.competence == "unclear" or not pom.motivation.competence_evidence
+    if mode == "explore":
+        return not pom.learning_style.style or not pom.learning_style.evidence
+    return False
+
+
+def _should_seed_pom(mode: str, turn_count: int, pom: Optional[PersonalOperatingModel]) -> bool:
+    """Both conditions must hold: the same turn_count % 3 cadence the
+    first version of this feature used (kept -- even for a persistently
+    thin dimension, a deeper probe every single turn would read as
+    fishing, not attentive), AND this account's own mapped dimension is
+    still thin (see _pom_dimension_is_thin). Modes with no POM-seeding
+    clause at all (realign, or any unrecognized mode) always return
+    False."""
+    if mode not in _POM_SEED_CLAUSES:
+        return False
+    return turn_count % 3 == 0 and _pom_dimension_is_thin(mode, pom)
 
 # Realign rotation, precomputed in Python (2026-07-18, see
 # engine/decisions.md "Realign rotation precomputed in Python"): the
@@ -467,24 +552,38 @@ def planner_mode_focus_note(mode: Optional[str]) -> str:
     return PLANNER_MODE_FOCUS.get(mode, "")
 
 
-def response_mode_focus_note(mode: Optional[str], turn_count: int = 0) -> str:
+def response_mode_focus_note(
+    mode: Optional[str], turn_count: int = 0, pom: Optional[PersonalOperatingModel] = None
+) -> str:
     """Same contract as planner_mode_focus_note above, for Response's
     own, separately-worded focus text.
 
     turn_count (2026-07-18, see engine/decisions.md "Realign rotation
     precomputed in Python"): WorldState.turn_count for THIS turn -- used
-    ONLY by Realign's own deterministic concept rotation
-    (_realign_concept_for_turn above); every other mode's note ignores
-    this parameter entirely, same as before it existed. Realign's own
-    entry contains a literal `{concept}` format placeholder filled in
-    here rather than left for the model to resolve itself -- a live
-    re-verification found the model-computes-the-modulo design still
-    converged onto one concept most turns once a different model became
-    Planner's primary, so the selection is now made in Python, not left
-    to the model's own arithmetic/instruction-following."""
+    by Realign's own deterministic concept rotation
+    (_realign_concept_for_turn above) and by the POM-seeding cadence
+    check below (_should_seed_pom); every other mode's note ignores it
+    entirely, same as before it existed. Realign's own entry contains a
+    literal `{concept}` format placeholder filled in here rather than
+    left for the model to resolve itself -- a live re-verification found
+    the model-computes-the-modulo design still converged onto one
+    concept most turns once a different model became Planner's primary,
+    so the selection is now made in Python, not left to the model's own
+    arithmetic/instruction-following.
+
+    pom (2026-07-18, see engine/decisions.md "POM early seeding:
+    thinnest-system-aware targeting"): this account's own current
+    PersonalOperatingModel (None for an anonymous caller, or an account
+    whose POM has never been computed) -- used ONLY to decide whether
+    Vent/Strategize/Commit/Explore's POM-seeding clause should fire this
+    turn (see _should_seed_pom); ignored by every other mode, and by
+    these same four modes once their mapped dimension is no longer
+    thin."""
     if not mode:
         return ""
     note = RESPONSE_MODE_FOCUS.get(mode, "")
     if mode == "realign" and note:
         return note.format(concept=_realign_concept_for_turn(turn_count))
+    if note and _should_seed_pom(mode, turn_count, pom):
+        note = note + "\n\n" + _POM_SEED_CLAUSES[mode]
     return note

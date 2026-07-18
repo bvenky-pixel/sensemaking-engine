@@ -102,7 +102,7 @@ def test_run_turn_full_success_populates_every_field(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
     )
 
     result = run_turn("I want to move teams.", WorldState())
@@ -128,7 +128,7 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
         seen["planner_mode"] = mode
         return _PLANNER
 
-    def _response(state, judgment, planner, tracker=None, mode=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -155,7 +155,7 @@ def test_run_turn_resolves_adaptive_mode_to_planners_chosen_lens_for_response(mo
         seen["planner_mode"] = mode
         return _PLANNER.model_copy(update={"active_lens": "commit"})
 
-    def _response(state, judgment, planner, tracker=None, mode=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -181,7 +181,7 @@ def test_run_turn_falls_back_to_raw_mode_when_adaptive_planner_sets_no_lens(monk
     def _planner(state, judgment, tracker=None, mode=None):
         return _PLANNER  # active_lens defaults to None
 
-    def _response(state, judgment, planner, tracker=None, mode=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -211,7 +211,7 @@ def test_run_turn_threads_retrieved_context_to_judgment_only(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState(), retrieved_context="Known pattern: reopens closed decisions.")
@@ -234,7 +234,7 @@ def test_run_turn_defaults_retrieved_context_to_empty_string(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState())
@@ -257,7 +257,7 @@ def test_run_turn_defaults_mode_to_none(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState())
@@ -276,7 +276,7 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
     )
 
     calls = []
@@ -357,7 +357,7 @@ def test_run_turn_planner_failure_still_reports_judgment_and_updated_state(monke
 
 
 def test_run_turn_response_failure_still_reports_planner_and_updated_state(monkeypatch):
-    def _raise(state, judgment, planner, tracker=None, mode=None):
+    def _raise(state, judgment, planner, tracker=None, mode=None, pom=None):
         raise ResponseGeneratorError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)

@@ -50,6 +50,7 @@ from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
 from src.orchestrator.schema import TurnResult
 from src.planner.engine import PlannerError, run_planner
+from src.pom.schema import PersonalOperatingModel
 from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
@@ -65,6 +66,7 @@ def run_turn(
     on_stage_complete: Optional[Callable[[str], None]] = None,
     mode: Optional[str] = None,
     retrieved_context: str = "",
+    pom: Optional[PersonalOperatingModel] = None,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -125,6 +127,15 @@ def run_turn(
     Planner/Response only ever see it indirectly, through whatever
     Judgment itself chooses to surface in supporting_evidence. Default ""
     is a true no-op for every existing caller.
+
+    pom: this account's own current PersonalOperatingModel, or None for
+    an anonymous caller / an account whose POM has never been computed
+    (2026-07-18, see engine/decisions.md "POM early seeding:
+    thinnest-system-aware targeting") -- Orchestrator threads it ONLY to
+    run_response_generator, which uses it (alongside `state.turn_count`)
+    to decide whether that mode's POM-seeding clause should fire this
+    turn; every other stage is unaffected. Default None is a true no-op
+    for every existing caller.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -224,7 +235,9 @@ def run_turn(
     effective_mode = plan.active_lens if mode == "adaptive" and plan.active_lens else mode
 
     try:
-        response = run_response_generator(state, judgment, plan, tracker=tracker, mode=effective_mode)
+        response = run_response_generator(
+            state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom,
+        )
     except ResponseGeneratorError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment, planner=plan,

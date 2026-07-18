@@ -454,7 +454,7 @@ def send_message(
     result = run_turn(
         body.content, state, tracker=tracker, session_id=session_id,
         on_stage_complete=_push, mode=db.get_session_mode(session_id),
-        retrieved_context=retrieved_context,
+        retrieved_context=retrieved_context, pom=pom,
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 

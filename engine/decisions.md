@@ -8974,3 +8974,80 @@ actually stops making this specific mistake, but the fix targets the
 prompt's own documented root cause directly rather than an unconfirmed
 guess, so shipping it doesn't require a live check first the way a
 behavior-shaping change would.
+
+## POM early seeding: thinnest-system-aware targeting (2026-07-18)
+
+Founder floated a mandatory pre-Home POM question (multiple-
+choice/rated, gating every login) as a way to get richer POM signal
+faster. Declined as designed: it's a forced, gamified touchpoint,
+directly against the "three sanctioned spaces" (Home/Journey/Settings)
+and "no manufactured urgency" discipline already established for this
+app -- a fourth, mandatory pre-Home screen is exactly the kind of
+survey-shaped friction the whole product deliberately avoids elsewhere.
+Offered 5 on-brand alternatives instead (all respecting "optional,
+embedded in real conversation, reuse what's already computed, never a
+forced touchpoint"); founder asked to backlog all 5 (#206-#210) and
+start with #206.
+
+**Problem with the previous round's mechanism** (see "POM early seeding
+via mode design" above), found while designing #206, not reported by
+the founder: the `turn_count % 3 == 0` gate fires unconditionally,
+regardless of whether the mode's own mapped POM dimension is already
+well-evidenced for THIS account. Two turns after Stress genuinely
+becomes non-"unclear" with real evidence, Vent would still interrupt
+its sentence 2 to ask about it again -- continuing to "ask" after the
+answer is already known, which is its own quiet violation of the same
+"never manufacture a data point" discipline the previous round was
+explicitly written to respect (the manufactured thing here isn't a
+false state, it's a hollow, unnecessary repeat question).
+
+**Fix, same lesson Realign's `turn_count % 5` rotation and the
+Interpretation prompt fix (both same day, above) already established
+twice this round**: don't ask the model to gate its own behavior on
+anything it has to compute or infer -- resolve the decision entirely in
+Python and inject only the outcome. `src/orchestrator/modes.py` adds:
+
+- `_pom_dimension_is_thin(mode, pom)` -- reads the account's real
+  `PersonalOperatingModel` (None counts as thin) and checks exactly the
+  sub-field each mode maps to: Vent -> `stress.level`/`stress.evidence`,
+  Strategize -> `motivation.autonomy` OR `motivation.competence` (either
+  one still unclear counts as thin, since Strategize's clause can probe
+  either), Commit -> `motivation.competence` specifically (not
+  autonomy -- Commit's own character is accountability/follow-through,
+  which maps to competence, not Strategize's broader options framing),
+  Explore -> `learning_style.style`/`learning_style.evidence`.
+- `_should_seed_pom(mode, turn_count, pom)` -- combines the existing
+  cadence check with the new thinness check; both must hold.
+- The 4 mode-specific seeding clauses moved out of the static
+  `RESPONSE_MODE_FOCUS` dict into their own `_POM_SEED_CLAUSES` dict, so
+  they can be appended conditionally instead of being baked into every
+  turn's prompt text unconditionally.
+- `response_mode_focus_note` gained a `pom` parameter (default `None`,
+  true no-op for every caller that doesn't pass one) and now appends the
+  mode's clause only when `_should_seed_pom` says yes.
+
+Threaded `pom` through the same path already established for `mode`/
+`retrieved_context`/`turn_count`: `src/api/server.py` (already fetching
+`pom` via `db.get_personal_operating_model`) -> `run_turn` ->
+`run_response_generator` -> `response_mode_focus_note`. Judgment/
+Planner/Interpretation untouched -- this is a Response-layer-only
+concern, same scope boundary as the mode focus note itself.
+
+Realign deliberately untouched (still excluded from `_POM_SEED_CLAUSES`
+entirely) -- its own `turn_count % 5` rotation already covers Identity
++ Narrative every turn by design, so there's no separate seeding gate
+to make thinness-aware.
+
+Verified via unit tests only, no live dispatch (per founder's "don't
+run another validation test now" hold): `tests/test_modes.py` rewritten
+-- each of the 4 mode-specific seeding tests now checks
+`_should_seed_pom` against a `None` pom, a thin-but-present pom, and a
+fully-evidenced `rich_pom` fixture, confirming the clause fires only in
+the first two cases at a `turn_count % 3 == 0` turn and never on a
+rich pom regardless of turn_count. Full suite: `pytest` 479 passed
+(`tests/test_modes.py` 29 passed; `tests/test_orchestrator.py`'s 9 mock
+stand-ins for `run_response_generator` updated to accept the new `pom`
+keyword). Not yet live-verified, consistent with every other prompt-
+text-only change this session -- worth checking in the next live
+dispatch round that a real model's behavior actually changes once a POM
+dimension fills in, not just that the Python gate computes correctly.

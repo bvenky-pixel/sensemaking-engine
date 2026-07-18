@@ -10,10 +10,21 @@ from src.orchestrator.modes import (
     MODE_COPY,
     PLANNER_MODE_FOCUS,
     RESPONSE_MODE_FOCUS,
+    _pom_dimension_is_thin,
+    _POM_SEED_CLAUSES,
     _realign_concept_for_turn,
+    _should_seed_pom,
     planner_mode_focus_note,
     response_mode_focus_note,
 )
+from src.pom.schema import (
+    LearningStyleSystem,
+    MotivationSystem,
+    PersonalOperatingModel,
+    StressSystem,
+)
+
+_POM_SEEDED_MODES = ["vent", "strategize", "commit", "explore"]
 
 _ALL_MODES = ["vent", "strategize", "commit", "explore", "realign"]
 
@@ -64,10 +75,14 @@ def test_response_focus_note_returns_the_focus_text_for_each_known_mode():
     "Realign rotation precomputed in Python"): its raw RESPONSE_MODE_FOCUS
     entry contains a literal `{concept}` format placeholder, filled in by
     response_mode_focus_note itself rather than matching the raw dict
-    entry verbatim -- every other mode's note is still an exact,
-    unmodified match."""
+    entry verbatim. Vent/Strategize/Commit/Explore (2026-07-18, see
+    "POM early seeding: thinnest-system-aware targeting") only match
+    the raw dict entry exactly on a turn_count that doesn't qualify for
+    the POM-seeding cadence (turn_count % 3 != 0) -- passing 1 here
+    guarantees that regardless of pom state, since _should_seed_pom
+    short-circuits on the cadence check first."""
     for mode in _ALL_MODES:
-        note = response_mode_focus_note(mode)
+        note = response_mode_focus_note(mode, turn_count=1)
         if mode == "realign":
             assert "{concept}" not in note
             assert note != RESPONSE_MODE_FOCUS[mode]
@@ -183,13 +198,29 @@ def test_response_mode_focus_note_embeds_the_resolved_realign_concept():
         assert _realign_concept_for_turn(turn_count) in note
 
 
-def test_response_mode_focus_note_ignores_turn_count_for_other_modes():
-    """turn_count is meaningful ONLY to Realign's own rotation -- every
-    other mode's note must be byte-identical regardless of what
-    turn_count is passed, same as before this parameter existed."""
-    for mode in ["vent", "strategize", "commit", "explore"]:
-        notes = {response_mode_focus_note(mode, tc) for tc in range(6)}
+def test_response_mode_focus_note_ignores_turn_count_when_pom_is_not_thin():
+    """turn_count only matters to Vent/Strategize/Commit/Explore's own
+    POM-seeding clause (2026-07-18, see engine/decisions.md "POM early
+    seeding: thinnest-system-aware targeting") THROUGH whether the
+    mapped dimension is still thin -- once an account's own POM already
+    has a confident, evidenced reading for every mapped dimension, the
+    note must be byte-identical regardless of what turn_count is passed,
+    same as before per-account POM targeting existed."""
+    rich_pom = PersonalOperatingModel(
+        stress=StressSystem(level="moderate", evidence=["feeling stretched thin lately"]),
+        motivation=MotivationSystem(
+            autonomy="high", autonomy_evidence=["chose the project alone"],
+            competence="high", competence_evidence=["delivered it solo"],
+            relatedness="moderate", relatedness_evidence=["checks in with the team"],
+        ),
+        learning_style=LearningStyleSystem(
+            style="learns by doing", evidence=["tried it before reading the docs"]
+        ),
+    )
+    for mode in _POM_SEEDED_MODES:
+        notes = {response_mode_focus_note(mode, tc, rich_pom) for tc in range(6)}
         assert len(notes) == 1
+        assert notes.pop() == RESPONSE_MODE_FOCUS[mode]
 
 
 def test_commit_focus_notes_use_stagnation_notes_current_wording_not_a_fixed_phrase():
@@ -206,50 +237,92 @@ def test_strategize_response_focus_warns_against_duplicating_options_in_prose():
     assert "duplicat" in RESPONSE_MODE_FOCUS["strategize"].lower()
 
 
-def test_vent_response_focus_seeds_stress_evidence_on_a_turn_count_cadence():
-    """POM early seeding via mode design (2026-07-18, see
-    engine/decisions.md) -- Vent maps to POM's Stress system. Must use
-    the same deterministic turn_count % 3 gate as every other mode's own
-    clause, not a vague "occasionally" instruction (same lesson Realign's
-    own turn_count % 5 rotation already established: free "vary it"
-    instructions don't survive a memoryless generator)."""
-    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["vent"]
-    assert "POM early seeding" in RESPONSE_MODE_FOCUS["vent"]
+def test_vent_response_focus_seeds_stress_evidence_only_while_thin():
+    """POM early seeding, thinnest-system-aware (2026-07-18, see
+    engine/decisions.md "POM early seeding: thinnest-system-aware
+    targeting") -- Vent maps to POM's Stress system. Deep probe fires on
+    turn_count % 3 == 0 ONLY while this account's own Stress reading is
+    still thin (None counts as thin); once evidenced, it stops firing
+    even on a qualifying turn."""
+    assert "feels right to you" not in _POM_SEED_CLAUSES["vent"]
+    assert "Has this been building" in _POM_SEED_CLAUSES["vent"]
+    assert _should_seed_pom("vent", 3, None) is True
+    thin_pom = PersonalOperatingModel(stress=StressSystem(level="unclear", evidence=[]))
+    assert _should_seed_pom("vent", 3, thin_pom) is True
+    evidenced_pom = PersonalOperatingModel(
+        stress=StressSystem(level="moderate", evidence=["feeling stretched thin lately"])
+    )
+    assert _should_seed_pom("vent", 3, evidenced_pom) is False
+    # Cadence still applies even while thin -- not every single turn.
+    assert _should_seed_pom("vent", 4, None) is False
+    note = response_mode_focus_note("vent", 3, None)
+    assert _POM_SEED_CLAUSES["vent"] in note
 
 
-def test_strategize_response_focus_seeds_motivation_evidence_on_a_turn_count_cadence():
-    """POM early seeding via mode design -- Strategize maps to POM's
-    Motivation (SDT) system, asking WHY an option appeals rather than
-    just which one."""
-    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["strategize"]
-    assert "feels right to you" in RESPONSE_MODE_FOCUS["strategize"]
+def test_strategize_response_focus_seeds_motivation_evidence_only_while_thin():
+    """POM early seeding, thinnest-system-aware -- Strategize maps to
+    POM's Motivation (SDT) system, asking WHY an option appeals rather
+    than just which one. Thin if EITHER autonomy or competence still
+    lacks a confident, evidenced reading."""
+    assert "feels right to you" in _POM_SEED_CLAUSES["strategize"]
+    assert _should_seed_pom("strategize", 3, None) is True
+    half_evidenced = PersonalOperatingModel(
+        motivation=MotivationSystem(
+            autonomy="high", autonomy_evidence=["chose it alone"],
+            competence="unclear", competence_evidence=[],
+        )
+    )
+    assert _should_seed_pom("strategize", 3, half_evidenced) is True
+    fully_evidenced = PersonalOperatingModel(
+        motivation=MotivationSystem(
+            autonomy="high", autonomy_evidence=["chose it alone"],
+            competence="high", competence_evidence=["delivered it solo"],
+        )
+    )
+    assert _should_seed_pom("strategize", 3, fully_evidenced) is False
 
 
-def test_commit_response_focus_seeds_motivation_competence_evidence_on_a_turn_count_cadence():
-    """POM early seeding via mode design -- Commit maps to POM's
-    Motivation system's competence dimension, asking what's making
-    follow-through hard rather than only the dated commitment itself."""
-    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["commit"]
-    assert "set up to pull this off" in RESPONSE_MODE_FOCUS["commit"]
+def test_commit_response_focus_seeds_motivation_competence_evidence_only_while_thin():
+    """POM early seeding, thinnest-system-aware -- Commit maps
+    specifically to Motivation's competence dimension (not autonomy, the
+    way Strategize does), asking what's making follow-through hard
+    rather than only the dated commitment itself."""
+    assert "set up to pull this off" in _POM_SEED_CLAUSES["commit"]
+    assert _should_seed_pom("commit", 3, None) is True
+    # Autonomy evidenced but competence still thin -- Commit only cares
+    # about competence, so this must still count as thin for Commit.
+    autonomy_only = PersonalOperatingModel(
+        motivation=MotivationSystem(autonomy="high", autonomy_evidence=["chose it alone"])
+    )
+    assert _should_seed_pom("commit", 3, autonomy_only) is True
+    competence_evidenced = PersonalOperatingModel(
+        motivation=MotivationSystem(competence="high", competence_evidence=["delivered it solo"])
+    )
+    assert _should_seed_pom("commit", 3, competence_evidenced) is False
 
 
-def test_explore_response_focus_seeds_learning_style_evidence_on_a_turn_count_cadence():
-    """POM early seeding via mode design -- Explore maps to POM's
+def test_explore_response_focus_seeds_learning_style_evidence_only_while_thin():
+    """POM early seeding, thinnest-system-aware -- Explore maps to POM's
     Learning Style system, asking HOW they'd verify an assumption rather
     than only challenging it."""
-    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["explore"]
-    assert "how would you actually find out" in RESPONSE_MODE_FOCUS["explore"].lower()
+    assert "how would you actually find out" in _POM_SEED_CLAUSES["explore"].lower()
+    assert _should_seed_pom("explore", 3, None) is True
+    evidenced = PersonalOperatingModel(
+        learning_style=LearningStyleSystem(
+            style="learns by doing", evidence=["tried it before reading the docs"]
+        )
+    )
+    assert _should_seed_pom("explore", 3, evidenced) is False
 
 
-def test_realign_response_focus_has_no_competing_turn_count_seeding_gate():
-    """POM early seeding via mode design -- Realign is deliberately left
-    without a NEW turn_count % 3 clause: its existing turn_count % 5
-    rotation already asks an Identity/Narrative-flavored question every
-    turn by design (not occasionally), so a second, competing modulo gate
-    in the same prompt would be redundant at best and contradictory at
-    worst."""
-    assert "turn_count % 3 == 0" not in RESPONSE_MODE_FOCUS["realign"]
-    assert "turn_count % 5" in RESPONSE_MODE_FOCUS["realign"]
+def test_realign_has_no_pom_seed_clause():
+    """Realign is deliberately excluded from _POM_SEED_CLAUSES -- its
+    existing turn_count % 5 rotation already asks an Identity/Narrative
+    question every turn by design, so it needs no separate seeding
+    mechanism (see engine/decisions.md "POM early seeding via mode
+    design")."""
+    assert "realign" not in _POM_SEED_CLAUSES
+    assert _should_seed_pom("realign", 3, None) is False
 
 
 def test_response_focus_note_returns_empty_string_for_adaptive():

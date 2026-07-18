@@ -34,6 +34,7 @@ from src.judgment.schema import Judgment
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.orchestrator.modes import response_mode_focus_note
 from src.planner.schema import Planner
+from src.pom.schema import PersonalOperatingModel
 from src.response.prompt import build_messages
 from src.response.schema import Response
 from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
@@ -55,6 +56,7 @@ def run_response_generator(
     planner: Planner,
     tracker: Optional[UsageTracker] = None,
     mode: Optional[str] = None,
+    pom: Optional[PersonalOperatingModel] = None,
 ) -> Response:
     """
     Calls an LLM to produce a Response from the given WorldState, Judgment,
@@ -80,13 +82,21 @@ def run_response_generator(
     resolve which concept sentence 2 should draw on THIS turn in Python,
     rather than asking the model to compute `turn_count % 5` itself;
     every other mode's note ignores this value entirely.
+
+    pom: this account's own current PersonalOperatingModel, or None for
+    an anonymous caller / an account whose POM has never been computed
+    (2026-07-18, see engine/decisions.md "POM early seeding:
+    thinnest-system-aware targeting") -- used only to decide whether
+    Vent/Strategize/Commit/Explore's POM-seeding clause should fire this
+    turn (see src/orchestrator/modes.py::_should_seed_pom); every other
+    mode ignores it.
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     planner_json = planner.model_dump_json(indent=2)
     system_prompt, messages = build_messages(
         world_state_json, judgment_json, planner_json,
-        response_mode_focus_note(mode, state.turn_count),
+        response_mode_focus_note(mode, state.turn_count, pom),
     )
     schema = Response.model_json_schema()
     tracker = tracker or default_tracker
