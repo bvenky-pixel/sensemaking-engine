@@ -1,0 +1,38 @@
+name: Personal Operating Model walkthrough
+
+# Manual only -- each run makes real, billable LLM calls (up to 4 per
+# turn x 6 turns across two sessions, plus 1 for the POM inference
+# call) against the configured provider. See
+# scripts/run_pom_walkthrough.py and engine/decisions.md "Personal
+# Operating Model".
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default)"
+        required: false
+        default: ""
+
+jobs:
+  walkthrough:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Personal Operating Model walkthrough
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_DB_PATH: "pom_walkthrough.db"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_pom_walkthrough.py
