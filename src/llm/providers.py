@@ -52,37 +52,36 @@ than the rotating pool as a whole; `openrouter/free` is the default for
 every other kind of run for exactly that reason.)
 
 PER-COMPONENT PAID MODEL PINNING (2026-07-18, see engine/decisions.md
-"Per-component paid model pinning" and its follow-up "rebalanced for
-net savings" entry): production previously pinned ONE model
+"Per-component paid model pinning" and its two follow-up entries,
+"rebalanced for net savings" and "primary/fallback chain + cheaper
+Response model"): production previously pinned ONE model
 (`openai/gpt-4o-mini`) uniformly across every component via
-`OPENROUTER_MODEL` in fly.toml. Replaced with `_DEFAULT_COMPONENT_MODELS`
-below. FIRST attempt at this split three bands by reasoning depth
-(extraction / synthesis / user-facing prose), but a follow-up cost
-estimate showed that put 5 of 7 components on models pricier per-token
-than gpt-4o-mini, making the change a net cost INCREASE (~+2x per turn
-under a rough token estimate) rather than the savings that was asked
-for -- the founder explicitly chose to rebalance for real savings
-instead. Current split is two bands:
+`OPENROUTER_MODEL` in fly.toml. Went through three iterations before
+landing here -- a three-band split by reasoning depth (reverted: it was
+a net cost INCREASE vs gpt-4o-mini, not the savings that was asked
+for), then a two-band rebalance (cheap tier for everything but
+Response), now a primary/fallback CHAIN per component rather than a
+single pinned model, replacing `_resolve_model`'s old
+str-returning signature with `_resolve_model_chain` returning an
+ordered `List[str]`:
 
-- Everything except Response (Interpretation, Tier2, Judgment, Planner,
-  Insight, POM) -- pinned to the single cheapest tier,
-  `google/gemini-2.5-flash-lite`, cheaper per-token than the old
-  gpt-4o-mini baseline on both input and output. This does mean
-  Judgment/Planner/Insight/POM's genuine synthesis/reasoning work
-  (contradictions, risk, the single strategic objective, cross-session
-  pattern-finding, cross-session psychological inference) runs on the
-  same cheap-extraction-tier model as Interpretation/Tier2's bounded
-  extraction -- a real quality-vs-cost tradeoff, made deliberately in
-  favor of cost once "true savings" was the explicit ask.
-- Response -- the one component whose raw output IS the product a
-  person reads and judges the app's felt quality by. Kept at
-  `openai/gpt-4.1-mini` rather than dropped to the cheap tier too --
-  still pricier per-token than gpt-4o-mini, but the only component
-  where that premium was judged worth keeping. (Even with every other
-  component now cheaper, Response's own premium was large enough that
-  the ROUGH per-turn estimate came out close to breakeven overall,
-  not a clean reduction -- see decisions.md for the actual numbers
-  before assuming a specific percentage saved.)
+- Shared reasoning tier (Interpretation, Tier2, Judgment, Planner,
+  Insight, POM) -- `qwen/qwen3-32b` PRIMARY ($0.08 in / $0.28 out per
+  1M, cheaper than the prior `google/gemini-2.5-flash-lite` pin on both
+  axes), with `google/gemini-2.5-flash-lite` ($0.10/$0.40) as FALLBACK
+  if Qwen3-32B's call fails for any reason (unreachable, timeout,
+  malformed response -- anything `call_openrouter` already surfaces as
+  `ProviderCallError`). Qwen3 is routed through third-party inference
+  providers on OpenRouter rather than a direct-from-lab route, so a
+  fallback here is a real reliability hedge, not a formality.
+- Response -- `deepseek/deepseek-chat` (DeepSeek V3, $0.20 in / $0.80
+  out), replacing `openai/gpt-4.1-mini` ($0.40/$1.60) -- half the price
+  on both axes, chosen specifically (not just "the cheapest option")
+  for DeepSeek V3's established reputation for natural conversational
+  writing quality, since Response's raw output is literally what a
+  person reads. No fallback chain here (single model) -- not asked for,
+  and Response's user-facing quality is the one dimension this file
+  isn't trying to also gate behind an automatic downgrade.
 
 Prices below are per OpenRouter's published per-million-token rates,
 gathered via web search on 2026-07-18 (direct fetches to openrouter.ai
@@ -91,19 +90,28 @@ egress policy/bot protection at the time -- these are believed accurate
 as of that date but were not cross-checked against OpenRouter's own
 live model list; re-verify at openrouter.ai/models before leaning on
 exact figures for a cost projection):
+  qwen/qwen3-32b                $0.08 in / $0.28 out per 1M tokens
   google/gemini-2.5-flash-lite  $0.10 in / $0.40 out per 1M tokens
-  openai/gpt-4.1-mini           $0.40 in / $1.60 out per 1M tokens
-(for reference, the previous universal pin, openai/gpt-4o-mini, was
-$0.15 in / $0.60 out.)
+  deepseek/deepseek-chat        $0.20 in / $0.80 out per 1M tokens
+(for reference, the original universal pin, openai/gpt-4o-mini, was
+$0.15 in / $0.60 out; the immediately-prior Response pin,
+openai/gpt-4.1-mini, was $0.40 in / $1.60 out.)
+
+Considered and declined as the shared-tier primary/fallback:
+`nvidia/nemotron-3-super-120b-a12b` ($0.08/$0.45, roughly a wash vs
+Qwen3-32B) -- no strong reason to prefer it over Qwen3-32B specifically,
+so not added as a third link in the chain; revisit only if Qwen3-32B's
+real compliance/reliability turns out worse than Gemini's in practice.
 
 `OPENROUTER_MODEL`, if explicitly set, still overrides EVERY component
-uniformly -- unchanged behavior, since the existing calibration
-workflows (worldstate-walkthrough.yml, knowledge-correction-calibration.yml,
+uniformly with a single model (no fallback chain) -- unchanged
+behavior, since the existing calibration workflows
+(worldstate-walkthrough.yml, knowledge-correction-calibration.yml,
 pom-computation.yml) depend on being able to force one single model
-across an entire run for controlled comparison. The per-component map
-below is only consulted when no explicit override is set -- which is
-now fly.toml's own production configuration (see fly.toml's own comment
-on why OPENROUTER_MODEL was removed from `[env]`).
+across an entire run for controlled comparison. The per-component chain
+map below is only consulted when no explicit override is set -- which
+is now fly.toml's own production configuration (see fly.toml's own
+comment on why OPENROUTER_MODEL was removed from `[env]`).
 
 Robustness contract: every call_openrouter call either returns a
 non-empty string or raises ProviderCallError -- never any other
@@ -113,7 +121,11 @@ over resolve_provider_chain() gets a clean, typed failure on ANY
 malformed/incomplete response (missing fields, non-JSON body,
 content=None, content="", a request that times out) -- see
 tests/test_llm_providers.py for the exact malformed-response cases this
-guards against.
+guards against. This contract now also covers the per-component MODEL
+chain internally: call_openrouter only raises ProviderCallError once
+every model in the resolved chain has failed; a failure on the primary
+model that recovers on the fallback is invisible to the caller (returns
+normally, same as a first-attempt success).
 """
 
 from __future__ import annotations
@@ -161,34 +173,39 @@ def _first_env(*names: str) -> Optional[str]:
 # Keys are exactly the `component` strings each engine.py already passes to
 # call_provider/call_openrouter -- Baseline-B2-summary (evaluation harness
 # only, never a live request path) is deliberately absent, so it falls
-# through to _FALLBACK_MODEL below like any other unmapped component.
+# through to _FALLBACK_CHAIN below like any other unmapped component.
+# Values are ORDERED chains -- call_openrouter tries each model in turn,
+# only raising ProviderCallError once every model in the chain has failed.
+_SHARED_REASONING_CHAIN = ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]
+
 _DEFAULT_COMPONENT_MODELS = {
-    "Interpretation": "google/gemini-2.5-flash-lite",
-    "Tier2": "google/gemini-2.5-flash-lite",
-    "Judgment": "google/gemini-2.5-flash-lite",
-    "Planner": "google/gemini-2.5-flash-lite",
-    "Insight": "google/gemini-2.5-flash-lite",
-    "POM": "google/gemini-2.5-flash-lite",
-    "Response": "openai/gpt-4.1-mini",
+    "Interpretation": _SHARED_REASONING_CHAIN,
+    "Tier2": _SHARED_REASONING_CHAIN,
+    "Judgment": _SHARED_REASONING_CHAIN,
+    "Planner": _SHARED_REASONING_CHAIN,
+    "Insight": _SHARED_REASONING_CHAIN,
+    "POM": _SHARED_REASONING_CHAIN,
+    "Response": ["deepseek/deepseek-chat"],
 }
 
 # Same default this file has always used for anything not otherwise pinned
 # (OpenRouter's free auto-router -- see module docstring's "SECOND CAVEAT").
-_FALLBACK_MODEL = "openrouter/free"
+_FALLBACK_CHAIN = ["openrouter/free"]
 
 
-def _resolve_model(component: str) -> str:
+def _resolve_model_chain(component: str) -> List[str]:
     """An explicit OPENROUTER_MODEL env var always wins, applied uniformly
-    across every component -- unchanged from this file's behavior before
-    per-component pinning existed, since the calibration workflows
+    across every component as a SINGLE model (no fallback chain) --
+    unchanged from this file's behavior before per-component pinning
+    existed, since the calibration workflows
     (worldstate-walkthrough.yml, knowledge-correction-calibration.yml,
     pom-computation.yml) depend on being able to force one single model
     for a controlled comparison. Only when no override is set does this
-    fall through to the per-component default map."""
+    fall through to the per-component default chain map."""
     override = os.environ.get("OPENROUTER_MODEL")
     if override:
-        return override
-    return _DEFAULT_COMPONENT_MODELS.get(component, _FALLBACK_MODEL)
+        return [override]
+    return _DEFAULT_COMPONENT_MODELS.get(component, _FALLBACK_CHAIN)
 
 
 def _record_usage(
@@ -247,35 +264,24 @@ def _extract_message_content(payload: Any, path: List[Any], provider_name: str) 
     return node.strip()
 
 
-def call_openrouter(
+def _call_openrouter_with_model(
+    model: str,
     system_prompt: str,
     messages: list,
     schema: dict,
     temperature: float,
-    component: str = "unknown",
-    tracker: Optional[UsageTracker] = None,
+    component: str,
+    tracker: Optional[UsageTracker],
+    api_key: str,
+    base_url: str,
 ) -> str:
-    """
-    POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint.
-    Uses plain JSON mode (response_format: json_object) rather than OpenAI's
-    strict json_schema mode -- strict mode requires every object in the
-    schema (including nested ones) to explicitly set
-    `additionalProperties: false`, which Pydantic's model_json_schema()
-    doesn't add, and not every model routed through OpenRouter supports it
-    anyway. The schema is instead appended to the system prompt as a text
-    hint, and the caller (engine.py) already does full Pydantic validation
-    on the result -- same belt-and-suspenders pattern as
-    engine/state_updater.py on the main-line branch. Returns the raw
-    assistant text content, or raises ProviderCallError -- see module
-    docstring's robustness contract.
-    """
-    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
-    model = _resolve_model(component)
-
-    if not api_key:
-        raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")
-
+    """One HTTP attempt against OpenRouter for a single, already-resolved
+    `model` -- the part of call_openrouter's old body that actually talks
+    to the network, split out so call_openrouter can retry it across a
+    chain of models (see module docstring's "PER-COMPONENT PAID MODEL
+    PINNING" section) without duplicating the request/parsing logic.
+    Raises ProviderCallError -- see module docstring's robustness
+    contract -- never any other exception type."""
     schema_hint = (
         "\n\nReturn ONLY a single JSON object matching this schema exactly "
         f"(no prose, no markdown fences):\n{json.dumps(schema)}"
@@ -297,7 +303,7 @@ def call_openrouter(
     except requests.RequestException as exc:
         # Covers connection errors AND timeouts -- requests.exceptions.Timeout
         # is itself a RequestException subclass.
-        raise ProviderCallError(f"OpenRouter request failed: {exc}") from exc
+        raise ProviderCallError(f"OpenRouter request failed ({model}): {exc}") from exc
     latency_ms = (time.monotonic() - start) * 1000
 
     if not response.ok:
@@ -305,12 +311,12 @@ def call_openrouter(
             detail = response.json().get("error", response.text)
         except ValueError:
             detail = response.text
-        raise ProviderCallError(f"OpenRouter returned {response.status_code}: {detail}")
+        raise ProviderCallError(f"OpenRouter returned {response.status_code} ({model}): {detail}")
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise ProviderCallError(f"OpenRouter response was not valid JSON: {exc}") from exc
+        raise ProviderCallError(f"OpenRouter response was not valid JSON ({model}): {exc}") from exc
 
     content = _extract_message_content(payload, ["choices", 0, "message", "content"], "OpenRouter")
 
@@ -319,6 +325,53 @@ def call_openrouter(
     _record_usage(tracker, component, "openrouter", model, parsed_usage, raw_usage, latency_ms)
 
     return content
+
+
+def call_openrouter(
+    system_prompt: str,
+    messages: list,
+    schema: dict,
+    temperature: float,
+    component: str = "unknown",
+    tracker: Optional[UsageTracker] = None,
+) -> str:
+    """
+    POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint.
+    Uses plain JSON mode (response_format: json_object) rather than OpenAI's
+    strict json_schema mode -- strict mode requires every object in the
+    schema (including nested ones) to explicitly set
+    `additionalProperties: false`, which Pydantic's model_json_schema()
+    doesn't add, and not every model routed through OpenRouter supports it
+    anyway. The schema is instead appended to the system prompt as a text
+    hint, and the caller (engine.py) already does full Pydantic validation
+    on the result -- same belt-and-suspenders pattern as
+    engine/state_updater.py on the main-line branch. Returns the raw
+    assistant text content, or raises ProviderCallError -- see module
+    docstring's robustness contract.
+
+    Tries every model in `_resolve_model_chain(component)` IN ORDER,
+    returning on the first success; only raises ProviderCallError once
+    every model in the chain has failed (see module docstring's
+    "PER-COMPONENT PAID MODEL PINNING" section for why the shared
+    reasoning tier has a fallback and Response doesn't).
+    """
+    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    api_key = _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
+
+    if not api_key:
+        raise ProviderCallError("OPENROUTER_API_KEY (or LLM_API_KEY) is not set")
+
+    failures: List[str] = []
+    for model in _resolve_model_chain(component):
+        try:
+            return _call_openrouter_with_model(
+                model, system_prompt, messages, schema, temperature, component, tracker, api_key, base_url,
+            )
+        except ProviderCallError as exc:
+            failures.append(str(exc))
+            continue
+
+    raise ProviderCallError("Every model in the chain failed: " + "; ".join(failures))
 
 
 _PROVIDER_CALLERS = {

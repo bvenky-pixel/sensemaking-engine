@@ -8675,3 +8675,72 @@ app specifically. Not ruled out permanently -- worth revisiting via a
 real calibration-style dispatch (same methodology as
 knowledge-correction-calibration.yml) if cost pressure increases later,
 just not swapped in blind today.
+
+## Per-component paid model pinning, primary/fallback chain + cheaper Response model (2026-07-18)
+
+Same-day follow-up, reversing the "considered and declined" call directly
+above: founder decided to actually use Qwen3-32B after all, but as the
+PRIMARY model with `google/gemini-2.5-flash-lite` as an explicit FALLBACK
+rather than a straight swap -- addressing the exact reliability concern
+that was the reason for declining it a few minutes earlier (open-weight
+models on OpenRouter route through third-party inference providers,
+more latency/uptime variance than a direct-from-lab route). Separately,
+asked to scope a cheaper alternative to Response's `openai/gpt-4.1-mini`
+pin specifically.
+
+**Mechanism change** (`src/llm/providers.py`): `_resolve_model` (single
+model, `str`) replaced by `_resolve_model_chain` (ordered `List[str]`).
+`_DEFAULT_COMPONENT_MODELS` values are now chains, not single strings.
+`call_openrouter`'s HTTP-call body was extracted into a new private
+`_call_openrouter_with_model(model, ...)` helper; `call_openrouter`
+itself now loops over the resolved chain, trying each model in turn and
+returning on the first success, only raising `ProviderCallError` (with
+every attempt's failure detail joined together) once the WHOLE chain is
+exhausted. A failure on the primary model that recovers on the fallback
+is invisible to the caller -- returns normally, exactly like a
+first-attempt success, consistent with how `resolve_provider_chain()` +
+`call_provider`'s own loop already worked one level up (provider-level,
+not model-level) in every engine.py.
+
+**New pins**:
+- Shared reasoning tier (Interpretation, Tier2, Judgment, Planner,
+  Insight, POM): `qwen/qwen3-32b` PRIMARY ($0.08 in / $0.28 out per 1M
+  -- cheaper than the prior `gemini-2.5-flash-lite` pin on both axes),
+  `google/gemini-2.5-flash-lite` ($0.10/$0.40) FALLBACK.
+- Response: `deepseek/deepseek-chat` (DeepSeek V3, $0.20 in / $0.80 out)
+  replacing `openai/gpt-4.1-mini` ($0.40/$1.60) -- half the price on
+  both axes. Chosen specifically for DeepSeek V3's established
+  reputation for natural conversational writing quality, not just
+  because it was cheap -- Response's raw output is literally what a
+  person reads, the one dimension this round was explicitly NOT trying
+  to race to the bottom on. No fallback chain for Response (single
+  model) -- not asked for.
+
+Also considered and declined as a third link in the shared-tier chain:
+`nvidia/nemotron-3-super-120b-a12b` ($0.08/$0.45, roughly a wash vs
+Qwen3-32B on price) -- no clear reason to prefer it over Qwen3-32B
+specifically, so the chain stays two models rather than three.
+
+**Test coverage added** (`tests/test_llm_providers.py`): renamed the
+parametrized per-component test to assert full chains rather than single
+models; two new direct regression tests for the fallback mechanism
+itself --
+`test_call_openrouter_falls_back_to_the_second_model_when_the_primary_fails`
+(primary 503s, fallback succeeds, caller sees a clean success) and
+`test_call_openrouter_raises_only_after_every_model_in_the_chain_fails`
+(both models fail, ProviderCallError names both attempts). The `_FakeResponse`
+fixture needed `json_raises=True` on the failure-path fakes to match real
+`requests` behavior on a non-2xx, non-JSON error body (`.json()` raises
+`ValueError`, never returns `None` the way an unconfigured fake would) --
+an artifact of the test double, not a production bug; caught immediately
+by the two new tests before any real inconsistency existed.
+
+Verified: full suite 469 passed (467 + 2 new fallback-mechanism tests).
+No live LLM calls made or dispatched -- purely a routing-configuration
+change, verified with mocked `requests.post`, same as every prior entry
+in this thread of rounds. Qwen3-32B's actual JSON-schema compliance
+against this app's real prompts remains unvalidated in production terms
+-- same "re-run the n=10-style methodology before fully trusting a
+newly configured model" caveat this file has carried since the
+Ollama-removal era, now doubly relevant since Qwen3-32B is PRIMARY, not
+just an option that was considered.

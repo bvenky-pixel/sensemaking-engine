@@ -28,7 +28,7 @@ import requests
 
 from src.llm.providers import (
     ProviderCallError,
-    _resolve_model,
+    _resolve_model_chain,
     call_openrouter,
     call_provider,
     resolve_provider_chain,
@@ -197,45 +197,46 @@ def test_resolve_provider_chain_rejects_unknown_provider(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "component, expected_model",
+    "component, expected_chain",
     [
-        ("Interpretation", "google/gemini-2.5-flash-lite"),
-        ("Tier2", "google/gemini-2.5-flash-lite"),
-        ("Judgment", "google/gemini-2.5-flash-lite"),
-        ("Planner", "google/gemini-2.5-flash-lite"),
-        ("Insight", "google/gemini-2.5-flash-lite"),
-        ("POM", "google/gemini-2.5-flash-lite"),
-        ("Response", "openai/gpt-4.1-mini"),
+        ("Interpretation", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Tier2", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Judgment", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Planner", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Insight", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("POM", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Response", ["deepseek/deepseek-chat"]),
     ],
 )
-def test_resolve_model_uses_the_default_map_for_known_components(monkeypatch, component, expected_model):
+def test_resolve_model_chain_uses_the_default_map_for_known_components(monkeypatch, component, expected_chain):
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
-    assert _resolve_model(component) == expected_model
+    assert _resolve_model_chain(component) == expected_chain
 
 
-def test_resolve_model_falls_back_to_openrouter_free_for_an_unmapped_component(monkeypatch):
+def test_resolve_model_chain_falls_back_to_openrouter_free_for_an_unmapped_component(monkeypatch):
     """Baseline-B2-summary (evaluation harness only, never a live request
     path) and any other component not in the default map both land here,
     same as this file's own default before per-component pinning existed."""
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
-    assert _resolve_model("Baseline-B2-summary") == "openrouter/free"
-    assert _resolve_model("unknown") == "openrouter/free"
+    assert _resolve_model_chain("Baseline-B2-summary") == ["openrouter/free"]
+    assert _resolve_model_chain("unknown") == ["openrouter/free"]
 
 
-def test_resolve_model_env_override_wins_over_every_component(monkeypatch):
+def test_resolve_model_chain_env_override_wins_over_every_component(monkeypatch):
     """Direct regression test for the calibration-workflow contract this
     round preserved: OPENROUTER_MODEL, when set, still forces ONE model
-    uniformly across every component -- exactly the behavior
-    worldstate-walkthrough.yml/knowledge-correction-calibration.yml/
-    pom-computation.yml depend on for a controlled comparison."""
+    uniformly across every component (a single-item chain, no fallback) --
+    exactly the behavior worldstate-walkthrough.yml/
+    knowledge-correction-calibration.yml/pom-computation.yml depend on for
+    a controlled comparison."""
     monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/some-pinned-free-model")
     for component in ["Interpretation", "Judgment", "Planner", "Response", "POM", "Insight", "Tier2", "unknown"]:
-        assert _resolve_model(component) == "openrouter/some-pinned-free-model"
+        assert _resolve_model_chain(component) == ["openrouter/some-pinned-free-model"]
 
 
-def test_call_openrouter_sends_the_resolved_models_own_id_in_the_request_body(monkeypatch):
+def test_call_openrouter_sends_the_resolved_chains_primary_model_in_the_request_body(monkeypatch):
     """Direct regression test that call_openrouter actually threads its
-    `component` argument through to _resolve_model rather than only
+    `component` argument through to _resolve_model_chain rather than only
     reading the old single OPENROUTER_MODEL env var."""
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     seen_payloads = []
@@ -249,5 +250,45 @@ def test_call_openrouter_sends_the_resolved_models_own_id_in_the_request_body(mo
     call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Response")
     call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
 
-    assert seen_payloads[0]["model"] == "openai/gpt-4.1-mini"
-    assert seen_payloads[1]["model"] == "google/gemini-2.5-flash-lite"
+    assert seen_payloads[0]["model"] == "deepseek/deepseek-chat"
+    assert seen_payloads[1]["model"] == "qwen/qwen3-32b"
+
+
+def test_call_openrouter_falls_back_to_the_second_model_when_the_primary_fails(monkeypatch):
+    """Direct regression test for the new primary/fallback chain behavior
+    (2026-07-18, see module docstring): a failure on Interpretation's
+    primary model (qwen/qwen3-32b) must be invisible to the caller if the
+    fallback (google/gemini-2.5-flash-lite) succeeds -- returns normally,
+    no ProviderCallError, and the caller can't tell from the return value
+    alone which model actually answered."""
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    seen_models = []
+
+    def _spy_post(url, headers, json, timeout):
+        seen_models.append(json["model"])
+        if json["model"] == "qwen/qwen3-32b":
+            return _FakeResponse(status_code=503, text="upstream provider unavailable", json_raises=True)
+        return _FakeResponse(json_data={"choices": [{"message": {"content": '{"ok": true}'}}]})
+
+    monkeypatch.setattr("src.llm.providers.requests.post", _spy_post)
+
+    result = call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
+
+    assert result == '{"ok": true}'
+    assert seen_models == ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]
+
+
+def test_call_openrouter_raises_only_after_every_model_in_the_chain_fails(monkeypatch):
+    """Response has no fallback -- a single-model chain -- but
+    Interpretation's two-model chain must raise ProviderCallError (rather
+    than succeed or hang) if BOTH the primary and the fallback fail, with
+    the error message naming both attempts."""
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+
+    def _always_fails(url, headers, json, timeout):
+        return _FakeResponse(status_code=503, text=f"{json['model']} unavailable", json_raises=True)
+
+    monkeypatch.setattr("src.llm.providers.requests.post", _always_fails)
+
+    with pytest.raises(ProviderCallError, match="qwen/qwen3-32b.*gemini-2.5-flash-lite"):
+        call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
