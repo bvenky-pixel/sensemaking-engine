@@ -461,18 +461,30 @@ def test_send_message_omits_pom_content_when_nothing_computed_yet(client, monkey
 
 
 def test_get_personal_operating_model_returns_null_before_any_computation(client):
+    _login(client)
     res = client.get("/personal-operating-model")
     assert res.status_code == 200
     assert res.json() is None
 
 
 def test_get_personal_operating_model_returns_last_computed_pom(client):
+    _login(client)
     db.replace_personal_operating_model(
         PersonalOperatingModel(identity=IdentitySystem(self_concept="Values independence at work."))
     )
     res = client.get("/personal-operating-model")
     assert res.status_code == 200
     assert res.json()["identity"]["self_concept"] == "Values independence at work."
+
+
+def test_get_personal_operating_model_requires_login(client):
+    """Direct regression test for the new gate (2026-07-18, see
+    engine/decisions.md "POM surfaced to users") -- an anonymous caller
+    (no _login here) must be turned away, same as the Privacy
+    endpoints."""
+    res = client.get("/personal-operating-model")
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
 
 
 def test_send_message_returns_response_text(client, monkeypatch):

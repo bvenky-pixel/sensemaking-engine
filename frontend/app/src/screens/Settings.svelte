@@ -48,6 +48,12 @@
   // just the two backend-persisted controls. Account's own placeholder
   // note above is no longer accurate for a signed-in visitor -- it now
   // shows the real, signed-in email and a Log out control.
+  //
+  // POM surfaced to users (2026-07-18, see frontend/decisions.md): a
+  // third section, "You" -- PersonalOperatingModel.svelte is fully
+  // self-contained (fetches its own data, renders its own
+  // .setting-section card), so it's mounted here exactly like a fourth
+  // sibling, not merged into Privacy/Account's own markup.
   import { onMount } from 'svelte';
   import {
     getPrivacySettings,
@@ -58,6 +64,7 @@
   import { getReduceMotionOverride, setReduceMotionOverride, applyReduceMotionAttribute } from '../lib/motionPreference.js';
   import { authState, logout } from '../lib/auth.svelte.js';
   import LoginGate from '../components/LoginGate.svelte';
+  import PersonalOperatingModel from '../components/PersonalOperatingModel.svelte';
 
   let { onBack } = $props();
 
@@ -231,6 +238,8 @@
         </button>
       </div>
     </section>
+
+    <PersonalOperatingModel />
   {/if}
 </div>
 

@@ -569,7 +569,7 @@ def get_insights() -> list[InsightOut]:
 
 
 @app.get("/personal-operating-model", response_model=Optional[PersonalOperatingModel])
-def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
+def get_personal_operating_model(user_id: str = Depends(require_user)) -> Optional[PersonalOperatingModel]:
     """Personal Operating Model's own output (see src/pom/engine.py,
     engine/decisions.md "Personal Operating Model"). Read-only -- serves
     whatever scripts/run_pom_computation.py last computed offline; never
@@ -581,8 +581,16 @@ def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
     blob (src/api/db.py::get_personal_operating_model), never assembled
     field-by-field from separate SQL columns, so a separate mirror type
     would just copy identical fields with no actual decoupling benefit.
-    Not yet consumed by the frontend -- same "not-yet-done design pass"
-    status as /patterns."""
+
+    Gated behind `require_user` (2026-07-18, basic auth, see
+    engine/decisions.md "POM surfaced to users") -- POM is now real,
+    consumed content inside the already-login-gated Settings screen
+    (`frontend/app/src/components/PersonalOperatingModel.svelte`), so
+    it gets the same protection the four Privacy endpoints already
+    have, matching this codebase's own "gate the action, not just hide
+    the button" discipline. Note the same carve-out already documented
+    on the Privacy endpoints applies here too: this stays the single,
+    global POM -- not yet split per-account."""
     return db.get_personal_operating_model()
 
 

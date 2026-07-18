@@ -22,6 +22,9 @@ import { authState } from '../lib/auth.svelte.js';
 // to real mock functions rather than undefined. `authState` itself is
 // a real, shared module -- NOT mocked -- since it's plain reactive
 // state, not a network boundary; tests set it directly instead.
+// POM surfaced to users (2026-07-18, see frontend/decisions.md):
+// getPersonalOperatingModel mocked too, since Settings now mounts
+// PersonalOperatingModel.svelte as a third section whenever signed in.
 vi.mock('../lib/api.js', () => ({
   getPrivacySettings: vi.fn(),
   setCrossSessionLearningEnabled: vi.fn(),
@@ -31,6 +34,7 @@ vi.mock('../lib/api.js', () => ({
   requestMagicLink: vi.fn(),
   verifyMagicLink: vi.fn(),
   logout: vi.fn(),
+  getPersonalOperatingModel: vi.fn(),
 }));
 
 describe('Settings', () => {
@@ -38,6 +42,9 @@ describe('Settings', () => {
     vi.clearAllMocks();
     // Default resolved value every test gets unless it overrides.
     api.getPrivacySettings.mockResolvedValue({ cross_session_learning_enabled: true });
+    // Default: no POM computed yet -- PersonalOperatingModel.test.js
+    // covers its own populated/empty states directly.
+    api.getPersonalOperatingModel.mockResolvedValue(null);
     // Every existing test below exercises the signed-in screen -- see
     // the new describe block further down for the signed-out gate
     // itself. Reset explicitly rather than relying on a previous

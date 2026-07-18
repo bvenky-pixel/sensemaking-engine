@@ -1382,3 +1382,86 @@ anonymous Journey as the auth round): Home showed both "SETTINGS" and
 "LOG IN" side by side at the bottom; tapping the star showed "Log in to
 bookmark Journeys."; opening the Journey and tapping "•••" showed "Log
 in to bookmark or delete Journeys." in place of the two actions.
+
+## POM surfaced to users (2026-07-18)
+
+First item off the founder's own 5-part roadmap ("privacy/account
+functional" [done], "surface POM without intimidating", "sharpen mode
+responses", "seed POM early", "harden to level 4 maturity"), tackled
+in that stated order at the founder's own request. The Personal
+Operating Model (`src/pom/schema.py`, engine/decisions.md "Personal
+Operating Model") existed as a real, computed backend concept with
+zero frontend consumers until now -- `GET /personal-operating-model`
+had nothing reading it.
+
+**Where it lives**: a third Settings section ("You"), not a new
+screen. information-architecture-v1.md treats Home/Journey/Settings as
+exhaustive and requires a real justification before a 4th space is
+allowed to exist -- nothing about POM clears that bar, and the
+founder's own "without intimidating" framing itself argues for folding
+this into an existing, already-understood space rather than a new
+dashboard. `PersonalOperatingModel.svelte` is fully self-contained
+(fetches its own data on mount, renders its own `.card.setting-section`
+wrapper) and mounted in `Settings.svelte` as a fourth sibling section,
+alongside Privacy and Account.
+
+**Copy discipline, deliberately narrower than Understanding.svelte's
+own pattern**: no raw backend vocabulary anywhere (no `ConfidenceLevel`
+string like "high"/"moderate"/"unclear", no academic framework name --
+Self-Determination Theory, Narrative Identity Theory -- ever shown as
+a label), matching frontend-philosophy-v1.md/trust-and-privacy-ux-v1.md's
+existing rule. A confidence level is used ONLY as a gate (skip a
+sub-system below "unclear" or with no evidence) -- the visible content
+is always the real, grounded evidence sentence(s) `src/pom/engine.py`
+already extracted, never an invented felt-language translation of a
+coarse category. This is intentionally more conservative than
+Understanding.svelte's per-item card treatment: POM's underlying
+frameworks are only lightly calibrated and the founder's own source
+document was never committed (see `src/pom/schema.py`'s own caveat) --
+staying close to the real evidence text is the honest choice until
+that's verified, rather than writing confident-sounding narrative
+prose a coarse "moderate" doesn't actually support. Visual language
+matches Settings' own existing Privacy/Account sections (one card,
+plain rows inside) rather than importing Understanding's separate
+nested-card-per-item look -- stacking Understanding's own
+shadowed cards inside a Settings card would double the "raised"
+treatment for no reason; the two live in different contexts (a
+floating region beside an active conversation vs. a settled screen a
+person visits deliberately).
+
+**Omit rather than show a hollow signal** (same discipline already
+used elsewhere -- e.g. Home's mode-filter chips only showing modes
+actually present): each of the 8 sub-systems renders only when it has
+real content (a non-"unclear" level with non-empty evidence, or
+non-empty free text/lists); an empty sub-system is skipped entirely,
+never shown as a placeholder. If POM hasn't been computed at all yet,
+or every sub-system is still empty, one quiet line ("Nothing standing
+yet -- this builds up the more we talk.") replaces the whole content
+area rather than an empty-looking section.
+
+**Also gated the endpoint**: `GET /personal-operating-model` had zero
+login requirement until now -- since it's real personal content inside
+the already-login-gated Settings screen, it now requires
+`Depends(require_user)`, same as the four Privacy endpoints (see
+engine/decisions.md for the backend side).
+
+Verified: 1 new backend test (`test_get_personal_operating_model_requires_login`)
+plus 2 existing ones updated to log in first. New
+`PersonalOperatingModel.test.js` (4 tests): quiet placeholder both when
+POM is null and when POM exists but every system is unclear/empty; a
+fully-populated fixture renders every system using real evidence prose
+with zero raw category vocabulary on screen (explicitly asserted:
+`queryByText(/moderate|unclear|redemptive/i)` all null), including
+Motivation correctly showing only the two non-"unclear" dimensions and
+omitting Competence; a partially-populated fixture (Identity only)
+omits every other system individually. `Settings.test.js` mock updated
+with `getPersonalOperatingModel` (defaulting to `null`, matching every
+existing test's own intent -- POM is covered by its own dedicated
+file). Full suite: `pytest` 453 passed, `npm test` 68 passed, `npm run
+build` green. Live Playwright verification against a real served build
+with a realistic seeded POM (`db.replace_personal_operating_model`,
+mirroring the pytest fixture pattern rather than running the real LLM
+call): confirmed the login gate still applies to Settings as a whole;
+after signing in, all three sections render together (Privacy,
+Account, You) with every populated POM system showing real prose and
+Competence correctly absent since it was seeded "unclear."

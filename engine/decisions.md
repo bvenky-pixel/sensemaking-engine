@@ -8387,3 +8387,24 @@ unaffected.
 
 Verified: full suite 452 passed (451 + 1 new; 6 existing tests updated
 to log in first rather than net-new).
+
+## POM surfaced to users -- backend gate (2026-07-18)
+
+Small, standalone backend change made in support of the frontend
+finally consuming POM (see frontend/decisions.md "POM surfaced to
+users" for the full design). `GET /personal-operating-model` had no
+auth requirement at all since it was built -- correct at the time
+(nothing read it), no longer correct now that it backs a real,
+personal-content section inside the already-login-gated Settings
+screen. Added `Depends(require_user)`, same gate the four Privacy
+endpoints already carry.
+
+Same carve-out already documented on those Privacy endpoints applies
+here unchanged: gating ACCESS behind login is what this does; the
+underlying `personal_operating_model` row is still the single, global
+singleton it already was (see `src/api/db.py`'s own docstring) -- not
+yet split per-account. Flagged, not silently assumed away.
+
+Verified: `test_get_personal_operating_model_requires_login` (new,
+direct regression test), plus the two existing GET tests updated to
+log in first. Full suite: 453 passed.

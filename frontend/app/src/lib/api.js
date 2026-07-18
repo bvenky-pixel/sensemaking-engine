@@ -212,3 +212,14 @@ export async function logout() {
     throw new Error(`Request failed (${res.status}): ${await res.text()}`);
   }
 }
+
+// POM surfaced to users (2026-07-18, see frontend/decisions.md) --
+// backs Settings' "You" section. Requires login, same as the privacy
+// endpoints (see src/api/server.py's own docstring on this gate).
+// Returns null both when nothing's been computed yet AND (implicitly,
+// since this is only ever called from Settings' own authenticated
+// branch) never from a logged-out caller.
+export async function getPersonalOperatingModel() {
+  const res = await fetch('/personal-operating-model');
+  return _json(res);
+}
