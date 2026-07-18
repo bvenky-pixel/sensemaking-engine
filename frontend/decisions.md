@@ -1026,3 +1026,49 @@ screenshotted Journey's new delete action in both states (default and
 mid-confirm, confirming the wrap fix holds), and confirmed the full
 delete-and-return-home flow end to end -- the deleted Journey is gone,
 the other one remains, on Home.
+
+## Tuck destructive/secondary Journey actions behind an overflow menu (2026-07-18)
+
+Same-session follow-up. Direct founder worry, raised right after Delete
+first moved onto the Journey screen: "having it during an ongoing
+journey is too much, I risk losing data every time." That round's
+`.journey-footer` was a standing, always-visible red delete link at the
+bottom of every Journey, active conversation or not -- fundamentally
+different from something a person has to go looking for, even with a
+two-step confirm already in place. Then: "add other journey level
+functions like bookmark in the same place."
+
+**Journey.svelte's header row** now has a quiet "..." (`.menu-trigger`,
+`aria-label="Journey options"`) next to the back button. Clicking it
+opens `.journey-menu`, a small popover (`position: absolute`, anchored
+under the trigger) containing Bookmark and Delete. A `$effect` adds a
+capture-phase `document` click listener only while the menu is open,
+closing it on any click outside `menuEl` -- standard click-outside
+pattern, safe against self-triggering on the same click that opened it
+since the effect only attaches after that click has already finished
+dispatching. Delete keeps its own two-step confirm *inside* the menu
+(the menu itself is the first "are you sure" layer; the confirm text
+is the second) -- this is additive protection, not a replacement for
+it.
+
+**Bookmark, newly reachable from inside a Journey**: Home already has
+a bookmark star per row, but reading/writing an open Journey had no
+way to bookmark THIS one without leaving the screen. New `GET
+/sessions/{id}/bookmark` (mirrors the existing `POST`, same
+`SetBookmarkRequest` shape reused as the response) -- Journey fetches
+it once on mount (`db.get_bookmark`, a plain `SELECT ... WHERE id = ?`,
+same shape as the existing `get_session_mode`). Non-destructive and
+reversible, so it toggles immediately on click and closes the menu --
+only Delete needs a confirm step.
+
+Verified: `pytest` (439 passed, 3 new -- default-false for a new
+session, reflects a prior set, 404 on an unknown session). `npm test`
+(38 passed, 6 in the rewritten `Journey.test.js`: menu closed by
+default, opens on click with both actions visible, bookmark toggles
+and closes the menu, an already-bookmarked Journey shows "Remove
+bookmark" on open, delete's two-step confirm still works, outside
+click closes the menu). `npm run build` green. Live Playwright
+verification against a real served build with a seeded Journey: opened
+the menu, bookmarked it (confirmed the star state persists across a
+re-open), ran the full delete confirm and deletion, confirmed landing
+back on Home's own empty-account hero once the last Journey was gone.

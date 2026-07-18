@@ -1,7 +1,16 @@
 <script>
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { getMessages, sendMessage, getClarityBrief, getUnderstanding, openStageStream, deleteSession } from '../lib/api.js';
+  import {
+    getMessages,
+    sendMessage,
+    getClarityBrief,
+    getUnderstanding,
+    openStageStream,
+    deleteSession,
+    getBookmark,
+    setBookmark,
+  } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
   import Transcript from '../components/Transcript.svelte';
@@ -60,6 +69,10 @@
   // is all the presentational component needs.
   let pulseCount = $state(0);
   let stageLabel = $state('');
+  let menuOpen = $state(false);
+  let menuEl = $state(null);
+  let bookmarked = $state(false);
+  let togglingBookmark = $state(false);
   let pendingDelete = $state(false);
   let deleting = $state(false);
 
@@ -87,6 +100,8 @@
     loaded = true;
     await refreshBrief();
     await refreshUnderstanding();
+    const bookmark = await getBookmark(sessionId);
+    bookmarked = bookmark.bookmarked;
   });
 
   async function handleSend(content) {
@@ -130,15 +145,48 @@
     }
   }
 
-  // Delete a Journey, from the Journey itself (2026-07-18, see
-  // frontend/decisions.md): moved here from Settings' own Data section
-  // per direct founder feedback -- a person deciding to delete a
-  // Journey is looking at that Journey, not digging through Settings
-  // to find it again in a second, duplicate list. Same two-step-confirm
-  // pattern Settings' Data section (and now Privacy's own "Forget
-  // everything") already established, using the same shared
-  // .link-button/.confirm recipe (now in tokens.css). Navigates back to
-  // Home on success -- there's nothing left here to show.
+  // Tuck destructive/secondary Journey actions behind an overflow menu
+  // (2026-07-18, see frontend/decisions.md): direct founder feedback,
+  // raised as a real worry after Delete first moved here from Settings
+  // -- "having it during an ongoing journey is too much, I risk losing
+  // data every time." A standing red delete link at the bottom of every
+  // Journey (see the prior round's own `.journey-footer`) was in view
+  // on every scroll-down of every Journey, active or not -- a
+  // fundamentally different risk than something a person has to
+  // deliberately go looking for. This menu (triggered by a quiet "..."
+  // near the back button) requires that deliberate lookup; the delete
+  // action itself keeps its own two-step confirm on top, not instead of,
+  // this extra layer of "you have to go find it first."
+  //
+  // Bookmark also lives here now, per the same request ("you can also
+  // add other journey level functions like bookmark in the same
+  // place") -- Home already has its own bookmark star per row, but a
+  // person reading/writing an open Journey had no way to bookmark THIS
+  // one without leaving the screen. Non-destructive and reversible, so
+  // it toggles immediately on click, no confirm step -- only Delete
+  // needs one.
+  function toggleMenu() {
+    menuOpen = !menuOpen;
+    if (!menuOpen) pendingDelete = false;
+  }
+
+  function closeMenu() {
+    menuOpen = false;
+    pendingDelete = false;
+  }
+
+  async function toggleBookmark() {
+    togglingBookmark = true;
+    const next = !bookmarked;
+    try {
+      await setBookmark(sessionId, next);
+      bookmarked = next;
+    } finally {
+      togglingBookmark = false;
+    }
+    closeMenu();
+  }
+
   function askToDelete() {
     pendingDelete = true;
   }
@@ -156,12 +204,62 @@
       deleting = false;
     }
   }
+
+  // Closes the menu on any click outside it -- standard click-outside
+  // pattern, added/removed only while the menu is actually open. Safe
+  // against self-triggering on the same click that opened it: this
+  // effect only attaches once Svelte re-renders after toggleMenu's own
+  // click handler has already finished running, by which point that
+  // click event has already fully dispatched.
+  $effect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(event) {
+      if (menuEl && !menuEl.contains(event.target)) {
+        closeMenu();
+      }
+    }
+    document.addEventListener('click', handleClickOutside, true);
+    return () => document.removeEventListener('click', handleClickOutside, true);
+  });
 </script>
 
 <div class="journey">
   <div class="scroll-fade" aria-hidden="true"></div>
 
-  <button type="button" class="back" onclick={onBack}>&larr; Home</button>
+  <div class="journey-header">
+    <button type="button" class="back" onclick={onBack}>&larr; Home</button>
+
+    <div class="menu-wrap" bind:this={menuEl}>
+      <button
+        type="button"
+        class="menu-trigger"
+        aria-label="Journey options"
+        aria-haspopup="true"
+        aria-expanded={menuOpen}
+        onclick={toggleMenu}
+      >
+        &bull;&bull;&bull;
+      </button>
+      {#if menuOpen}
+        <div class="journey-menu" role="menu">
+          {#if pendingDelete}
+            <p class="voice menu-confirm">Delete this Journey for good? This can't be undone.</p>
+            <button type="button" class="link-button danger menu-item" onclick={confirmDelete} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Yes, delete it'}
+            </button>
+            <button type="button" class="link-button menu-item" onclick={cancelDelete}>Cancel</button>
+          {:else}
+            <button type="button" class="link-button menu-item" onclick={toggleBookmark} disabled={togglingBookmark}>
+              {bookmarked ? '★ Remove bookmark' : '☆ Bookmark this Journey'}
+            </button>
+            <button type="button" class="link-button danger menu-item" onclick={askToDelete}>
+              Delete this Journey
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  </div>
 
   <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
@@ -184,28 +282,67 @@
   <Composer disabled={sending} onSend={handleSend} />
 
   <Understanding {brief} {tier2} {deepeningClarityNote} />
-
-  <div class="journey-footer">
-    {#if pendingDelete}
-      <span class="confirm">
-        <span class="voice">Delete this Journey for good? This can't be undone.</span>
-        <button type="button" class="link-button danger" onclick={confirmDelete} disabled={deleting}>
-          {deleting ? 'Deleting…' : 'Yes, delete it'}
-        </button>
-        <button type="button" class="link-button" onclick={cancelDelete}>Cancel</button>
-      </span>
-    {:else}
-      <button type="button" class="link-button danger" onclick={askToDelete}>
-        Delete this Journey
-      </button>
-    {/if}
-  </div>
 </div>
 
 <style>
+  /* Tuck destructive/secondary Journey actions behind an overflow menu
+     (see script comment) -- back button and the menu trigger share one
+     row instead of back button alone owning the top of the screen. */
+  .journey-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+  }
+
   .back {
     display: block;
-    margin-bottom: var(--space-3);
+  }
+
+  .menu-wrap {
+    position: relative;
+  }
+
+  /* Deliberately quiet -- three dots, ink-muted, no border or
+     background until pressed -- the same "don't compete with the
+     conversation" restraint the old bottom-of-screen delete link had,
+     now applied to something that has to sit up near the transcript
+     instead of below it. */
+  .menu-trigger {
+    font-size: 20px;
+    line-height: 1;
+    letter-spacing: 1px;
+    color: var(--ink-muted);
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .journey-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: var(--space-1);
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    background: var(--paper-raised);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lifted);
+    z-index: 2;
+  }
+
+  .menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: var(--space-1) 0;
+  }
+
+  .menu-confirm {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 0 0 var(--space-1);
   }
 
   /* Empty-Journey opening hero (2026-07-18, see frontend/decisions.md
@@ -253,16 +390,6 @@
     font-size: 15px;
     color: var(--ink-muted);
     margin: 0;
-  }
-
-  /* Delete a Journey, from the Journey itself (see script comment) --
-     tucked at the very bottom, past Understanding, same "destructive
-     action stays out of the way of the actual conversation" placement
-     Settings gives its own Privacy actions. */
-  .journey-footer {
-    margin-top: var(--space-4);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--line);
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see

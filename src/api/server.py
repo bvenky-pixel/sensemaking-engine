@@ -147,6 +147,18 @@ def set_bookmark(session_id: str, body: SetBookmarkRequest) -> SetBookmarkReques
     return body
 
 
+@app.get("/sessions/{session_id}/bookmark", response_model=SetBookmarkRequest)
+def get_bookmark(session_id: str) -> SetBookmarkRequest:
+    """Added for Journey's own overflow menu (see frontend/decisions.md
+    "Tuck destructive/secondary Journey actions behind an overflow
+    menu") -- Journey.svelte never fetches the full session list the
+    way Home does, so it has no other way to know this session's
+    current bookmark state before rendering the toggle. Same response
+    shape as the existing POST, reused rather than duplicated."""
+    _require_session(session_id)
+    return SetBookmarkRequest(bookmarked=db.get_bookmark(session_id))
+
+
 @app.delete("/sessions/{session_id}", status_code=204)
 def delete_session(session_id: str) -> None:
     """Added for Settings' Data section (see engine/decisions.md

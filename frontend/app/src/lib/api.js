@@ -57,6 +57,15 @@ export async function setBookmark(sessionId, bookmarked) {
   return _json(res);
 }
 
+// Journey's own overflow menu (see frontend/decisions.md "Tuck
+// destructive/secondary Journey actions behind an overflow menu") --
+// unlike Home, Journey never fetches the full session list, so it needs
+// a direct way to read a session's current bookmark state.
+export async function getBookmark(sessionId) {
+  const res = await fetch(`/sessions/${sessionId}/bookmark`);
+  return _json(res);
+}
+
 export async function getMessages(sessionId) {
   const res = await fetch(`/sessions/${sessionId}/messages`);
   return _json(res);

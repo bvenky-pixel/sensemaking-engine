@@ -664,6 +664,31 @@ def test_bookmark_unknown_session_returns_404(client):
     assert res.status_code == 404
 
 
+def test_get_bookmark_defaults_to_false_for_a_new_session(client):
+    """Added for Journey's own overflow menu (see frontend/decisions.md
+    "Tuck destructive/secondary Journey actions behind an overflow
+    menu") -- Journey.svelte needs to read a session's current
+    bookmark state before rendering the toggle, unlike Home which
+    already has it from list_sessions."""
+    session_id = client.post("/sessions").json()["id"]
+    res = client.get(f"/sessions/{session_id}/bookmark")
+    assert res.status_code == 200
+    assert res.json() == {"bookmarked": False}
+
+
+def test_get_bookmark_reflects_a_prior_set(client):
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/bookmark", json={"bookmarked": True})
+
+    res = client.get(f"/sessions/{session_id}/bookmark")
+    assert res.json() == {"bookmarked": True}
+
+
+def test_get_bookmark_unknown_session_returns_404(client):
+    res = client.get("/sessions/does-not-exist/bookmark")
+    assert res.status_code == 404
+
+
 def test_delete_session_removes_it_from_the_list(client, monkeypatch):
     """Added for Settings' Data section (see engine/decisions.md
     "Frontend UX pass")."""

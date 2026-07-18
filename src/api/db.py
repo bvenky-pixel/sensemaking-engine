@@ -354,6 +354,19 @@ def set_bookmark(session_id: str, bookmarked: bool) -> None:
         )
 
 
+def get_bookmark(session_id: str) -> bool:
+    """Journey.svelte's own overflow menu (see frontend/decisions.md
+    "Tuck destructive/secondary Journey actions behind an overflow
+    menu") needs a session's CURRENT bookmark state before it can
+    render the toggle correctly -- Home gets this for free from
+    list_sessions (it already has the whole list), but Journey never
+    fetches that. Same "SELECT one column WHERE id" shape as
+    get_session_mode right above."""
+    with _connect() as conn:
+        row = conn.execute("SELECT bookmarked FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
 def delete_session(session_id: str) -> None:
     """Removes a Journey and everything that references it -- added for
     Settings' Data section (see engine/decisions.md "Frontend UX pass").
