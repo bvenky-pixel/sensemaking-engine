@@ -862,3 +862,51 @@ than a mock-props harness, then a Playwright screenshot of the actual
 served build confirmed the compact orb sits correctly beside "A quiet
 place to think something through." once real Journeys are showing.
 Seed DB and server process were removed after the screenshot.
+
+## Reduce motion, as a real setting (2026-07-18)
+
+Prompted by a question about whether the orb honored the OS-level
+`prefers-reduced-motion` setting (it did -- both `BreathingOrb.svelte`
+and `AmbientPresence.svelte` already checked it directly via
+`matchMedia`), then a direct follow-up: "add a toggle for it in
+settings."
+
+New `src/lib/motionPreference.js`: a plain `localStorage`-backed
+override, deliberately one-directional -- an app-level toggle can only
+ADD the reduced-motion treatment, never remove it. This app has no way
+to know why someone's OS asks for reduced motion, so Confidant's own
+setting only ever agrees or defers to it, never overrides it off.
+`prefersReducedMotion()` replaces the direct `matchMedia` calls in both
+orb components (their own animation logic is otherwise untouched).
+
+Scoped honestly, not just to the two orbs: the Settings copy says
+"Calms the breathing orb and other motion throughout Confidant," so it
+needed to actually do that, not just the two components that happened
+to prompt the question. `tokens.css`'s existing
+`@media (prefers-reduced-motion: reduce)` rule (already collapsing
+every `transition`/`animation` app-wide to near-zero) now has a second,
+independent trigger: `:root[data-reduce-motion] * { ... same rule
+... }`. `applyReduceMotionAttribute()` sets/clears that attribute on
+`<html>`, called once at startup (`main.js`, so the preference is
+already in effect on first paint) and again immediately when the
+Settings toggle changes (so the effect is instant in the current tab,
+not just after a reload).
+
+**Settings.svelte**: a real pill switch (`role="switch"`,
+`aria-checked`, `--radius-pill` shape matching `.btn-primary`), added
+to the Account section rather than a new fourth section --
+information-architecture-v1.md is explicit that Privacy/Account/Data
+are the whole surface, and this is a personal preference about how the
+app behaves for this person, which Account already covers in spirit
+(if not, until now, in any actual content beyond a placeholder
+sentence).
+
+Verified: `npm test` (31 passed), `npm run build` green. Live
+verification against the real served build: clicked the toggle,
+confirmed via `page.evaluate` that both `localStorage` and the
+`data-reduce-motion` attribute updated immediately, then navigated
+back to Home and confirmed the compact orb's own DOM picked up
+`.reduced` (its already-existing lower-opacity static state) without a
+page reload. Screenshots of the toggle in both states (off: quiet gray
+pill; on: coral, matching `--accent`) confirm the visual design reads
+correctly against the Account card.

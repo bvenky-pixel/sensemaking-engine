@@ -45,6 +45,7 @@
   // AmbientPresence in the same spot is a change in intensity, not a
   // size jump.
   import { onDestroy } from 'svelte';
+  import { prefersReducedMotion } from '../lib/motionPreference.js';
 
   let { compact = false } = $props();
 
@@ -76,7 +77,7 @@
   }
 
   $effect(() => {
-    reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    reducedMotion = prefersReducedMotion();
     if (reducedMotion) return;
     rafHandle = requestAnimationFrame(tick);
     return () => {

@@ -19,18 +19,36 @@
   // dot, same scannability device ModeSelect already established for
   // its six modes, so a person can tell the three sections apart at a
   // glance rather than reading every label.
+  //
+  // Reduce motion (2026-07-18, see frontend/decisions.md "Reduce
+  // motion, as a real setting"): direct founder request, following a
+  // question about whether the breathing orb honored the OS-level
+  // accessibility setting -- it did, but had no in-app control of its
+  // own. Lives in Account rather than a new fourth section: this is a
+  // personal preference about how the app behaves for this person, not
+  // a Privacy or Data concern, and information-architecture-v1.md is
+  // explicit that these three sections are the whole surface.
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import { listSessions, deleteSession } from '../lib/api.js';
+  import { getReduceMotionOverride, setReduceMotionOverride, applyReduceMotionAttribute } from '../lib/motionPreference.js';
 
   let { onBack } = $props();
 
   let sessions = $state([]);
   let pendingDeleteId = $state(null);
+  let reduceMotion = $state(false);
 
   onMount(async () => {
     sessions = await listSessions();
+    reduceMotion = getReduceMotionOverride();
   });
+
+  function toggleReduceMotion() {
+    reduceMotion = !reduceMotion;
+    setReduceMotionOverride(reduceMotion);
+    applyReduceMotionAttribute();
+  }
 
   function askToRemove(sessionId) {
     pendingDeleteId = sessionId;
@@ -66,6 +84,24 @@
       <p class="ui-label">Account</p>
     </div>
     <p class="setting-body">Basic account details.</p>
+
+    <div class="toggle-row">
+      <div>
+        <p class="toggle-label">Reduce motion</p>
+        <p class="toggle-hint">Calms the breathing orb and other motion throughout Confidant, on top of your device's own accessibility setting.</p>
+      </div>
+      <button
+        type="button"
+        class="toggle"
+        class:on={reduceMotion}
+        role="switch"
+        aria-checked={reduceMotion}
+        aria-label="Reduce motion"
+        onclick={toggleReduceMotion}
+      >
+        <span class="toggle-thumb"></span>
+      </button>
+    </div>
   </section>
 
   <section class="card setting-section">
@@ -132,6 +168,63 @@
   .setting-body {
     color: var(--ink-muted);
     margin: var(--space-1) 0 0;
+  }
+
+  /* Reduce motion toggle (see script comment) -- a real pill switch,
+     not a checkbox, matching the app's rounded, tactile vocabulary
+     (--radius-pill is already the same shape as .btn-primary). */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
+  }
+
+  .toggle-label {
+    font-family: var(--font-body);
+    color: var(--ink);
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .toggle-hint {
+    color: var(--ink-muted);
+    font-size: 13px;
+    margin: var(--space-1) 0 0;
+  }
+
+  .toggle {
+    flex-shrink: 0;
+    position: relative;
+    width: 44px;
+    height: 26px;
+    border-radius: var(--radius-pill);
+    background: var(--line);
+    padding: 0;
+    transition: background var(--motion-quick) ease-out;
+  }
+
+  .toggle.on {
+    background: var(--accent);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--paper-raised);
+    box-shadow: var(--shadow-soft);
+    transition: transform var(--motion-smooth);
+  }
+
+  .toggle.on .toggle-thumb {
+    transform: translateX(18px);
   }
 
   .journey-list {

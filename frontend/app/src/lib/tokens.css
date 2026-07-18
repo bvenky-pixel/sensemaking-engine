@@ -288,3 +288,17 @@ hr,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* App-level "Reduce motion" (2026-07-18, see frontend/decisions.md
+   "Reduce motion, as a real setting" -- Settings screen, Account
+   section) -- direct founder request for an in-app toggle for the
+   same effect the media query above already gives OS-level. `<html
+   data-reduce-motion>` is set/cleared by
+   src/lib/motionPreference.js::applyReduceMotionAttribute, called at
+   startup and immediately after the Settings toggle changes, so this
+   rule and the OS one above stay two independent ways to reach the
+   same result rather than one depending on the other. */
+:root[data-reduce-motion] * {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}

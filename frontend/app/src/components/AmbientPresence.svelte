@@ -31,6 +31,7 @@
   // the POST fetch already being dispatched), risking missing the
   // "interpretation" stage's event on every single turn.
   import { onDestroy } from 'svelte';
+  import { prefersReducedMotion } from '../lib/motionPreference.js';
 
   let { pulseCount = 0 } = $props();
 
@@ -91,7 +92,7 @@
   }
 
   $effect(() => {
-    reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    reducedMotion = prefersReducedMotion();
     if (reducedMotion) return;
     rafHandle = requestAnimationFrame(tick);
     return () => {
