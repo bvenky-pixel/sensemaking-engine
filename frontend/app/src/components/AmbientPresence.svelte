@@ -45,6 +45,7 @@
   const MAX_SLOWDOWN_MS = 1000;
 
   let dotEl;
+  let glowEl;
   let rafHandle = null;
   let virtualElapsed = 0;
   let lastFrameTime = null;
@@ -62,12 +63,23 @@
 
     virtualElapsed += delta * factor;
     const phase = (virtualElapsed % CYCLE_MS) / CYCLE_MS;
-    // Same ease-in-out shape as the original CSS keyframe: 0.85 -> 1.15
-    // scale, 0.25 -> 0.5 opacity, peaking at the midpoint of the cycle.
+    // Same ease-in-out shape as before -- only the visual scale/opacity
+    // RANGE changed (v2 "Warm & Alive" redesign, see
+    // frontend/decisions.md): a bigger, softer glowing orb instead of a
+    // 14px dot, so the same honest, bounded, wordless breathing signal
+    // now reads as genuinely alive rather than a barely-visible tick.
     const eased = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
     if (dotEl) {
-      dotEl.style.transform = `scale(${(0.85 + eased * 0.3).toFixed(3)})`;
-      dotEl.style.opacity = (0.25 + eased * 0.25).toFixed(3);
+      dotEl.style.transform = `scale(${(0.82 + eased * 0.34).toFixed(3)})`;
+      dotEl.style.opacity = (0.55 + eased * 0.4).toFixed(3);
+    }
+    if (glowEl) {
+      // Outer glow trails the core by design -- a slightly larger,
+      // slower-feeling halo reads as a soft light source, not a second
+      // countable pulse (still driven by the exact same phase/eased
+      // value, so it can never desync into its own learnable rhythm).
+      glowEl.style.transform = `scale(${(1.3 + eased * 0.5).toFixed(3)})`;
+      glowEl.style.opacity = (0.18 + eased * 0.22).toFixed(3);
     }
     rafHandle = requestAnimationFrame(tick);
   }
@@ -97,25 +109,56 @@
 </script>
 
 <div class="ambient-presence" role="status" aria-label="Confidant is considering what you shared">
-  <div class="breath" class:reduced={reducedMotion} bind:this={dotEl}></div>
+  <div class="orb-wrap">
+    <div class="glow" class:reduced={reducedMotion} bind:this={glowEl}></div>
+    <div class="breath" class:reduced={reducedMotion} bind:this={dotEl}></div>
+  </div>
 </div>
 
 <style>
   .ambient-presence {
     display: flex;
     justify-content: flex-start;
+    align-items: center;
     padding: var(--space-2) 0;
   }
 
-  .breath {
-    width: 14px;
-    height: 14px;
+  .orb-wrap {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* The soft halo -- larger, blurred, low-opacity, positioned behind
+     the core dot. */
+  .glow {
+    position: absolute;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    background: var(--accent);
-    opacity: 0.4;
+    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+    filter: blur(4px);
+    opacity: 0.2;
+  }
+
+  .glow.reduced {
+    opacity: 0.16;
+  }
+
+  /* The core -- a small, warm gradient orb rather than a flat dot. */
+  .breath {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #FFC2A8, var(--accent) 70%);
+    opacity: 0.7;
   }
 
   .breath.reduced {
-    opacity: 0.35;
+    opacity: 0.6;
   }
 </style>

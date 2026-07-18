@@ -23,14 +23,16 @@
   // support shown under it, never sent anywhere itself. That's enough
   // text per option that a wrapping row of chips (the original design)
   // no longer fits -- stacked one per line instead.
+  import { fade, fly } from 'svelte/transition';
+
   let { messages, onOptionSelect, disabled } = $props();
 </script>
 
 <div class="transcript">
-  {#each messages as message, i}
-    <p class={message.role === 'assistant' ? 'voice' : ''}>{message.content}</p>
+  {#each messages as message, i (i)}
+    <p class={message.role === 'assistant' ? 'voice' : ''} in:fly={{ y: 8, duration: 280 }}>{message.content}</p>
     {#if message.role === 'assistant' && message.options?.length && i === messages.length - 1}
-      <div class="options" role="group" aria-label="Quick replies">
+      <div class="options" role="group" aria-label="Quick replies" in:fade={{ duration: 280, delay: 100 }}>
         {#each message.options as option}
           <button
             type="button"
@@ -61,33 +63,39 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    margin: 0 0 var(--space-2);
+    margin: 0 0 var(--space-3);
   }
 
   /* A scaffold, not a form control -- these still just feed Composer's
      existing free-text send path (see script comment above), so they
      read as a lighter-weight shortcut rather than the one heavyweight
-     "Share this" call to action. */
+     "Share this" call to action. Warm & Alive redesign: rounded,
+     softly-shadowed chip with a real hover lift instead of an instant
+     border-color snap. */
   .option {
     display: block;
     width: 100%;
     text-align: left;
-    font-family: var(--sans);
+    font-family: var(--font-ui);
     color: var(--ink);
     background: var(--paper-raised);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: var(--space-1) var(--space-2);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    box-shadow: var(--shadow-soft);
+    transition: border-color var(--motion-smooth), transform var(--motion-smooth), box-shadow var(--motion-smooth);
   }
 
   .option:hover:not(:disabled) {
     border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lifted);
   }
 
   .option-label {
     display: block;
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 700;
   }
 
   .option-description {
@@ -95,6 +103,6 @@
     font-size: 13px;
     color: var(--ink-muted);
     font-weight: 400;
-    margin-top: 2px;
+    margin-top: var(--space-1);
   }
 </style>

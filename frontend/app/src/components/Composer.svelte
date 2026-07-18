@@ -24,7 +24,7 @@
     rows="3"
   ></textarea>
   <div class="actions">
-    <button type="button" class="share" disabled={disabled || !content.trim()} onclick={share}>
+    <button type="button" class="btn-primary share" disabled={disabled || !content.trim()} onclick={share}>
       Share this
     </button>
   </div>
@@ -38,18 +38,15 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: var(--space-1);
+    margin-top: var(--space-2);
   }
 
   /* Real visual weight for "handing the page over" -- v4's most
      protected interaction deserves more presence than a plain text
-     link the same weight as "Settings". Reuses --radius (the one
-     corner value already used for the raised surface elsewhere)
-     rather than introducing a new pill shape. */
+     link the same weight as "Settings". Warm & Alive redesign (see
+     frontend/decisions.md): now the shared .btn-primary pill recipe,
+     explicit reversal of v1's anti-pill-button stance. */
   .share {
-    background: var(--accent);
-    color: var(--paper);
-    padding: var(--space-1) var(--space-3);
-    border-radius: var(--radius);
+    padding: var(--space-2) var(--space-4);
   }
 </style>

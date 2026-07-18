@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { getMessages, sendMessage, getClarityBrief, getUnderstanding, openStageStream } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
   import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
@@ -108,7 +109,7 @@
 
   <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
-    <p class="voice opening-prompt">{openingPrompt}</p>
+    <p class="voice opening-prompt" in:fade={{ duration: 320 }}>{openingPrompt}</p>
   {/if}
   {#if sending}<AmbientPresence {pulseCount} />{/if}
   <Composer disabled={sending} onSend={handleSend} />
@@ -125,6 +126,10 @@
   .opening-prompt {
     color: var(--ink-muted);
     margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background: var(--paper-raised);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see

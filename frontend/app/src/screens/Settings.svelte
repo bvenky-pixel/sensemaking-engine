@@ -105,7 +105,7 @@
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-2);
-    padding: var(--space-1) 0;
+    padding: var(--space-2) 0;
     border-bottom: 1px solid var(--line);
   }
 
@@ -114,13 +114,14 @@
   }
 
   .preview {
-    font-family: var(--serif);
+    font-family: var(--font-body);
   }
 
   .link-button {
     flex-shrink: 0;
-    font-family: var(--sans);
+    font-family: var(--font-ui);
     font-size: 14px;
+    font-weight: 700;
     color: var(--ink-muted);
     background: none;
     border: none;
@@ -140,12 +141,10 @@
     font-size: 14px;
   }
 
-  /* No dedicated "danger" color exists in this app's calm, muted
-     palette (see frontend/app/src/lib/tokens.css) -- full-contrast ink
-     rather than an invented red is enough to mark this as the
-     serious, irreversible action among the two choices. */
+  /* Warm & Alive redesign (see frontend/decisions.md): a real --danger
+     color now exists in the palette, so this uses it directly rather
+     than v1's ink-weight-only signal. */
   .link-button.danger {
-    color: var(--ink);
-    font-weight: 600;
+    color: var(--danger);
   }
 </style>

@@ -16,6 +16,19 @@ redrawn against `interaction-model-v4.md` before this document can be
 current again. That redesign has not been done yet; do not treat the
 live prototype as accurate until it is.
 
+**Further update (2026-07-18): the token table below is ALSO now
+superseded**, on top of the screens. The founder directed a full visual-
+language pivot ("dull and boring... more dynamic and modern yet
+calming, think headspace") — see `frontend/decisions.md` "Warm & Alive
+redesign" for the complete list of which specific restraint principles
+below were deliberately overridden (accent-color restriction, radius
+restriction, motion restriction, serif typography) versus which were
+kept (no chat bubbles, no dashboard chrome, dark mode as its own
+world). The actual current tokens live in
+`frontend/app/src/lib/tokens.css`, not in this document — treat every
+concrete value below as historical record of what v1 chose, not as
+current truth.
+
 ---
 
 Original status (concrete values below still apply): The concrete

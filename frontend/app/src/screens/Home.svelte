@@ -10,6 +10,7 @@
   // returning to" aside, and the reserved `.display` typographic
   // moment finally used for Home's own greeting.
   import { onMount } from 'svelte';
+  import { fade, fly } from 'svelte/transition';
   import { listSessions, setBookmark } from '../lib/api.js';
 
   // "+ Begin something new" hands off to a mode-select step (see
@@ -67,9 +68,9 @@
 
   {#if sessions.length > 0}
     <ul class="journeys">
-      {#each sessions as session}
-        <li>
-          <button type="button" class="journey-card" onclick={() => onOpen(session.id)}>
+      {#each sessions as session, i (session.id)}
+        <li in:fly={{ y: 12, duration: 320, delay: Math.min(i * 40, 240) }}>
+          <button type="button" class="journey-card card card-interactive" onclick={() => onOpen(session.id)}>
             <div class="journey-row">
               <span>{session.preview_text || 'A new Journey'}</span>
               <span
@@ -77,6 +78,7 @@
                 role="button"
                 tabindex="0"
                 class="bookmark"
+                class:bookmarked={session.bookmarked}
                 aria-label={session.bookmarked ? 'Remove bookmark' : 'Bookmark this Journey'}
                 onclick={(event) => toggleBookmark(event, session)}
                 onkeydown={(event) => {
@@ -97,10 +99,10 @@
       {/each}
     </ul>
   {:else if showBookmarkedOnly}
-    <p class="voice">No bookmarked Journeys yet.</p>
+    <p class="voice" transition:fade={{ duration: 200 }}>No bookmarked Journeys yet.</p>
   {/if}
 
-  <button type="button" class="start" onclick={onBeginNew}>
+  <button type="button" class="btn-primary start" onclick={onBeginNew}>
     + Begin something new
   </button>
 
@@ -120,10 +122,12 @@
 
   .filter-option {
     opacity: 0.5;
+    transition: opacity var(--motion-quick) ease-out;
   }
 
   .filter-option.active {
     opacity: 1;
+    color: var(--accent);
   }
 
   .journeys {
@@ -136,17 +140,14 @@
     margin-bottom: var(--space-2);
   }
 
-  /* Journey rows become cards -- same settled-card recipe established
-     in Understanding.svelte, kept as a local, scoped duplicate rather
-     than a shared class (no premature abstraction yet). */
+  /* Journey rows become cards -- now the shared .card/.card-interactive
+     recipe from tokens.css (see that file's own comment on why this is
+     no longer hand-duplicated). */
   .journey-card {
     display: block;
     width: 100%;
     text-align: left;
-    background: var(--paper-raised);
-    border-radius: var(--radius);
-    box-shadow: 0 1px 0 var(--line);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-3);
   }
 
   .journey-row {
@@ -155,15 +156,26 @@
     justify-content: space-between;
     gap: var(--space-2);
     color: var(--ink);
-    font-family: var(--serif);
+    font-family: var(--font-body);
     font-size: 17px;
+    font-weight: 600;
   }
 
   .bookmark {
     flex-shrink: 0;
-    font-family: var(--sans);
+    font-family: var(--font-ui);
     color: var(--ink-muted);
     cursor: pointer;
+    font-size: 18px;
+    transition: transform var(--motion-bouncy), color var(--motion-quick);
+  }
+
+  .bookmark.bookmarked {
+    color: var(--accent-5);
+  }
+
+  .bookmark:hover {
+    transform: scale(1.15);
   }
 
   .aside {
@@ -176,11 +188,12 @@
      ink-muted, no "Insight:" label per interaction-model-v4.md's
      felt-difference rule. */
   .insight-aside {
-    color: var(--accent);
+    color: var(--accent-2);
   }
 
   .start {
     margin-top: var(--space-3);
+    width: 100%;
   }
 
   .settings-link {

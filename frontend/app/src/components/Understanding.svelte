@@ -60,7 +60,7 @@
     {/if}
 
     {#if brief?.situation || brief?.current_direction}
-      <section class="card card-settled" aria-label="Where things stand">
+      <section class="card card-settled" aria-label="Where things stand" transition:fade={{ duration: 320 }}>
         <p class="ui-label">Where things stand</p>
         {#if brief.situation}
           <p>{brief.situation}</p>
@@ -72,7 +72,7 @@
     {/if}
 
     {#if brief?.key_insights?.length}
-      <section class="card card-settled card-secondary" aria-label="What matters here">
+      <section class="card card-settled card-secondary" aria-label="What matters here" transition:fade={{ duration: 320 }}>
         <p class="ui-label">What matters here</p>
         <ul>
           {#each brief.key_insights as insight}
@@ -83,7 +83,7 @@
     {/if}
 
     {#if tier2?.length}
-      <section class="card card-settled card-secondary" aria-label="Putting it together">
+      <section class="card card-settled card-secondary" aria-label="Putting it together" transition:fade={{ duration: 320 }}>
         <p class="ui-label">Putting it together</p>
         <ul>
           {#each tier2 as statement}
@@ -94,7 +94,7 @@
     {/if}
 
     {#if brief?.remaining_unknowns?.length}
-      <section class="card card-open" aria-label="Still uncertain">
+      <section class="card card-open" aria-label="Still uncertain" transition:fade={{ duration: 320 }}>
         <p class="ui-label">Still uncertain</p>
         <ul>
           {#each brief.remaining_unknowns as unknown}
@@ -105,7 +105,7 @@
     {/if}
 
     {#if brief?.decisions?.length}
-      <section class="card card-settled card-secondary" aria-label="In play">
+      <section class="card card-settled card-secondary" aria-label="In play" transition:fade={{ duration: 320 }}>
         <p class="ui-label">In play</p>
         <ul>
           {#each brief.decisions as decision}
@@ -129,26 +129,27 @@
     margin-top: var(--space-4);
   }
 
+  /* .card-settled needs no rules of its own -- the shared .card recipe
+     from tokens.css (background/radius/shadow) already IS the settled
+     treatment; this class only exists so markup can name the semantic
+     distinction against .card-open below. */
   .card {
-    border-radius: var(--radius);
     padding: var(--space-3);
     margin-bottom: var(--space-2);
-  }
-
-  .card-settled {
-    background: var(--paper-raised);
-    box-shadow: 0 1px 0 var(--line);
   }
 
   .card-secondary {
     margin-top: var(--space-1);
   }
 
-  /* Deliberately less anchored than a settled card -- no shadow, base
-     paper background -- matching that this content is open, not resolved. */
+  /* Deliberately less anchored than a settled card -- no shadow, a soft
+     dashed edge instead of a solid line -- matching that this content
+     is open, not resolved. Kept from v1's own semantic distinction,
+     just re-executed in the warmer visual language. */
   .card-open {
-    background: var(--paper);
-    border: 1px solid var(--line);
+    background: transparent;
+    box-shadow: none;
+    border: 2px dashed var(--line);
   }
 
   .card p,
@@ -157,7 +158,7 @@
   }
 
   .card ul {
-    padding-left: var(--space-2);
+    padding-left: var(--space-3);
   }
 
   .card p:last-child,
@@ -166,8 +167,11 @@
   }
 
   .callout {
-    color: var(--accent);
-    margin: 0 0 var(--space-2);
+    color: var(--accent-2);
+    margin: 0 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+    border-radius: var(--radius-sm);
   }
 
   .aside {

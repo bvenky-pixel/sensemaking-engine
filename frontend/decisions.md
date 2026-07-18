@@ -477,3 +477,91 @@ patterns (needs its own design pass per `interaction-model-v4.md`),
 richer stagnation wording sourced from Judgment's own `stagnation_notes`
 instead of the fixed phrase, and live verification of the Learning Phase
 1 walkthrough workflow.
+
+## Warm & Alive redesign (2026-07-18)
+
+Founder's own words: "it's very dull and boring, I would like it to be
+more dynamic and modern yet calming, think headspace." A deliberate
+full visual-language pivot, explicitly overriding several of
+`frontend/specs/product-experience-v1.md`'s stated principles rather
+than extending them -- recorded here plainly, not silently, since that
+document is otherwise still treated as authoritative elsewhere in this
+codebase.
+
+**What v1's restrained "paper and ink" language explicitly rejected,
+now deliberately reversed:**
+- A bright, saturated accent "used decoratively" -- v2 uses a warm
+  coral primary accent plus four supporting tones (periwinkle, sage,
+  lavender, gold), the latter used specifically to color-code the six
+  Counseling modes on ModeSelect (see below), a genuinely new,
+  intentional use of color as information, not decoration for its own
+  sake.
+- "No rounded-everything signature" -- v2 goes fully rounded: 20-28px
+  card radii, pill-shaped buttons (`--radius-pill`), explicit reversal
+  of Composer's own former "reuses --radius rather than introducing a
+  new pill shape" stance.
+- A single flat 260ms/ease-out motion value everywhere, near-zero
+  actual animation in the shipped code (confirmed by inventory before
+  starting: only the AmbientPresence breathing dot and two un-eased
+  hover snaps existed) -- v2 adds real `svelte/transition` (fade/fly)
+  entrances across Home's Journey list, ModeSelect's mode cards,
+  Transcript's messages/options, and Understanding's cards, plus a
+  springier `--motion-bouncy` timing for the primary button and
+  bookmark star.
+- One serif (Charter) for all reading/writing text -- v2 replaces it
+  entirely with a warm, rounded sans pairing (Quicksand for the display
+  moment, Nunito for body/UI), loaded via Google Fonts in `index.html`.
+  `--serif`/`--sans` kept as aliases pointing at the new fonts rather
+  than renamed everywhere, so nothing broke from missing a call site.
+- A single near-imperceptible 3px radius used in exactly two places --
+  gone; every card/button/input now uses a real, felt radius.
+
+**What v1's principles were explicitly KEPT, not overridden** (the
+redesign is a re-skin, not a re-architecture): no chat bubbles --
+attribution stays typographic (user text plain, Confidant's own "voice"
+italic); no dashboard chrome, no completion-percentage/stage-progress
+UI; dark mode is its own considered warm-charcoal world, not light mode
+inverted; AmbientPresence's underlying honest, bounded, wordless
+breathing mechanic (the JS-driven phase/slowdown logic, see
+`AmbientPresence.svelte`'s own long-standing comments) is UNCHANGED --
+only its visual rendering grew from a 14px flat dot into a layered
+glowing orb (a soft blurred halo behind a gradient core), since the
+mechanic itself was already sound and "more dynamic... calming" doesn't
+require touching a component's actual honesty properties, just its
+paint.
+
+**The "settled card" recipe finally got shared.** v1 had this exact
+rule -- `background: var(--paper-raised); border-radius: var(--radius);
+box-shadow: 0 1px 0 var(--line);` -- hand-copied across Home
+(`.journey-card`), ModeSelect (`.mode-card`), and Understanding
+(`.card-settled`), each with its own "no premature abstraction yet"
+comment. Now that all three want the IDENTICAL new treatment, sharing a
+global (unscoped) `.card`/`.card-interactive` class in `tokens.css` is
+warranted, not premature -- Transcript's `.option` chips and
+Composer/Home's CTAs similarly now share `.btn-primary`.
+
+**One real functional addition, not just paint**: Settings' delete
+button finally has a real `--danger` color -- v1 explicitly had none
+("full-contrast ink... is enough to mark this as the serious,
+irreversible action," per that file's own prior comment) and a real
+palette gap this redesign was well-positioned to close while already
+touching every color decision in the app.
+
+**Verification**: `npm run build` green; `npm test` (vitest) initially
+FAILED 2/31 on `ModeSelect.test.js` with `TypeError: element.animate is
+not a function` -- jsdom doesn't implement the Web Animations API
+`svelte/transition` calls under the hood. Fixed with a minimal
+`Element.prototype.animate` polyfill in `src/tests/setup.js` (the
+standard, documented fix for this exact Svelte-transitions-in-jsdom
+gap) rather than removing the transitions -- full suite green after
+(31 passed). Live-verified with a real backend (`uvicorn`, built
+`dist/` served directly, matching production -- not the Vite dev
+proxy, which only forwards `/sessions` and would 404 on `GET /modes`, a
+pre-existing gap unrelated to this round) via a Playwright script:
+screenshotted Home, ModeSelect (confirmed all six mode cards render
+with distinct color-coded left edges and dots), a fresh Journey, the
+honest-failure path (no LLM key configured in the verification
+session, confirmed the failure message itself renders correctly in the
+new visual language), and Settings' danger-red delete-confirm state.
+No backend/Python code touched this round -- `pytest` untouched by this
+change, not re-run.
