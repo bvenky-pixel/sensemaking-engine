@@ -910,3 +910,56 @@ back to Home and confirmed the compact orb's own DOM picked up
 page reload. Screenshots of the toggle in both states (off: quiet gray
 pill; on: coral, matching `--accent`) confirm the visual design reads
 correctly against the Account card.
+
+## Privacy, made real -- frontend (2026-07-18)
+
+Backend side in `engine/decisions.md` -- this is Settings' own Privacy
+card, first of the founder's five-item roadmap, sequenced "least
+effort for most impact" first. Three controls, all reusing components
+this file already built rather than inventing new ones:
+
+- **"Learn across Journeys" toggle** -- the exact same `.toggle`/
+  `.toggle-thumb` pill-switch recipe built for Account's Reduce Motion
+  toggle last round, same file, so the two read as one consistent
+  control language rather than two different switch designs. Unlike
+  Reduce Motion (pure `localStorage`, no server round trip), this one
+  is backend-backed (`GET`/`POST /privacy/settings`) since it gates
+  real server-side behavior, not just this browser tab's own CSS.
+- **Export your data** -- `exportPrivacyData()` returns a `Blob`; a
+  throwaway `<a download>` + `URL.createObjectURL` triggers the
+  browser's own save dialog, the standard pattern for turning a fetch
+  response into a file download with no extra endpoint or redirect.
+- **Forget everything** -- the exact two-step-confirm pattern Data's
+  own per-Journey "Remove" already established (ask once, confirm
+  once, no native `confirm()` dialog), just wider in scope. Shares the
+  `.confirm`/`.link-button.danger` classes with Data's version rather
+  than duplicating the pattern.
+
+**Real bug caught and fixed during live verification, not by any
+test**: the confirm message ("Forget everything Confidant knows about
+you? This can't be undone." + two buttons) is much longer than Data's
+own short per-Journey confirm text, and `.confirm`/`.privacy-actions`
+were both non-wrapping flex rows -- the message overflowed the card's
+right edge instead of wrapping. Fixed with `flex-wrap: wrap` on both
+containers plus `min-width: 0` on `.confirm` (flex items default to
+`min-width: auto`, which refuses to let text wrap below its
+max-content width inside a flex container -- the actual cause, not
+just the missing `flex-wrap`). Confirmed fixed via a second screenshot
+of the same confirm state. This is exactly why `frontend/specs/`'s own
+verification discipline insists on a live screenshot, not just
+`npm run build` succeeding -- a build has no opinion on whether text
+fits inside a card.
+
+Account remains a placeholder, deliberately -- see `engine/decisions.md`
+for why (no auth/user system exists to attach real fields to yet).
+
+Verified: `npm test` (35 passed, 4 new: default state on load, toggle
+persists via the API, two-step confirm does nothing on Cancel, confirm
+clears every Journey). `npm run build` green. Live verification against
+a real served build with a seeded Journey (via `src.api.db` directly,
+no LLM calls): screenshotted the Privacy card in its default state and
+mid-confirm (catching the overflow bug above), then exercised the real
+download (`page.expect_download()`, confirmed the JSON's `world_state`
+field is a real parsed object, not an escaped string) and the real
+reset (confirmed the Data section correctly falls back to "Nothing
+shared here yet." afterward) end to end against the actual backend.

@@ -109,3 +109,39 @@ export function openStageStream(sessionId, onStage) {
   };
   return () => source.close();
 }
+
+// Privacy, made real (2026-07-18, see frontend/decisions.md) -- backs
+// Settings' Privacy card.
+export async function getPrivacySettings() {
+  const res = await fetch('/privacy/settings');
+  return _json(res);
+}
+
+export async function setCrossSessionLearningEnabled(enabled) {
+  const res = await fetch('/privacy/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cross_session_learning_enabled: enabled }),
+  });
+  return _json(res);
+}
+
+// Returns a Blob, not JSON -- this is a file download
+// (Content-Disposition: attachment on the response), not a typed
+// resource a caller reads fields off of.
+export async function exportPrivacyData() {
+  const res = await fetch('/privacy/export');
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): ${await res.text()}`);
+  }
+  return res.blob();
+}
+
+// Irreversible -- same "no soft-delete/undo" honesty as deleteSession's
+// own docstring, just wider (see src/api/db.py::reset_all_data).
+export async function resetAllData() {
+  const res = await fetch('/privacy/reset', { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): ${await res.text()}`);
+  }
+}

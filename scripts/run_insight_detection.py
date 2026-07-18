@@ -41,6 +41,13 @@ def main() -> None:
 
     db.init_db(Path(args.db_path) if args.db_path else None)
 
+    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    # defense in depth alongside src/api/server.py's own read-path gate;
+    # see run_learning.py's identical guard for the full reasoning.
+    if not db.get_cross_session_learning_enabled():
+        print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
+        return
+
     session_texts = db.get_session_texts_for_insights()
     print(f"Read {len(session_texts)} session(s) with a completed Judgment.")
 

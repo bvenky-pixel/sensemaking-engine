@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api import db
@@ -45,11 +45,13 @@ from src.api.schema import (
     LearnedPatternOut,
     MessageOut,
     ModeOut,
+    PrivacySettingsOut,
     ResponseOptionOut,
     SendMessageRequest,
     SendMessageResponse,
     SessionSummary,
     SetBookmarkRequest,
+    SetPrivacySettingsRequest,
     UnderstandingResponse,
     UnderstandingStatementOut,
 )
@@ -237,25 +239,38 @@ def send_message(session_id: str, body: SendMessageRequest) -> SendMessageRespon
     # Pattern/Insight types build_retrieved_context expects, keeping the
     # src.api -> engine dependency direction (engine packages never
     # import from src.api).
-    patterns = [
-        Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
-        for p in db.get_learned_patterns()
-    ]
-    insights = [
-        Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
-        for i in db.get_insights()
-    ]
+    #
+    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    # gated behind cross_session_learning_enabled: when a person has
+    # opted out, this live turn only ever sees THIS session's own
+    # WorldState (already loaded above), never anything Learning/Insight
+    # Engine/POM have inferred about them across other Journeys. The
+    # in-session experience (Interpretation/Judgment/Planner/Response,
+    # this session's own history) is completely unaffected either way.
+    if db.get_cross_session_learning_enabled():
+        patterns = [
+            Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
+            for p in db.get_learned_patterns()
+        ]
+        insights = [
+            Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
+            for i in db.get_insights()
+        ]
+        # Personal Operating Model (see src/pom/engine.py,
+        # engine/decisions.md "Personal Operating Model") -- a cheap,
+        # read-only DB read of whatever scripts/run_pom_computation.py
+        # last computed offline; never computed live. None until that
+        # script has run at least once.
+        pom = db.get_personal_operating_model()
+    else:
+        patterns, insights, pom = [], [], None
     # Need State Inference v1 (see src/need_state/engine.py,
     # engine/decisions.md "Need State Inference") -- must run on the
     # PRE-turn `state` (loaded above), since it has to be ready before
     # Retrieval, which feeds Judgment before this turn's own
-    # Interpretation has even run.
+    # Interpretation has even run. Scoped entirely to THIS session's own
+    # state, not cross-session, so it's unaffected by the opt-out above.
     need_state = infer_need_state(state)
-    # Personal Operating Model (see src/pom/engine.py, engine/decisions.md
-    # "Personal Operating Model") -- a cheap, read-only DB read of
-    # whatever scripts/run_pom_computation.py last computed offline;
-    # never computed live. None until that script has run at least once.
-    pom = db.get_personal_operating_model()
     retrieved_context = build_retrieved_context(patterns, insights, need_state=need_state, pom=pom)
 
     result = run_turn(
@@ -392,6 +407,49 @@ def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
     Not yet consumed by the frontend -- same "not-yet-done design pass"
     status as /patterns."""
     return db.get_personal_operating_model()
+
+
+@app.get("/privacy/settings", response_model=PrivacySettingsOut)
+def get_privacy_settings() -> PrivacySettingsOut:
+    """Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    backs Settings' Privacy card. See src/api/db.py's `privacy_settings`
+    table docstring for exactly what `cross_session_learning_enabled`
+    gates."""
+    return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled())
+
+
+@app.post("/privacy/settings", response_model=PrivacySettingsOut)
+def set_privacy_settings(body: SetPrivacySettingsRequest) -> PrivacySettingsOut:
+    db.set_cross_session_learning_enabled(body.cross_session_learning_enabled)
+    return PrivacySettingsOut(cross_session_learning_enabled=body.cross_session_learning_enabled)
+
+
+@app.get("/privacy/export")
+def export_privacy_data() -> Response:
+    """Everything Confidant has ever stored about this person, as one
+    downloadable JSON file (see src/api/db.py::export_all_data's own
+    docstring for exactly what's included). A plain `Response` with an
+    explicit Content-Disposition rather than `response_model` -- this
+    is a file download, not a typed API resource a frontend consumes
+    programmatically."""
+    payload = json.dumps(db.export_all_data(), indent=2)
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=confidant-export.json"},
+    )
+
+
+@app.post("/privacy/reset", status_code=204)
+def reset_privacy_data() -> None:
+    """"Forget everything" -- irreversible (see
+    src/api/db.py::reset_all_data's own docstring). Deliberately no
+    request body/confirmation param here: the frontend's own two-step
+    confirm (same pattern as Settings' existing per-Journey delete) is
+    where the "are you sure" lives, matching every other destructive
+    action in this API (DELETE /sessions/{id} has no confirmation
+    param either)."""
+    db.reset_all_data()
 
 
 if _FRONTEND_DIR.exists():

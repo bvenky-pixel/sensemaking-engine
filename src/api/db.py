@@ -61,6 +61,20 @@ src/insight/engine.py, engine/decisions.md "Major update"):
   this session evidence any insight"), and every other many-to-many-
   shaped table in this codebase (`behavioral_events`, `messages`)
   already keys on `session_id` directly rather than as a JSON blob.
+
+One more table, added for Privacy, made real (see frontend/decisions.md):
+- `privacy_settings`: a true singleton (same "id INTEGER PRIMARY KEY
+  CHECK (id = 1)" shape as `personal_operating_model`, except `init_db`
+  guarantees a row exists from the very first startup -- unlike POM,
+  there's no "not computed yet" state this can correctly be in).
+  Currently one column, `cross_session_learning_enabled`: when false,
+  `send_message` stops reading `learned_patterns`/`insights`/
+  `personal_operating_model` into a live turn's Retrieved Context, and
+  `scripts/run_learning.py`/`run_insight_detection.py`/
+  `run_pom_computation.py` each no-op rather than writing new rows --
+  the same opt-out honored at both the read path (what a live
+  conversation sees) and the write path (what gets computed about this
+  person in the first place).
 """
 
 from __future__ import annotations
@@ -155,6 +169,11 @@ CREATE TABLE IF NOT EXISTS personal_operating_model (
     pom_json TEXT NOT NULL,
     computed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS privacy_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -204,6 +223,16 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute("ALTER TABLE sessions ADD COLUMN mode TEXT")
         except sqlite3.OperationalError:
             pass
+        # privacy_settings is a real singleton (unlike
+        # personal_operating_model, which correctly has no row until
+        # first computed) -- get_cross_session_learning_enabled must
+        # always have a definite answer, defaulting to enabled (opt-out,
+        # not opt-in, matching every other feature in this codebase that
+        # shipped enabled by default). INSERT OR IGNORE is a no-op on
+        # every startup after the first.
+        conn.execute(
+            "INSERT OR IGNORE INTO privacy_settings (id, cross_session_learning_enabled) VALUES (1, 1)"
+        )
 
 
 def create_session(mode: Optional[str] = None) -> str:
@@ -637,3 +666,87 @@ def get_personal_operating_model() -> Optional[PersonalOperatingModel]:
     if row is None:
         return None
     return PersonalOperatingModel.model_validate_json(row[0])
+
+
+# Privacy, made real (2026-07-18, see frontend/decisions.md): the first
+# actual controls behind Settings' Privacy card, previously just a
+# static sentence ("Controls for what Confidant remembers and how it's
+# used") with nothing behind it.
+
+
+def get_cross_session_learning_enabled() -> bool:
+    """Defaults to True (see init_db's own INSERT OR IGNORE) -- a
+    brand-new database always has a row, so this never needs a
+    None-means-default fallback the way get_personal_operating_model
+    does."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT cross_session_learning_enabled FROM privacy_settings WHERE id = 1"
+        ).fetchone()
+    return bool(row[0]) if row else True
+
+
+def set_cross_session_learning_enabled(enabled: bool) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE privacy_settings SET cross_session_learning_enabled = ? WHERE id = 1",
+            (1 if enabled else 0,),
+        )
+
+
+def export_all_data() -> dict:
+    """Everything Confidant has ever stored about this person, as one
+    plain JSON-serializable document -- every table this module owns
+    except `privacy_settings` itself (the export is about the person's
+    Journey data, not their settings). `*_json` TEXT columns are parsed
+    back into real nested objects rather than left as escaped strings,
+    so the exported file is actually readable by a person, not just
+    re-ingestable by this codebase."""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        sessions = [dict(row) for row in conn.execute("SELECT * FROM sessions")]
+        messages = [dict(row) for row in conn.execute("SELECT * FROM messages")]
+        behavioral_events = [dict(row) for row in conn.execute("SELECT * FROM behavioral_events")]
+        learned_patterns = [dict(row) for row in conn.execute("SELECT * FROM learned_patterns")]
+        insights = [dict(row) for row in conn.execute("SELECT * FROM insights")]
+        insight_sessions = [dict(row) for row in conn.execute("SELECT * FROM insight_sessions")]
+        pom_rows = [dict(row) for row in conn.execute("SELECT * FROM personal_operating_model")]
+
+    for session in sessions:
+        session["world_state"] = json.loads(session.pop("world_state_json"))
+        debug_json = session.pop("debug_json")
+        session["debug"] = json.loads(debug_json) if debug_json else None
+    for message in messages:
+        options_json = message.pop("options_json")
+        message["options"] = json.loads(options_json) if options_json else []
+    for pom_row in pom_rows:
+        pom_row["personal_operating_model"] = json.loads(pom_row.pop("pom_json"))
+
+    return {
+        "exported_at": _now(),
+        "sessions": sessions,
+        "messages": messages,
+        "behavioral_events": behavioral_events,
+        "learned_patterns": learned_patterns,
+        "insights": insights,
+        "insight_sessions": insight_sessions,
+        "personal_operating_model": pom_rows[0] if pom_rows else None,
+    }
+
+
+def reset_all_data() -> None:
+    """"Forget everything" -- irreversible, same as delete_session's own
+    lack of an undo path, just wider. Deletes every Journey, message,
+    behavioral event, learned pattern, insight, and the standing
+    Personal Operating Model. Deliberately does NOT touch
+    `privacy_settings` -- a person clearing their journal data is not
+    also asking to have their own stated cross-session-learning
+    preference silently reset back to the default."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM messages")
+        conn.execute("DELETE FROM behavioral_events")
+        conn.execute("DELETE FROM insight_sessions")
+        conn.execute("DELETE FROM insights")
+        conn.execute("DELETE FROM learned_patterns")
+        conn.execute("DELETE FROM personal_operating_model")
+        conn.execute("DELETE FROM sessions")

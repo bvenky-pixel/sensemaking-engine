@@ -208,3 +208,16 @@ class InsightOut(BaseModel):
     theme: str
     detail: str
     evidence_session_ids: List[str]
+
+
+class PrivacySettingsOut(BaseModel):
+    """Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    GET/POST /privacy/settings. One field today
+    (`cross_session_learning_enabled`); see src/api/db.py's
+    `privacy_settings` table docstring for exactly what it gates."""
+
+    cross_session_learning_enabled: bool
+
+
+class SetPrivacySettingsRequest(BaseModel):
+    cross_session_learning_enabled: bool

@@ -42,6 +42,16 @@ def main() -> None:
 
     db.init_db(Path(args.db_path) if args.db_path else None)
 
+    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    # defense in depth alongside src/api/server.py's own read-path gate;
+    # see run_learning.py's identical guard for the full reasoning. POM
+    # is arguably the MOST personal of the three cross-session artifacts
+    # (an inferred profile of beliefs/motivation/identity), so honoring
+    # the opt-out here is not optional.
+    if not db.get_cross_session_learning_enabled():
+        print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
+        return
+
     claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom()
     print(
         f"Aggregated {len(claims)} claim(s), {len(assumptions)} assumption(s), "

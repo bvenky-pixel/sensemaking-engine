@@ -8152,3 +8152,76 @@ real model's inferences are sensible, not just schema-valid) is now
 answered with real evidence, not just accepted-in-principle -- the
 core mechanism works; Learning Style is the one field that needs
 prompt-level sharpening if this becomes a real, ongoing feature.
+
+## Privacy, made real (2026-07-18)
+
+First of a five-item roadmap the founder laid out ("privacy/account
+functional", "sharpen mode responses", "surface POM without
+intimidating", "seed POM early", "harden to level 4 maturity"),
+sequenced by explicit request: least effort for most impact first.
+Settings' Privacy card was a static sentence with nothing behind it
+("Controls for what Confidant remembers and how it's used.") -- this
+round makes it real, without touching Account (still correctly a
+placeholder -- there is no auth/user system anywhere in this codebase
+to attach real account fields to yet).
+
+**New `privacy_settings` table** (`src/api/db.py`): a true singleton,
+one column so far (`cross_session_learning_enabled`, defaults to
+`True`) -- unlike `personal_operating_model`, `init_db` guarantees a
+row exists from the very first startup (`INSERT OR IGNORE`), since
+there's no correct "not set yet" state this can be in the way POM
+correctly has none until first computed.
+
+**The opt-out is honored at both the read path and the write path**,
+deliberately, not just one:
+- Read path: `send_message` (`src/api/server.py`) now checks the flag
+  before fetching `learned_patterns`/`insights`/
+  `personal_operating_model` at all -- when off, a live turn only ever
+  sees THIS session's own WorldState, never anything inferred about
+  the person across other Journeys. Need State Inference is untouched
+  either way (it's scoped entirely to the current session's own
+  state, not cross-session).
+- Write path: `scripts/run_learning.py`/`run_insight_detection.py`/
+  `run_pom_computation.py` each gained an identical guard right after
+  `db.init_db(...)` -- when the opt-out is on, each script no-ops
+  rather than computing and writing new rows. None of these three
+  scripts run on any schedule today (all `workflow_dispatch`, no
+  `cron` trigger anywhere in `.github/workflows/`), so this is defense
+  in depth rather than fixing an active leak -- but it means the
+  opt-out holds even if that ever changes, rather than silently only
+  covering the read side.
+
+**Full data export** (`db.export_all_data`, `GET /privacy/export`):
+every table this module owns except `privacy_settings` itself (the
+export is about a person's Journey data, not their settings) --
+sessions, messages, behavioral events, learned patterns, insights,
+insight_sessions, the standing POM. `*_json` TEXT columns
+(`world_state_json`, `debug_json`, `options_json`, `pom_json`) are
+parsed back into real nested objects before returning, so the exported
+file is actually readable by a person opening it, not just
+re-ingestable JSON-inside-JSON. Served as a plain `Response` with
+`Content-Disposition: attachment`, not a typed `response_model` --
+this is a file download, not an API resource a frontend reads fields
+off of.
+
+**"Forget everything"** (`db.reset_all_data`, `POST /privacy/reset`):
+irreversible, same "no soft-delete/undo" honesty as `delete_session`'s
+own docstring, just wider -- deletes every session, message,
+behavioral event, learned pattern, insight, and the standing POM in
+one call. Deliberately does NOT touch `privacy_settings` -- clearing
+journal content isn't the same action as reverting a preference the
+person deliberately chose; a person who opted out of cross-session
+learning and then resets their data should still find that opt-out in
+place afterward, not silently reverted to the default. No
+confirmation param on the endpoint itself -- same pattern as `DELETE
+/sessions/{id}` (no confirmation param either); the frontend's own
+two-step confirm is where "are you sure" belongs.
+
+Verified: 5 new backend tests in `tests/test_api_server.py`
+(defaults, persistence, the opt-out actually gating
+`build_retrieved_context`'s inputs -- a direct mirror of the existing
+`test_send_message_threads_retrieved_context_into_judgment_prompt`
+with only the opt-out flag different, so a regression in the gate
+itself is exactly what it would catch -- export contents, and reset
+behavior including that `privacy_settings` survives). Full suite: 436
+passed (431 existing + 5 new).

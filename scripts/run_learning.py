@@ -43,6 +43,15 @@ def main() -> None:
 
     db.init_db(Path(args.db_path) if args.db_path else None)
 
+    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+    # defense in depth alongside src/api/server.py's own read-path gate:
+    # this is the actual write path for `learned_patterns`, so honoring
+    # the opt-out here too means it holds even if this script is ever
+    # run on a schedule rather than only by hand.
+    if not db.get_cross_session_learning_enabled():
+        print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
+        return
+
     events = db.get_all_events()
     print(f"Read {len(events)} behavioral event(s) from the Memory Store.")
 

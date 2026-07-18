@@ -1028,3 +1028,105 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
     finally:
         live_server.should_exit = True
         server_thread.join(timeout=5)
+
+
+# Privacy, made real (2026-07-18, see frontend/decisions.md).
+
+
+def test_privacy_settings_default_to_cross_session_learning_enabled(client):
+    res = client.get("/privacy/settings")
+    assert res.json() == {"cross_session_learning_enabled": True}
+
+
+def test_privacy_settings_can_be_disabled_and_persist(client):
+    res = client.post("/privacy/settings", json={"cross_session_learning_enabled": False})
+    assert res.json() == {"cross_session_learning_enabled": False}
+
+    # A fresh GET, not just trusting the POST's own echoed response --
+    # confirms it actually persisted to the DB rather than the endpoint
+    # just reflecting back whatever the request body said.
+    res = client.get("/privacy/settings")
+    assert res.json() == {"cross_session_learning_enabled": False}
+
+
+def test_send_message_omits_retrieved_context_when_cross_session_learning_disabled(client, monkeypatch):
+    """Same fixture data as
+    test_send_message_threads_retrieved_context_into_judgment_prompt
+    above -- the only difference is the opt-out being set first. If this
+    test passed without the opt-out actually gating anything, the
+    positive-case test above would have caught it; this is the direct
+    regression test for the gate itself."""
+    seen = {}
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _spy_call_provider(_MINIMAL_JUDGMENT, seen, "judgment")
+    )
+    monkeypatch.setattr(
+        "src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER)
+    )
+    monkeypatch.setattr(
+        "src.response.engine.call_provider", _always_returns(_MINIMAL_RESPONSE)
+    )
+    db.replace_learned_patterns([
+        Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
+    ])
+    db.replace_insights([
+        Insight(theme="Career anxiety", detail="Recurring worry about job security", evidence_session_ids=[])
+    ])
+    db.set_cross_session_learning_enabled(False)
+    session_id = client.post("/sessions").json()["id"]
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    _, judgment_messages = seen["judgment"]
+    content = judgment_messages[0]["content"]
+    assert "Often reopens closed decisions" not in content
+    assert "Career anxiety" not in content
+
+
+def test_privacy_export_includes_sessions_messages_and_readable_world_state(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    res = client.get("/privacy/export")
+    assert res.headers["content-type"] == "application/json"
+    assert "attachment" in res.headers["content-disposition"]
+    payload = res.json()
+
+    assert len(payload["sessions"]) == 1
+    assert payload["sessions"][0]["id"] == session_id
+    # world_state_json was a raw TEXT column -- confirms it's parsed
+    # back into a real nested object here, not left as an escaped string.
+    assert isinstance(payload["sessions"][0]["world_state"], dict)
+    assert len(payload["messages"]) == 2  # the user turn + the assistant reply
+    assert payload["personal_operating_model"] is None  # never computed in this test
+
+
+def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    db.replace_learned_patterns([
+        Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
+    ])
+    db.set_cross_session_learning_enabled(False)
+
+    res = client.post("/privacy/reset")
+    assert res.status_code == 204
+
+    assert client.get("/sessions").json() == []
+    assert db.get_learned_patterns() == []
+    # The person's own stated privacy preference survives a data reset --
+    # resetting journal content isn't the same action as reverting a
+    # setting they deliberately chose.
+    assert db.get_cross_session_learning_enabled() is False
