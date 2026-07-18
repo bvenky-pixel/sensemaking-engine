@@ -1562,3 +1562,36 @@ every new code path (the nudges' visibility gates, dismiss, the
 LoginGate wiring, the return-session round trip) with the LLM layer
 mocked out, same boundary every other screen test in this app already
 draws.
+
+## Home's bookmark login gate moved below .bottom-links (2026-07-18)
+
+Direct founder bug report: the "Log in" trigger for Home's own
+bookmark-login gate lives in `.bottom-links`, at the very bottom of
+the page -- but the card it opens (`showLoginGate`) rendered right
+after the header, at the very TOP. On any account with enough Journeys
+to need scrolling, tapping "Log in" (visible, at the bottom) opened a
+card that was now off-screen above the current scroll position --
+indistinguishable from the button silently doing nothing.
+
+**Fix**: moved the `{#if showLoginGate}` block from right after
+`.header` to right after `.bottom-links`, so it now renders directly
+below its own trigger -- always in view the moment it opens, no scroll
+required. Same "appear near what triggered you" placement discipline
+`Journey.svelte`'s own `.actions-gate` comment already documents for
+its own login card. `.login-gate-card`'s CSS flipped from
+`margin-bottom` to `margin-top` to match (it now follows
+`.bottom-links` rather than precedes the Journey list).
+
+The Journey-completion nudge added earlier this same round
+(`completionNudge`, see "Two earlier login nudges" above) was
+unaffected -- it's triggered by leaving a Journey, not by an
+on-screen Home button, so there's no equivalent "trigger is far from
+its card" problem for it to have.
+
+Verified: full frontend suite still 85 passed (Testing Library queries
+by text/role, not DOM position, so no test assertions needed to
+change) and `npm run build` green. Not re-verified with a live scroll
+test (would need a real Journey list long enough to scroll, i.e. real
+messages through the live LLM pipeline) -- the fix itself is a pure
+DOM-reordering change with no new logic, so unit coverage plus a read
+of the resulting markup order is enough confidence for this one.

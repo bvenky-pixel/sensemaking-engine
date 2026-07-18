@@ -219,12 +219,6 @@
     {/if}
   </div>
 
-  {#if showLoginGate}
-    <div class="login-gate-card card" in:fade={{ duration: 220 }}>
-      <LoginGate message="Log in to bookmark Journeys." />
-    </div>
-  {/if}
-
   {#if completionNudge}
     <div class="completion-nudge card" in:fade={{ duration: 220 }}>
       {#if showCompletionLoginForm}
@@ -361,6 +355,20 @@
       </button>
     {/if}
   </div>
+
+  <!-- Moved here from right below the header (2026-07-18, direct
+       founder feedback): the "Log in" trigger above lives at the
+       BOTTOM of the page, but on a long Journey list this card used to
+       render at the very TOP -- off-screen unless a person scrolled
+       up, making the button look broken. Rendering right below its own
+       trigger keeps it in view without needing to scroll, same
+       "appear near what triggered you" discipline Journey.svelte's own
+       .actions-gate already follows. -->
+  {#if showLoginGate}
+    <div class="login-gate-card card" in:fade={{ duration: 220 }}>
+      <LoginGate message="Log in to bookmark Journeys." />
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -550,10 +558,13 @@
     display: block;
   }
 
-  /* Bookmark login gate (see script comment on showLoginGate) -- same
-     .card recipe every other login prompt in this app uses. */
+  /* Bookmark login gate (see script comment on showLoginGate, and the
+     comment right above its markup for why this moved below
+     .bottom-links) -- same .card recipe every other login prompt in
+     this app uses. margin-top now, not margin-bottom -- it follows
+     .bottom-links rather than precedes the journey list. */
   .login-gate-card {
-    margin-bottom: var(--space-3);
+    margin-top: var(--space-3);
     padding: var(--space-3);
   }
 
