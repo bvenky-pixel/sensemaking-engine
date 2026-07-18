@@ -58,10 +58,18 @@
   // simplification" note), so a server-side "this week" would either
   // hardcode UTC (wrong for most people, most of the time) or need new
   // timezone infrastructure neither asked for nor needed just for this.
-  // Both filters compose with the existing All/Bookmarked filter and
-  // with each other -- switching time period resets the mode filter
-  // (a mode selected in "This month" may not exist at all in "This
+  // Both filters compose with the existing bookmark filter and with
+  // each other -- switching time period resets the mode filter (a
+  // mode selected in "This month" may not exist at all in "This
   // week"), never the reverse.
+  //
+  // One "all", not two (2026-07-18): the bookmark filter used to be a
+  // separate All/Bookmarked pair, which sat right next to the new "All
+  // time" period pill and read as two different, competing "show
+  // everything" buttons. Collapsed to a single "★ Bookmarked only"
+  // toggle -- off (the default) already means "show everything the
+  // period/mode filters allow", so a redundant explicit "All" had
+  // nothing left to mean.
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { listSessions, setBookmark, createSession, getModes } from '../lib/api.js';
@@ -212,18 +220,10 @@
         <button
           type="button"
           class="ui-label filter-option"
-          class:active={!showBookmarkedOnly}
-          onclick={() => toggleFilter(false)}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          class="ui-label filter-option"
           class:active={showBookmarkedOnly}
-          onclick={() => toggleFilter(true)}
+          onclick={() => toggleFilter(!showBookmarkedOnly)}
         >
-          Bookmarked
+          ★ Bookmarked only
         </button>
       </div>
 

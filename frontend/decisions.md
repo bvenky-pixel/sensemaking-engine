@@ -1198,3 +1198,23 @@ accurate live counts, the mode chip row correctly stayed hidden on
 "This week" (only one mode present in that bucket) and appeared on
 wider periods, and journey cards showed the right tinted edge per mode
 with the mode-less legacy Journey left plain.
+
+## One "all", not two (2026-07-18)
+
+Immediate founder follow-up on the time-period toggle above: the new
+"All time" period pill sat right next to the pre-existing All/Bookmarked
+filter pair, so the screen showed two different, competing "All"
+buttons doing two unrelated things (one over time period, one over
+bookmark state). Collapsed the bookmark filter from an All/Bookmarked
+pair down to a single "★ Bookmarked only" toggle -- off (the default)
+already means "show everything the period/mode filters allow", so a
+redundant explicit "All" had nothing left to mean. `toggleFilter` now
+takes the next boolean directly from the one button's own click
+handler instead of two separate buttons each hardcoding one side.
+
+Verified: `npm test` still 47 passed (no test exercised the old
+All/Bookmarked buttons directly). `npm run build` green. Live
+Playwright screenshot against a real served build with a mix of
+bookmarked/unbookmarked Journeys across periods and modes: only one
+"All"-shaped control remains on screen (the period row), the bookmark
+toggle reads as a single star pill that highlights when active.
