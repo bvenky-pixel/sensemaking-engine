@@ -8744,3 +8744,78 @@ against this app's real prompts remains unvalidated in production terms
 newly configured model" caveat this file has carried since the
 Ollama-removal era, now doubly relevant since Qwen3-32B is PRIMARY, not
 just an option that was considered.
+
+## POM early seeding via mode design (2026-07-18)
+
+Second item off the founder's own 5-part roadmap taken up this round
+("privacy/account" [done], "surface POM" [done], "sharpen mode
+responses" [being live-verified separately, see next entry], "seed POM
+early" [this entry], "harden to level 4"). Personal Operating Model's 6
+LLM-inferred systems (Identity, Motivation/SDT, Learning Style, Stress,
+Narrative, Theory of Mind -- Belief/Relationship are mechanical and
+already seed from turn one regardless of mode) only earn a
+non-"unclear" value once enough grounded evidence exists; for a
+brand-new account that evidence purely depends on how much conversation
+happens to touch each dimension, with no seeding help from mode design
+at all until this round.
+
+**Mapping** (`src/orchestrator/modes.py`'s own module docstring has the
+full reasoning): each of the 5 concrete Counseling modes already sits
+near one POM dimension through its own established character -- Vent
+(emotional validation) -> Stress, Strategize (options/decisions) ->
+Motivation, Commit (accountability) -> Motivation's competence
+dimension, Explore (challenging assumptions) -> Learning Style. Realign
+(identity/values throughline) already maps to Identity + Narrative, but
+via its EXISTING `turn_count % 5` rotation (added during the mode-
+repetitiveness rounds below), which already asks an Identity/Narrative-
+flavored question every turn by design -- so Realign was deliberately
+left unchanged rather than given a second, competing modulo gate.
+Theory of Mind isn't mode-specific (it's about how the person reads
+named OTHER people, not something one mode's own register naturally
+elicits), so no mode gained a Theory-of-Mind clause.
+
+**Mechanism, same lesson as Realign's own hard-won discipline**: a
+vague "occasionally ask about X" instruction doesn't reliably produce
+real variety from a memoryless generator (this is the exact multi-round
+finding the mode-repetitiveness saga below already established for
+Realign specifically). So each of the 4 new clauses uses the same
+deterministic `turn_count % 3 == 0` gate -- on that turn, the mode's
+own sentence-2 question is replaced by one aimed at the mapped POM
+dimension; on every other turn, the mode's existing baseline behavior
+is unchanged. `turn_count % 3` (not `% 5`, deliberately different from
+Realign's own cadence) guarantees the first POM-seeding turn arrives by
+turn 3 -- "early" seeding should actually start early, not wait for a
+coincidence of two independent rotation cadences to align.
+
+**Explicitly NOT a mandate to fish for data**: each clause is worded as
+strictly secondary to the mode's own primary job (validation in Vent,
+narrowing toward a decision in Strategize, etc.), grounded only in what
+the person actually said, never inventing a reason/state/belief for
+them to manufacture a data point. This matters ethically, not just
+stylistically -- an app whose core value proposition already rejects
+manufactured urgency elsewhere (see the "no manufactured urgency"
+discipline referenced in the onboarding-nudge backlog item) cannot
+turn around and manufacture personal-disclosure prompts under the same
+roof; every added clause reuses signal the mode would plausibly
+surface anyway, just with a specific, deterministic nudge toward WHICH
+angle of it to ask about.
+
+Concretely: Vent's sentence 2 (every 3rd turn) probes how long a
+feeling has been building; Strategize's asks WHY a leaning option
+appeals to them personally (autonomy/competence/relatedness in plain
+language, framework never named); Commit's asks what's actually making
+follow-through hard; Explore's asks HOW they'd go about verifying an
+assumption themselves, not just challenges it.
+
+Verified via unit tests only (`tests/test_modes.py`, 5 new tests: one
+per new clause confirming the `turn_count % 3 == 0` gate and its
+mapped-dimension phrasing, plus one confirming Realign has NO competing
+gate). Full suite: `pytest` 474 passed. **No live dispatch run for this
+specific change** -- same "prompt-text change verified via targeted
+unit tests, real-model behavior deferred until explicitly requested"
+precedent Realign's own last round established; worth a live check
+(ideally piggybacking on the next mode-repetitiveness dispatch, since
+the two share the same 11-turn transcript and now the same production
+model mix) before fully trusting these clauses actually surface
+sentences a real model consistently grounds correctly rather than
+just complying with the letter of a new instruction.

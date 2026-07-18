@@ -85,6 +85,32 @@ Planner's own job (deciding what to prioritize) and Response's (deciding
 how to phrase it, and whether to populate `options`) diverge enough per
 mode that one shared paragraph could no longer serve both without being
 vague in one direction or the other.
+
+POM early seeding via mode design (2026-07-18, see engine/decisions.md
+"POM early seeding via mode design"): Personal Operating Model
+(src/pom/engine.py) needs enough grounded evidence per system before it
+trusts a field above "unclear" -- for a new account, that evidence only
+exists once enough conversation has touched each of the 6 LLM-inferred
+systems (Identity, Motivation/SDT, Learning Style, Stress, Narrative,
+Theory of Mind; Belief/Relationship are mechanical and already seed from
+turn one regardless of mode). Each mode's own natural question already
+sits near one of these dimensions, so RESPONSE_MODE_FOCUS below adds one
+`turn_count % 3 == 0` clause per mode -- deterministic, same discipline
+Realign's own rotation already established, since a vague "occasionally
+ask about X" instruction doesn't reliably produce real variety from a
+memoryless generator. Mapping: Vent->Stress, Strategize->Motivation,
+Commit->Motivation (competence), Explore->Learning Style. Realign is
+deliberately UNCHANGED -- its existing turn_count % 5 rotation already
+asks an Identity/Narrative-flavored question EVERY turn by design (not
+occasionally), so it already satisfies its own mapping (Identity +
+Narrative) without a competing modulo gate. Theory of Mind isn't
+mode-specific -- it's about how the person reads named OTHER people, not
+something a single mode's own register naturally elicits -- so no mode
+gained a Theory-of-Mind clause; it's still (correctly) whatever
+naturally comes up whenever a named person is central to a turn.
+Deliberately a light structural nudge, never a mandate: each clause is
+strictly secondary to the mode's own primary job and grounded in what
+was actually said, never inventing content to manufacture a data point.
 """
 
 from __future__ import annotations
@@ -266,7 +292,19 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "question around whatever the person specifically just said, not "
         "the same phrasing as an earlier turn in this same Journey; "
         "repeating an identical check-in turn after turn reads as "
-        "mechanical, not attentive."
+        "mechanical, not attentive.\n"
+        "\n"
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding via mode design\"): on every third turn "
+        "(`turn_count % 3 == 0`), let sentence 2 go one layer deeper into "
+        "what this feeling is actually carrying -- how long it's been "
+        "building, or what's making it feel heavier right now than usual "
+        "(e.g. something like 'Has this been building for a while, or did "
+        "today just make it worse?') -- still purely validating, never "
+        "diagnostic, and grounded only in what's already been said. On "
+        "every OTHER turn, stay with the lighter check-in register above; "
+        "this deeper probe is occasional by design, not a checklist item "
+        "to hit every turn."
     ),
     "strategize": (
         "This Journey was started in Strategize mode: the person wants "
@@ -282,7 +320,18 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "pose the framing question itself (e.g. something like 'Which of "
         "these feels closer to the right call?'), staying short, exactly "
         "as the STRUCTURE rule already requires -- still grounded, never "
-        "inventing an option nothing upstream actually named."
+        "inventing an option nothing upstream actually named.\n"
+        "\n"
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding via mode design\"): on every third turn "
+        "(`turn_count % 3 == 0`), replace the framing question with one "
+        "that asks WHY the option they're leaning toward actually appeals "
+        "to them personally -- e.g. something like 'What is it about that "
+        "one that feels right to you -- that you'd be doing it your own "
+        "way, that you'd feel confident pulling it off, or something "
+        "else?' -- grounded in what they've actually said, never inventing "
+        "a reason for them. On every OTHER turn, use the plain framing "
+        "question above instead."
     ),
     "commit": (
         "This Journey was started in Commit mode: you are, in this mode, "
@@ -296,7 +345,17 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "count for THIS turn (e.g. if it now says a longer duration than "
         "last turn, say that, not a fixed count copied forward from an "
         "earlier turn) -- still grounded in what stagnation_notes actually "
-        "says right now, never an invented or stale characterization."
+        "says right now, never an invented or stale characterization.\n"
+        "\n"
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding via mode design\"): on every third turn "
+        "(`turn_count % 3 == 0`), alongside the dated-commitment question, "
+        "also ask what's actually making follow-through hard for them "
+        "specifically -- e.g. something like 'Is it that you don't feel "
+        "set up to pull this off, or is something else getting in the "
+        "way?' -- grounded in what's already been said, never a generic "
+        "diagnostic question detached from this turn's content. On every "
+        "OTHER turn, stick to the plain dated-commitment question above."
     ),
     "explore": (
         "This Journey was started in Explore mode: the person wants their "
@@ -308,7 +367,17 @@ RESPONSE_MODE_FOCUS: Dict[str, str] = {
         "Still grounded (never invent a new critique WorldState/Judgment "
         "didn't support) and still respects user agency: challenging their "
         "thinking means surfacing a real tension for them to examine, never "
-        "asserting they're wrong or telling them what to conclude."
+        "asserting they're wrong or telling them what to conclude.\n"
+        "\n"
+        "POM early seeding (2026-07-18, see engine/decisions.md \"POM "
+        "early seeding via mode design\"): on every third turn "
+        "(`turn_count % 3 == 0`), phrase the challenge as a question about "
+        "how they'd actually go about checking whether the assumption is "
+        "true -- e.g. something like 'How would you actually find out -- "
+        "ask them directly, look for evidence yourself, or something "
+        "else?' -- this reveals how they approach uncertainty, not just "
+        "what they currently assume. On every OTHER turn, use the direct "
+        "challenge register above instead."
     ),
     "realign": (
         "This Journey was started in Realign mode: you are, in this mode, "

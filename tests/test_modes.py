@@ -160,6 +160,52 @@ def test_strategize_response_focus_warns_against_duplicating_options_in_prose():
     assert "duplicat" in RESPONSE_MODE_FOCUS["strategize"].lower()
 
 
+def test_vent_response_focus_seeds_stress_evidence_on_a_turn_count_cadence():
+    """POM early seeding via mode design (2026-07-18, see
+    engine/decisions.md) -- Vent maps to POM's Stress system. Must use
+    the same deterministic turn_count % 3 gate as every other mode's own
+    clause, not a vague "occasionally" instruction (same lesson Realign's
+    own turn_count % 5 rotation already established: free "vary it"
+    instructions don't survive a memoryless generator)."""
+    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["vent"]
+    assert "POM early seeding" in RESPONSE_MODE_FOCUS["vent"]
+
+
+def test_strategize_response_focus_seeds_motivation_evidence_on_a_turn_count_cadence():
+    """POM early seeding via mode design -- Strategize maps to POM's
+    Motivation (SDT) system, asking WHY an option appeals rather than
+    just which one."""
+    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["strategize"]
+    assert "feels right to you" in RESPONSE_MODE_FOCUS["strategize"]
+
+
+def test_commit_response_focus_seeds_motivation_competence_evidence_on_a_turn_count_cadence():
+    """POM early seeding via mode design -- Commit maps to POM's
+    Motivation system's competence dimension, asking what's making
+    follow-through hard rather than only the dated commitment itself."""
+    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["commit"]
+    assert "set up to pull this off" in RESPONSE_MODE_FOCUS["commit"]
+
+
+def test_explore_response_focus_seeds_learning_style_evidence_on_a_turn_count_cadence():
+    """POM early seeding via mode design -- Explore maps to POM's
+    Learning Style system, asking HOW they'd verify an assumption rather
+    than only challenging it."""
+    assert "turn_count % 3 == 0" in RESPONSE_MODE_FOCUS["explore"]
+    assert "how would you actually find out" in RESPONSE_MODE_FOCUS["explore"].lower()
+
+
+def test_realign_response_focus_has_no_competing_turn_count_seeding_gate():
+    """POM early seeding via mode design -- Realign is deliberately left
+    without a NEW turn_count % 3 clause: its existing turn_count % 5
+    rotation already asks an Identity/Narrative-flavored question every
+    turn by design (not occasionally), so a second, competing modulo gate
+    in the same prompt would be redundant at best and contradictory at
+    worst."""
+    assert "turn_count % 3 == 0" not in RESPONSE_MODE_FOCUS["realign"]
+    assert "turn_count % 5" in RESPONSE_MODE_FOCUS["realign"]
+
+
 def test_response_focus_note_returns_empty_string_for_adaptive():
     """Synthesis (see engine/decisions.md "Synthesis"): Adaptive
     deliberately has no RESPONSE_MODE_FOCUS entry of its own -- Response
