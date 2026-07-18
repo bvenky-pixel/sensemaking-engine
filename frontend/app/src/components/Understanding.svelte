@@ -50,11 +50,32 @@
   // aria-label, screen-reader-only) -- every other card here has a
   // plain-text ui-label, so this one looked like a stray, disconnected
   // paragraph rather than a labeled section, confirmed live.
+  //
+  // Orb as consciousness (2026-07-18, see frontend/decisions.md "Orb as
+  // consciousness"): direct founder framing -- "the orb is Confidant, it
+  // is consciousness... the clarity notes... should seem that they are
+  // the orb's consciousness's perspective or thought" -- explicitly UI
+  // only, no change to any generated text. Everything below is styling:
+  // a small static orb-signature (the same radial-gradient recipe as
+  // BreathingOrb/AmbientPresence's own core, just not animated -- a
+  // seal marking this section as the orb's, not a third moving orb
+  // competing for attention), gradient dots replacing default list
+  // markers so each item reads as one thought rather than a form field,
+  // and italic applied consistently across the region's own prose --
+  // .voice already meant "Confidant's own reading" before this round
+  // (see tokens.css's own comment on that class); this just applies it
+  // everywhere in here instead of only on current_direction/asides, so
+  // the whole panel reads as one continuous voice rather than a mix of
+  // voiced and unvoiced text. ui-label headings stay upright on
+  // purpose -- they're navigation chrome, not the orb's own words, and
+  // that contrast is what makes the voiced content read as content.
   let { brief, tier2 = [], deepeningClarityNote } = $props();
 </script>
 
 {#if brief || tier2?.length}
   <div class="understanding-region" aria-label="What we understand so far">
+    <div class="orb-signature" aria-hidden="true"></div>
+
     {#if deepeningClarityNote}
       <p class="voice callout">{deepeningClarityNote}</p>
     {/if}
@@ -129,6 +150,19 @@
     margin-top: var(--space-4);
   }
 
+  /* The orb's seal -- same core gradient as BreathingOrb/AmbientPresence,
+     static (no breathing, no glow) so it reads as a signature marking
+     whose voice this section is, not a third animated orb on the
+     screen. */
+  .orb-signature {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
+    margin: 0 auto var(--space-2);
+    opacity: 0.7;
+  }
+
   /* .card-settled needs no rules of its own -- the shared .card recipe
      from tokens.css (background/radius/shadow) already IS the settled
      treatment; this class only exists so markup can name the semantic
@@ -136,6 +170,10 @@
   .card {
     padding: var(--space-3);
     margin-bottom: var(--space-2);
+    /* A faint warm wash, same rgba value as the page-level ambient
+       background in tokens.css -- these cards read as lit from the
+       same source as the orb, not as flat form panels. */
+    background-image: radial-gradient(120% 140% at 15% -10%, rgba(255, 122, 89, 0.05), transparent 60%);
   }
 
   .card-secondary {
@@ -157,8 +195,35 @@
     margin: 0 0 var(--space-2);
   }
 
+  /* Consciousness's own voice throughout (see script comment above) --
+     italic only, size/color untouched, so density stays the same and
+     only the "whose words are these" signal changes. */
+  .card p,
+  .card li {
+    font-style: italic;
+  }
+
   .card ul {
+    list-style: none;
     padding-left: var(--space-3);
+  }
+
+  .card li {
+    position: relative;
+  }
+
+  /* A small gradient dot in place of the default marker, same recipe as
+     .orb-signature above -- each item reads as one of the orb's own
+     thoughts, not a bulleted form field. */
+  .card li::before {
+    content: '';
+    position: absolute;
+    left: -17px;
+    top: 0.55em;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
   }
 
   .card p:last-child,

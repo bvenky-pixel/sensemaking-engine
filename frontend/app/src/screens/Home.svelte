@@ -26,10 +26,17 @@
   // benefit, so the hero collapses back to the original single "+Begin
   // something new" button (which still routes to the full ModeSelect
   // screen) the moment there's anything to show instead.
+  //
+  // Orb as consciousness (2026-07-18, see frontend/decisions.md "Orb as
+  // consciousness"): direct founder framing -- "the orb is Confidant, it
+  // is consciousness" -- so the hero now opens with a real teaching
+  // (ZenQuote, a new one each page load) between the orb and the mode
+  // prompt, not decoration alone.
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { listSessions, setBookmark, createSession } from '../lib/api.js';
   import BreathingOrb from '../components/BreathingOrb.svelte';
+  import ZenQuote from '../components/ZenQuote.svelte';
   import ModePicker from '../components/ModePicker.svelte';
 
   let { onOpen, onSettings, onBeginNew } = $props();
@@ -85,6 +92,7 @@
   {#if loaded && !showBookmarkedOnly && sessions.length === 0}
     <div class="hero" in:fade={{ duration: 320 }}>
       <BreathingOrb />
+      <ZenQuote />
       <p class="voice hero-copy">Pick what fits right now.</p>
       <ModePicker onChoose={chooseMode} {starting} />
     </div>
