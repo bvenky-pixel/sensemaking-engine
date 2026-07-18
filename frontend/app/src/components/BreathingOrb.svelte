@@ -30,7 +30,23 @@
   // backend activity, not meditating), but nothing is "happening" here
   // to report, so a longer, calmer breath reads truer to the vibe asked
   // for.
+  //
+  // `compact` (2026-07-18, see frontend/decisions.md "The orb stays"):
+  // direct founder feedback -- "once the first response comes in the
+  // orb suddenly disappears, this is jarring, let's continue having the
+  // orb." Journey.svelte now keeps a small idle orb in the same slot
+  // AmbientPresence occupies while sending, for the entire rest of the
+  // conversation, rather than showing nothing between turns. `compact`
+  // renders at AmbientPresence's own 72px/36px sizing (no enso -- the
+  // brush-stroke ring is the one reflective, attention-holding moment,
+  // right for Home's hero; this is a small, recurring companion that
+  // shouldn't compete with the transcript for attention turn after
+  // turn) so the transition between idle-BreathingOrb and active-
+  // AmbientPresence in the same spot is a change in intensity, not a
+  // size jump.
   import { onDestroy } from 'svelte';
+
+  let { compact = false } = $props();
 
   const CYCLE_MS = 7000;
 
@@ -74,10 +90,12 @@
   });
 </script>
 
-<div class="hero-orb" aria-hidden="true">
-  <svg class="enso" viewBox="0 0 100 100">
-    <circle class="enso-ring" cx="50" cy="50" r="46" />
-  </svg>
+<div class="hero-orb" class:compact aria-hidden="true">
+  {#if !compact}
+    <svg class="enso" viewBox="0 0 100 100">
+      <circle class="enso-ring" cx="50" cy="50" r="46" />
+    </svg>
+  {/if}
   <div class="glow" class:reduced={reducedMotion} bind:this={glowEl}></div>
   <div class="core" class:reduced={reducedMotion} bind:this={dotEl}></div>
 </div>
@@ -91,6 +109,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .hero-orb.compact {
+    width: 72px;
+    height: 72px;
+    margin: 0;
   }
 
   /* The enso -- one brush stroke, deliberately not a closed circle
@@ -127,6 +151,11 @@
     opacity: 0.3;
   }
 
+  .compact .glow {
+    width: 72px;
+    height: 72px;
+  }
+
   .glow.reduced {
     opacity: 0.22;
   }
@@ -138,6 +167,11 @@
     border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
     opacity: 0.85;
+  }
+
+  .compact .core {
+    width: 36px;
+    height: 36px;
   }
 
   .core.reduced {

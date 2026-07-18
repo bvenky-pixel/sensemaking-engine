@@ -24,6 +24,28 @@
   ];
   const openingPrompt = OPENING_PROMPTS[Math.floor(Math.random() * OPENING_PROMPTS.length)];
 
+  // Poignant per-stage loading text (2026-07-18, see frontend/decisions.md
+  // "The orb stays, and it tells you what it's doing"): direct founder
+  // ask -- "poignant loading text corresponding to the backend process
+  // running... to reduce latency friction." This is a deliberate,
+  // explicit override of v1's "no stage labels, no text of any kind"
+  // principle (see AmbientPresence.svelte's own "Round 2" comment) --
+  // the founder is asking for exactly the thing that principle was
+  // written to avoid, so the override is intentional, not a lapse.
+  // What's KEPT from that principle's spirit: no raw backend vocabulary
+  // (see Understanding.svelte's own docstring on this) -- the real
+  // stage ids ("interpretation"/"judgment"/"planner"/"response", from
+  // src/orchestrator/engine.py) never reach the screen; each maps to a
+  // short, human phrase instead. Keyed by the stage that JUST finished
+  // (openStageStream's own contract), so each phrase describes the
+  // stage that starts next, not the one that just completed.
+  const STAGE_LABELS = {
+    interpretation: 'Sitting with it for a moment.',
+    judgment: 'Thinking through what might help.',
+    planner: 'Finding the words.',
+  };
+  const INITIAL_STAGE_LABEL = 'Taking in what you shared.';
+
   let { sessionId, onBack } = $props();
 
   let messages = $state([]);
@@ -37,6 +59,7 @@
   // update" Part 5) -- a plain counter, not the stage names themselves,
   // is all the presentational component needs.
   let pulseCount = $state(0);
+  let stageLabel = $state('');
 
   async function refreshBrief() {
     const previous = brief;
@@ -67,13 +90,15 @@
   async function handleSend(content) {
     messages = [...messages, { role: 'user', content, created_at: '' }];
     sending = true;
+    stageLabel = INITIAL_STAGE_LABEL;
     // Opened synchronously, in the same call as the POST below -- see
     // AmbientPresence.svelte's own docstring for why this can't live
     // inside that component (Svelte's re-render happens on a later
     // microtask than this function's own next line, which would risk
     // missing the "interpretation" stage's event on every turn).
-    const closeStream = openStageStream(sessionId, () => {
+    const closeStream = openStageStream(sessionId, (stage) => {
       pulseCount += 1;
+      if (STAGE_LABELS[stage]) stageLabel = STAGE_LABELS[stage];
     });
     try {
       const result = await sendMessage(sessionId, content);
@@ -98,6 +123,7 @@
       ];
     } finally {
       sending = false;
+      stageLabel = '';
       closeStream();
     }
   }
@@ -114,8 +140,18 @@
       <BreathingOrb />
       <p class="voice opening-prompt">{openingPrompt}</p>
     </div>
+  {:else if loaded}
+    <div class="orb-companion">
+      {#if sending}
+        <AmbientPresence {pulseCount} />
+        {#key stageLabel}
+          <p class="voice stage-label" in:fade={{ duration: 220 }}>{stageLabel}</p>
+        {/key}
+      {:else}
+        <BreathingOrb compact />
+      {/if}
+    </div>
   {/if}
-  {#if sending}<AmbientPresence {pulseCount} />{/if}
   <Composer disabled={sending} onSend={handleSend} />
 
   <Understanding {brief} {tier2} {deepeningClarityNote} />
@@ -144,6 +180,34 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-soft);
     text-align: left;
+  }
+
+  /* The orb stays (2026-07-18, see frontend/decisions.md "The orb
+     stays, and it tells you what it's doing"): direct founder
+     feedback -- "once the first response comes in the chat window the
+     orb suddenly disappears, this is jarring." The old markup only
+     ever rendered AmbientPresence while `sending` was true and nothing
+     otherwise, so the orb vanished the instant every turn finished.
+     This slot now always renders SOMETHING once the opening hero has
+     passed: AmbientPresence (full mechanic, unchanged) while a turn is
+     in flight, a small idle BreathingOrb the rest of the time, both at
+     AmbientPresence's own 72px sizing so swapping between them reads
+     as a change in intensity, not a size jump or a disappearance. */
+  .orb-companion {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 72px;
+    padding: var(--space-1) 0;
+  }
+
+  /* Poignant per-stage loading text (see script comment on
+     STAGE_LABELS) -- muted and smaller than .voice's usual size so it
+     reads as a quiet caption next to the orb, not a second heading. */
+  .stage-label {
+    font-size: 15px;
+    color: var(--ink-muted);
+    margin: 0;
   }
 
   /* Scroll-edge fade (Apple Journal form lesson, not function -- see

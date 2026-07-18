@@ -774,3 +774,60 @@ committed. Screenshot confirmed: enso ring renders correctly around
 the (now slower) breathing core, the zen quote displays with
 attribution, and the Understanding panel's cards show italicized text,
 gradient bullets, and the orb-signature seal as designed.
+
+## The orb stays, and it tells you what it's doing (2026-07-18)
+
+Direct founder feedback, verbatim: "once the first response comes in
+the chat window the orb suddenly disappears this is jarry [jarring],
+let's continue having the orb. Also I would like some poignant loading
+text corresponding to the backend process running so that latency
+friction is reduced."
+
+**The bug**: `Journey.svelte` only ever rendered an orb in two narrow
+windows -- the empty-opening-hero (`messages.length === 0`) and while
+`sending` was true. The instant a turn's response landed, `sending`
+flipped back to `false` and the opening-hero condition was long since
+false too (the user's own message had already pushed `messages.length`
+past zero) -- so nothing rendered in that slot for the rest of the
+Journey, every single turn. What read as "the orb disappears after the
+first response" was really "the orb only ever exists for a few hundred
+milliseconds per turn, forever."
+
+**The fix**: a new persistent `.orb-companion` slot, rendered for the
+entire conversation once the opening hero has passed (`{:else if
+loaded}`), that always shows something instead of conditionally
+showing AmbientPresence or nothing: `AmbientPresence` (full mechanic,
+completely unchanged) while `sending`, a small idle `BreathingOrb` the
+rest of the time. `BreathingOrb` gained a `compact` prop for this --
+72px/36px, matching `AmbientPresence`'s own sizing exactly, and no
+enso ring (that's the one reflective, attention-holding moment, right
+for Home's hero; a small recurring companion shouldn't compete with
+the transcript turn after turn). Same slot, same footprint, both
+states -- swapping between idle and active now reads as a change in
+intensity, not a disappearance.
+
+**The loading text**: `openStageStream`'s real backend events
+(`interpretation`/`judgment`/`planner`/`response`, one per pipeline
+stage, from `src/orchestrator/engine.py`'s `on_stage_complete`) were
+already wired into Journey's `pulseCount` counter but the actual stage
+name was discarded on arrival. Now also mapped to a `STAGE_LABELS`
+lookup and shown next to the orb while sending, crossfading between
+phrases as each stage completes (`{#key stageLabel}` + `in:fade`):
+"Taking in what you shared." (initial, before any stage event) ->
+"Sitting with it for a moment." (after Interpretation) -> "Thinking
+through what might help." (after Judgment) -> "Finding the words."
+(after Planner). This is a deliberate, explicit override of v1's "no
+percentage, no stage labels, no text of any kind" principle -- the
+founder asked for precisely the thing that principle was written to
+rule out, so the override is intentional and named as such here, not a
+quiet erosion. What's kept from that principle's *spirit*, per
+Understanding.svelte's own "no raw backend vocabulary" precedent: the
+real stage ids never reach the screen -- no "Judgment," no
+"Interpretation," no pipeline talk, just short, human, poignant
+phrases a person would actually want to read while waiting.
+
+Verified: `npm test` (31 passed), `npm run build` green, live
+Playwright screenshot (same temporary-Vite-harness technique as the
+prior round, deleted after use) confirming the idle-compact orb and
+the sending orb-plus-label render at identical size/position, side by
+side.
