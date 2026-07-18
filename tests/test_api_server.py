@@ -563,9 +563,10 @@ def test_unknown_session_returns_404(client):
 def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch):
     """Backs the real frontend's Home screen (a list of a person's
     Journeys) -- see frontend/decisions.md "Build the real Confidant
-    frontend". Session B is created after A but never touched again, so
-    sending a message to A (which bumps its updated_at) must move A back
-    to the front of the list."""
+    frontend". Session B gets its own first message (so it's populated
+    -- see "Only populated after a real message is shared" below) but
+    is never touched again, so a SECOND message to A (which bumps its
+    updated_at past B's) must move A back to the front of the list."""
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
@@ -573,6 +574,7 @@ def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch)
     session_a = client.post("/sessions").json()["id"]
     session_b = client.post("/sessions").json()["id"]
 
+    client.post(f"/sessions/{session_b}/messages", json={"content": "Deciding between two job offers."})
     client.post(f"/sessions/{session_a}/messages", json={"content": "I want to move teams."})
 
     summaries = client.get("/sessions").json()
@@ -586,6 +588,18 @@ def test_list_sessions_returns_summaries_ordered_by_recency(client, monkeypatch)
     # surface_complaint ("User wants to move to the Product team."),
     # which is a separate, Interpretation-derived paraphrase.
     assert matching["preview_text"] == "I want to move teams."
+
+
+def test_list_sessions_excludes_a_session_with_no_messages(client):
+    """Only populated after a real message is shared (2026-07-18, see
+    frontend/decisions.md "Only populate a Journey on Home after a real
+    message is sent") -- direct founder feedback: createSession fires
+    the moment a mode is picked, before anything is typed, so a person
+    backing out of an empty Journey shouldn't leave a permanent "A new
+    Journey" ghost on Home. Direct regression test for the
+    list_sessions filter itself."""
+    empty_session = client.post("/sessions").json()["id"]
+    assert empty_session not in [s["id"] for s in client.get("/sessions").json()]
 
 
 def test_preview_text_stays_stable_across_later_turns(client, monkeypatch):
@@ -611,20 +625,15 @@ def test_preview_text_stays_stable_across_later_turns(client, monkeypatch):
     assert matching["preview_text"] == "I want to move teams."
 
 
-def test_preview_text_falls_back_to_surface_complaint_before_any_message(client):
-    """A session with zero messages yet (just created) has nothing in
-    the messages table to source a preview from -- falls back to
-    WorldState.surface_complaint, which is also empty for a fresh
-    session, matching what the frontend already renders as "A new
-    Journey" for an empty preview_text."""
-    session_id = client.post("/sessions").json()["id"]
-    summaries = client.get("/sessions").json()
-    matching = [s for s in summaries if s["id"] == session_id][0]
-    assert matching["preview_text"] == ""
-
-
 def test_sessions_default_unbookmarked(client):
     session_id = client.post("/sessions").json()["id"]
+    # Only populated after a real message is shared (see
+    # test_list_sessions_excludes_a_session_with_no_messages above) --
+    # db.append_message directly, not a real POST /messages turn, since
+    # this test only cares that a message exists, not what the pipeline
+    # does with it.
+    db.append_message(session_id, "user", "I want to move teams.")
+
     summaries = client.get("/sessions").json()
     matching = [s for s in summaries if s["id"] == session_id][0]
     assert matching["bookmarked"] is False
@@ -637,6 +646,11 @@ def test_bookmark_toggle_persists_and_filters(client):
     unbookmarked session."""
     session_a = client.post("/sessions").json()["id"]
     session_b = client.post("/sessions").json()["id"]
+    # Only populated after a real message is shared -- both need one to
+    # appear in GET /sessions at all (see
+    # test_list_sessions_excludes_a_session_with_no_messages).
+    db.append_message(session_a, "user", "I want to move teams.")
+    db.append_message(session_b, "user", "Deciding between two job offers.")
 
     res = client.post(f"/sessions/{session_a}/bookmark", json={"bookmarked": True})
     assert res.status_code == 200
@@ -714,6 +728,9 @@ def test_delete_session_does_not_affect_other_sessions(client, monkeypatch):
     session_a = client.post("/sessions").json()["id"]
     session_b = client.post("/sessions").json()["id"]
     client.post(f"/sessions/{session_a}/messages", json={"content": "I want to move teams."})
+    # Only populated after a real message is shared -- B needs one too
+    # to remain visible in GET /sessions once A is gone.
+    db.append_message(session_b, "user", "Deciding between two job offers.")
 
     client.delete(f"/sessions/{session_a}")
 
@@ -731,6 +748,11 @@ def test_has_stagnation_signal_false_for_fresh_session(client):
     """A brand-new session (turn_count=0, no goals/decisions) has nothing
     for compute_stagnation_signals to flag."""
     session_id = client.post("/sessions").json()["id"]
+    # Only populated after a real message is shared -- needs one to
+    # appear in GET /sessions at all; still turn_count=0/no
+    # goals-or-decisions, so the assertion below is unaffected.
+    db.append_message(session_id, "user", "I want to move teams.")
+
     summaries = client.get("/sessions").json()
     matching = [s for s in summaries if s["id"] == session_id][0]
     assert matching["has_stagnation_signal"] is False
@@ -746,6 +768,11 @@ def test_has_stagnation_signal_true_when_a_decision_is_stale(client, monkeypatch
     from src.state.world_state import Decision, Provenance, WorldState
 
     session_id = client.post("/sessions").json()["id"]
+    # Only populated after a real message is shared -- needed for this
+    # session to appear in GET /sessions at all; inserted directly
+    # (not a real turn) so it doesn't disturb the world_state_json this
+    # test injects below.
+    db_module.append_message(session_id, "user", "I want to move teams.")
     stale_state = WorldState(
         turn_count=10,
         decisions=[

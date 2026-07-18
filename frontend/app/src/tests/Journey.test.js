@@ -130,3 +130,43 @@ describe('Journey overflow menu', () => {
     });
   });
 });
+
+describe('Journey: only populated after a real message is shared', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+  });
+
+  it('deletes an empty Journey when backing out without sending anything', async () => {
+    api.getMessages.mockResolvedValue([]);
+    api.deleteSession.mockResolvedValue(undefined);
+    const onBack = vi.fn();
+    const { getByText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    // Waits for the real "messages have loaded and there are none" signal
+    // (not just the back button's own presence, which renders immediately) --
+    // handleBack only auto-deletes once `loaded` is true, precisely to avoid
+    // deleting a real Journey whose history just hasn't arrived yet.
+    await waitFor(() => expect(api.getMessages).toHaveBeenCalled());
+    await fireEvent.click(getByText('← Home'));
+
+    await waitFor(() => {
+      expect(api.deleteSession).toHaveBeenCalledWith('s1');
+      expect(onBack).toHaveBeenCalled();
+    });
+  });
+
+  it('does not delete a Journey that already has messages when backing out', async () => {
+    api.getMessages.mockResolvedValue([{ role: 'user', content: 'I want to move teams.', created_at: '' }]);
+    const onBack = vi.fn();
+    const { getByText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    await waitFor(() => getByText('I want to move teams.'));
+    await fireEvent.click(getByText('← Home'));
+
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+    expect(api.deleteSession).not.toHaveBeenCalled();
+  });
+});

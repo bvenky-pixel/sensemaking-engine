@@ -306,10 +306,25 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     most-recently-computed insight if a session ever evidences more than
     one -- a documented simplification, not a silent one) rather than a
     SQL JOIN + GROUP BY, matching this file's "no ORM" simplicity.
+
+    Only populated after a real message is shared (2026-07-18, see
+    frontend/decisions.md): a session is created the moment a person
+    picks a mode, before they've typed anything -- direct founder
+    feedback that backing out of that empty Journey without sending
+    anything shouldn't leave a permanent "A new Journey" ghost entry
+    here. Filtered to sessions with at least one user message, read-path
+    half of a two-part fix (Journey.svelte's own back-navigation is the
+    other half -- it deletes an empty session outright rather than
+    leaving an orphaned row for this filter to just hide forever).
+    `get_all_sessions_raw`/`get_aggregated_knowledge_for_pom`/etc.
+    deliberately stay unfiltered -- an empty WorldState contributes
+    nothing to Learning/Insight Engine/POM computation either way, so
+    there's no reason to touch those.
     """
-    query = "SELECT id, world_state_json, updated_at, bookmarked FROM sessions"
+    query = "SELECT id, world_state_json, updated_at, bookmarked FROM sessions " \
+            "WHERE id IN (SELECT DISTINCT session_id FROM messages WHERE role = 'user')"
     if bookmarked_only:
-        query += " WHERE bookmarked = 1"
+        query += " AND bookmarked = 1"
     query += " ORDER BY updated_at DESC"
     with _connect() as conn:
         rows = conn.execute(query).fetchall()

@@ -1072,3 +1072,65 @@ verification against a real served build with a seeded Journey: opened
 the menu, bookmarked it (confirmed the star state persists across a
 re-open), ran the full delete confirm and deletion, confirmed landing
 back on Home's own empty-account hero once the last Journey was gone.
+
+## Only populate a Journey on Home after a real message is sent (2026-07-18)
+
+Same-session follow-up. Direct founder observation: "a new journey
+should be populated only after a user response is shared or sits in
+the chatbox empty back from a journey screens can be ignored." Real
+bug, confirmed by reading the actual flow: `createSession` fires the
+moment a person picks a mode (`ModeSelect.svelte`/`Home.svelte`'s own
+`choose()`/`chooseMode()`), before a single word is typed. Backing out
+of that screen without sending anything left a permanent "A new
+Journey" row on Home forever -- there was no cleanup path anywhere in
+the app for an abandoned, empty session.
+
+Fixed with the same defense-in-depth shape as Privacy's own
+cross-session-learning opt-out earlier this round (gate at both the
+read path and the write/action path, not just one):
+
+- **Read path** (`db.py::list_sessions`): the query now filters to
+  `id IN (SELECT DISTINCT session_id FROM messages WHERE role =
+  'user')` -- an empty session simply never appears on Home, covering
+  every way a person might leave one behind (in-app back button, tab
+  close, browser back), not just the one this round happens to wire up
+  actively. `get_all_sessions_raw`/`get_aggregated_knowledge_for_pom`/
+  the offline Learning/Insight Engine/POM scripts deliberately stay
+  unfiltered -- an empty WorldState contributes nothing to any of that
+  computation either way, so there's no reason to touch them.
+- **Action path** (`Journey.svelte`'s new `handleBack`): the in-app "←
+  Home" tap now actively deletes the session if `loaded &&
+  messages.length === 0`, rather than leaving an orphaned row for the
+  read-path filter to just hide forever. The `loaded` guard matters --
+  a real Journey with real history also has `messages.length === 0`
+  for the split second between mount and `getMessages` resolving;
+  deleting on THAT window instead of the genuinely-empty case would
+  have been exactly the kind of accidental data loss the founder's
+  earlier overflow-menu request was about preventing. Deliberately
+  unconditional on bookmark state -- a Journey bookmarked via the new
+  overflow menu and then abandoned with nothing in it still has
+  nothing worth keeping.
+
+**Real test-suite ripple, handled directly rather than avoided**: six
+existing backend tests created a session and checked it immediately in
+`GET /sessions` without ever sending it a message -- correct under the
+old behavior, now testing a scenario that can't happen. Fixed each by
+giving the session a message first (`db.append_message` directly where
+the message content/pipeline wasn't the point, a real
+`POST .../messages` turn where it already was), preserving each test's
+actual intent rather than just deleting them. One test
+(`test_preview_text_falls_back_to_surface_complaint_before_any_message`)
+had its entire premise become unreachable through this endpoint and
+was removed outright rather than patched around. New direct regression
+test: `test_list_sessions_excludes_a_session_with_no_messages`.
+
+Verified: `pytest` (439 passed -- net even: one test removed, one
+added). `npm test` (40 passed, 2 new in `Journey.test.js`: an empty
+Journey gets deleted and navigates home on back; a Journey that
+already has messages does neither). `npm run build` green. Live
+Playwright verification against a real served build: picked a mode,
+landed on the resulting empty Journey, tapped "← Home" without typing
+anything, confirmed Home showed its own empty-account hero again (no
+ghost entry) -- then confirmed directly against the SQLite file that
+zero session rows remained, not just that the list endpoint was hiding
+one.

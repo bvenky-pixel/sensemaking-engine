@@ -205,6 +205,32 @@
     }
   }
 
+  // Only populated after a real message is shared (2026-07-18, see
+  // frontend/decisions.md): createSession fires the moment a mode is
+  // picked (ModeSelect.svelte/Home.svelte's own choose()/chooseMode()),
+  // before a single word has been typed -- direct founder feedback that
+  // backing out of that empty Journey without sending anything
+  // shouldn't leave it behind. db.py::list_sessions already hides any
+  // session with zero messages from Home's own list (defense in depth,
+  // covers a tab close or browser-back too), but this is the active
+  // half: the in-app "← Home" tap actively deletes the empty row
+  // rather than leaving an orphan for that filter to hide forever.
+  // Deliberately unconditional on bookmark state -- an empty Journey
+  // bookmarked via this screen's own menu and then abandoned has
+  // nothing in it worth keeping either.
+  async function handleBack() {
+    // `loaded` gates this, not just `messages.length === 0` alone -- a
+    // real Journey with real history briefly has messages.length === 0
+    // too, in the split second between mount and getMessages resolving;
+    // deleting on THAT window instead of the genuinely-empty case would
+    // be exactly the kind of accidental data loss this whole feature
+    // exists to prevent.
+    if (loaded && messages.length === 0) {
+      await deleteSession(sessionId);
+    }
+    onBack();
+  }
+
   // Closes the menu on any click outside it -- standard click-outside
   // pattern, added/removed only while the menu is actually open. Safe
   // against self-triggering on the same click that opened it: this
@@ -227,7 +253,7 @@
   <div class="scroll-fade" aria-hidden="true"></div>
 
   <div class="journey-header">
-    <button type="button" class="back" onclick={onBack}>&larr; Home</button>
+    <button type="button" class="back" onclick={handleBack}>&larr; Home</button>
 
     <div class="menu-wrap" bind:this={menuEl}>
       <button
