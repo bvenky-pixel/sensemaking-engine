@@ -32,6 +32,20 @@
   // is consciousness" -- so the hero now opens with a real teaching
   // (ZenQuote, a new one each page load) between the orb and the mode
   // prompt, not decoration alone.
+  //
+  // The orb stays here too (2026-07-18, see frontend/decisions.md "The
+  // orb stays, and it tells you what it's doing"): direct founder
+  // feedback -- "the orb is not present on the home screen after the
+  // first journey populates the screen." The hero's own big orb is
+  // deliberately conditional on `sessions.length === 0` (see the "Home
+  // hero" comment above -- that tradeoff is still correct, promoting
+  // the full hero once real history exists would push it down for no
+  // benefit), but that meant Home behaved exactly like Journey used to:
+  // an orb that only exists in the empty state and vanishes the moment
+  // there's anything else to show. Same fix as Journey's own
+  // `.orb-companion` -- a small, always-present `BreathingOrb compact`
+  // next to the greeting once the populated branch is showing, so the
+  // orb is never fully absent from Home again.
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { listSessions, setBookmark, createSession } from '../lib/api.js';
@@ -87,7 +101,12 @@
 </script>
 
 <div class="home">
-  <p class="display">A quiet place to think something through.</p>
+  <div class="header">
+    <p class="display">A quiet place to think something through.</p>
+    {#if loaded && (showBookmarkedOnly || sessions.length > 0)}
+      <BreathingOrb compact />
+    {/if}
+  </div>
 
   {#if loaded && !showBookmarkedOnly && sessions.length === 0}
     <div class="hero" in:fade={{ duration: 320 }}>
@@ -163,8 +182,16 @@
 </div>
 
 <style>
-  .display {
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
     margin: 0 0 var(--space-4);
+  }
+
+  .display {
+    margin: 0;
   }
 
   .hero {

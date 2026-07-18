@@ -831,3 +831,34 @@ Playwright screenshot (same temporary-Vite-harness technique as the
 prior round, deleted after use) confirming the idle-compact orb and
 the sending orb-plus-label render at identical size/position, side by
 side.
+
+## The orb stays on Home too (2026-07-18)
+
+Same-session follow-up, direct founder feedback: "the orb is not
+present on the home screen after the first journey populates the
+screen." Home had exactly the same shape of bug Journey just had:
+the big hero orb is deliberately conditional on `sessions.length ===
+0` (see "Home hero" above -- that tradeoff itself is still correct,
+promoting six mode cards above real history every visit would be a
+real cost for no benefit once Journeys exist), but nothing replaced
+it once the populated branch took over, so Home's orb also went from
+"always visible" to "never visible again" the moment the first
+Journey existed.
+
+Fix: a `<BreathingOrb compact />` (the same compact variant just built
+for Journey's companion) now sits next to the greeting line, inside a
+new `.header` flex row, shown whenever the populated branch is
+showing (`loaded && (showBookmarkedOnly || sessions.length > 0)` --
+the exact negation of the hero's own condition, so there's never a
+frame with both orbs or neither). The big hero orb and this small one
+never render simultaneously; a person always has exactly one orb
+somewhere on Home, empty account or not.
+
+Verified: `npm test` (31 passed), `npm run build` green. Live
+verification this time used the real backend directly -- two Journeys
+seeded straight into the SQLite session table via `src.api.db`
+(`create_session` + `append_message`, no LLM calls, no cost) rather
+than a mock-props harness, then a Playwright screenshot of the actual
+served build confirmed the compact orb sits correctly beside "A quiet
+place to think something through." once real Journeys are showing.
+Seed DB and server process were removed after the screenshot.
