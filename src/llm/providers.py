@@ -52,29 +52,37 @@ than the rotating pool as a whole; `openrouter/free` is the default for
 every other kind of run for exactly that reason.)
 
 PER-COMPONENT PAID MODEL PINNING (2026-07-18, see engine/decisions.md
-"Per-component paid model pinning"): production previously pinned ONE
-model (`openai/gpt-4o-mini`) uniformly across every component via
+"Per-component paid model pinning" and its follow-up "rebalanced for
+net savings" entry): production previously pinned ONE model
+(`openai/gpt-4o-mini`) uniformly across every component via
 `OPENROUTER_MODEL` in fly.toml. Replaced with `_DEFAULT_COMPONENT_MODELS`
-below -- a different, individually cost/quality-matched paid model per
-`component` string, chosen by splitting the 7 live components into three
-bands rather than picking one model for everything:
+below. FIRST attempt at this split three bands by reasoning depth
+(extraction / synthesis / user-facing prose), but a follow-up cost
+estimate showed that put 5 of 7 components on models pricier per-token
+than gpt-4o-mini, making the change a net cost INCREASE (~+2x per turn
+under a rough token estimate) rather than the savings that was asked
+for -- the founder explicitly chose to rebalance for real savings
+instead. Current split is two bands:
 
-- Interpretation, Tier2 -- pure structured extraction from a bounded
-  input (one conversation turn); Interpretation is frozen v1.0 with its
-  own grounding-filter safety net downstream, Tier2 is the same shape of
-  task (goal/decision lifecycle, entity attributes). Pinned to the
-  cheapest tier: `google/gemini-2.5-flash-lite`.
-- Judgment, Planner, Insight, POM -- genuine synthesis/reasoning over
-  WorldState (contradictions, risk, a single strategic objective,
-  cross-session pattern-finding, cross-session psychological inference)
-  rather than bounded extraction; errors here either miscalibrate every
-  downstream stage (Judgment/Planner) or surface directly to a person as
-  a wrong "what I've learned about you" claim (Insight/POM). Pinned one
-  band up: `google/gemini-2.5-flash`.
+- Everything except Response (Interpretation, Tier2, Judgment, Planner,
+  Insight, POM) -- pinned to the single cheapest tier,
+  `google/gemini-2.5-flash-lite`, cheaper per-token than the old
+  gpt-4o-mini baseline on both input and output. This does mean
+  Judgment/Planner/Insight/POM's genuine synthesis/reasoning work
+  (contradictions, risk, the single strategic objective, cross-session
+  pattern-finding, cross-session psychological inference) runs on the
+  same cheap-extraction-tier model as Interpretation/Tier2's bounded
+  extraction -- a real quality-vs-cost tradeoff, made deliberately in
+  favor of cost once "true savings" was the explicit ask.
 - Response -- the one component whose raw output IS the product a
-  person reads and judges the app's felt quality by; tone/warmth/
-  coherence matter here in a way no other component's structured JSON
-  output has to contend with. Pinned to `openai/gpt-4.1-mini`.
+  person reads and judges the app's felt quality by. Kept at
+  `openai/gpt-4.1-mini` rather than dropped to the cheap tier too --
+  still pricier per-token than gpt-4o-mini, but the only component
+  where that premium was judged worth keeping. (Even with every other
+  component now cheaper, Response's own premium was large enough that
+  the ROUGH per-turn estimate came out close to breakeven overall,
+  not a clean reduction -- see decisions.md for the actual numbers
+  before assuming a specific percentage saved.)
 
 Prices below are per OpenRouter's published per-million-token rates,
 gathered via web search on 2026-07-18 (direct fetches to openrouter.ai
@@ -84,12 +92,9 @@ as of that date but were not cross-checked against OpenRouter's own
 live model list; re-verify at openrouter.ai/models before leaning on
 exact figures for a cost projection):
   google/gemini-2.5-flash-lite  $0.10 in / $0.40 out per 1M tokens
-  google/gemini-2.5-flash       $0.30 in / $2.50 out per 1M tokens
   openai/gpt-4.1-mini           $0.40 in / $1.60 out per 1M tokens
 (for reference, the previous universal pin, openai/gpt-4o-mini, was
-$0.15 in / $0.60 out -- cheaper per-token than the two upper bands here,
-but applied uniformly rather than matched to what each component
-actually needs.)
+$0.15 in / $0.60 out.)
 
 `OPENROUTER_MODEL`, if explicitly set, still overrides EVERY component
 uniformly -- unchanged behavior, since the existing calibration
@@ -160,10 +165,10 @@ def _first_env(*names: str) -> Optional[str]:
 _DEFAULT_COMPONENT_MODELS = {
     "Interpretation": "google/gemini-2.5-flash-lite",
     "Tier2": "google/gemini-2.5-flash-lite",
-    "Judgment": "google/gemini-2.5-flash",
-    "Planner": "google/gemini-2.5-flash",
-    "Insight": "google/gemini-2.5-flash",
-    "POM": "google/gemini-2.5-flash",
+    "Judgment": "google/gemini-2.5-flash-lite",
+    "Planner": "google/gemini-2.5-flash-lite",
+    "Insight": "google/gemini-2.5-flash-lite",
+    "POM": "google/gemini-2.5-flash-lite",
     "Response": "openai/gpt-4.1-mini",
 }
 

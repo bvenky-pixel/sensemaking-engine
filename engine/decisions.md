@@ -8593,3 +8593,85 @@ case, 1 direct call_openrouter request-body assertion for two different
 components). No live LLM calls made or dispatched as part of this
 round -- purely a routing-configuration change, verified with mocked
 `requests.post`.
+
+## Per-component paid model pinning, rebalanced for net savings (2026-07-18)
+
+Follow-up to the round directly above, same day. Asked for a rough $
+comparison against the old uniform `openai/gpt-4o-mini` baseline (no
+real production usage logs exist to measure this against actual spend
+-- the estimate below uses illustrative per-call token counts grounded
+in this codebase's own actual schema/prompt sizes, explicitly NOT
+measured traffic). That estimate surfaced an uncomfortable fact: the
+three-band split above was, in practice, a net cost INCREASE, not a
+decrease -- only Interpretation/Tier2 (2 of 7 components) got cheaper
+per-token; Judgment/Planner/Insight/POM/Response all moved to models
+priced 2-3x higher per token than gpt-4o-mini. On the 5 components that
+fire every conversation turn, the rough estimate came out to roughly
++109% per turn (~$0.0033 -> ~$0.0069, using ~2-3.8K input / 250-600
+output tokens per call depending on component). Small absolute numbers,
+but the wrong direction for a change explicitly framed as "cheapest
+while good quality" -- reported plainly rather than let stand as an
+implied saving.
+
+Founder chose to rebalance for real, not just directional, savings:
+**every component except Response** (Interpretation, Tier2, Judgment,
+Planner, Insight, POM) now shares the single cheapest paid tier,
+`google/gemini-2.5-flash-lite` ($0.10 in / $0.40 out per 1M) -- cheaper
+than gpt-4o-mini on both input and output for 6 of 7 components, a real
+reduction in the aggregate reasoning-cost floor. **Response** alone
+stays on `openai/gpt-4.1-mini` ($0.40 in / $1.60 out) -- the one
+component whose raw output is literally what a person reads, kept at a
+higher tier deliberately.
+
+Recomputed against the same per-turn estimate: Response's own premium
+(this component tends to have the highest output-token weight relative
+to its price band) is large enough that it offsets most, though not
+all, of the savings from the other 4 turn-level components -- the rough
+per-turn total came out close to breakeven (roughly +8% under the same
+illustrative token counts, down from the prior split's +109%), not a
+clean win. Reported honestly rather than claimed as "true savings"
+outright: if minimizing total spend is the overriding goal, Response
+would need to move to the cheap tier too for a guaranteed net
+decrease; keeping it at gpt-4.1-mini is a deliberate, acknowledged
+quality-over-cost call on exactly one component, not an oversight.
+
+Genuine tradeoff accepted with this rebalance: Judgment/Planner/Insight/
+POM's synthesis/reasoning work (contradictions, risk, the single
+strategic objective, cross-session pattern-finding, cross-session
+psychological inference) now runs on the same cheap-extraction-tier
+model as Interpretation/Tier2's bounded extraction, rather than a
+dedicated mid-tier reasoning model. Not yet validated against real
+model output quality at this tier for those 4 components specifically
+-- same "re-run the n=10-style methodology before trusting a newly
+configured model" caveat this file has carried since the Ollama-removal
+era applies here too.
+
+`_DEFAULT_COMPONENT_MODELS` (`src/llm/providers.py`) and
+`tests/test_llm_providers.py`'s parametrized expectations updated
+accordingly; no change to `_resolve_model`'s mechanism (env-override
+behavior, fallback-to-`openrouter/free` for unmapped components) or to
+fly.toml (still no pinned `OPENROUTER_MODEL`, so this rebalance takes
+effect in production automatically).
+
+Verified: full suite still 467 passed (same test count as the prior
+entry -- 7 parametrized component cases now assert the rebalanced
+models, nothing added or removed). No live LLM calls made or
+dispatched.
+
+**Considered and declined, same day**: open-weight alternatives on
+OpenRouter -- `qwen/qwen3-32b` ($0.08 in / $0.28 out, genuinely cheaper
+than `gemini-2.5-flash-lite` on both dimensions) and
+`nvidia/nemotron-3-super-120b-a12b` ($0.08 in / $0.45 out, roughly a
+wash). Both are real reasoning-tuned models and a legitimate cheaper
+option on paper. Founder chose to keep `gemini-2.5-flash-lite` rather
+than switch: the per-token gap is small (a few cents per million
+tokens), and Google's structured-output/strict-JSON-schema compliance
+track record is more established for this app's exact "every call gets
+`json.loads`'d then Pydantic-validated" pattern than either open-weight
+alternative, which also route through third-party inference providers
+on OpenRouter (Together/Fireworks/DeepInfra-style) rather than a direct
+first-party route -- more latency/uptime variance, unvalidated for this
+app specifically. Not ruled out permanently -- worth revisiting via a
+real calibration-style dispatch (same methodology as
+knowledge-correction-calibration.yml) if cost pressure increases later,
+just not swapped in blind today.

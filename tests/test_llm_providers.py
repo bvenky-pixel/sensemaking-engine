@@ -201,10 +201,10 @@ def test_resolve_provider_chain_rejects_unknown_provider(monkeypatch):
     [
         ("Interpretation", "google/gemini-2.5-flash-lite"),
         ("Tier2", "google/gemini-2.5-flash-lite"),
-        ("Judgment", "google/gemini-2.5-flash"),
-        ("Planner", "google/gemini-2.5-flash"),
-        ("Insight", "google/gemini-2.5-flash"),
-        ("POM", "google/gemini-2.5-flash"),
+        ("Judgment", "google/gemini-2.5-flash-lite"),
+        ("Planner", "google/gemini-2.5-flash-lite"),
+        ("Insight", "google/gemini-2.5-flash-lite"),
+        ("POM", "google/gemini-2.5-flash-lite"),
         ("Response", "openai/gpt-4.1-mini"),
     ],
 )
