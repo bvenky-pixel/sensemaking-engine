@@ -589,3 +589,67 @@ the node never actually left the DOM within the test's wait window.
 Not worth extending the polyfill for one minor list-item fade -- reverted
 that one transition, kept everything else. Full suite green after (31
 passed); `npm run build` green; live-verified via Playwright screenshot.
+
+## Home hero: orb + inline modes (2026-07-18)
+
+Direct founder feedback, in two parts: "the home page is nice now but
+since we are leaving most of the page empty how can we use it better,"
+offering two candidate directions (a large button, or the same small
+button with more messaging around it). Proposed a third, combined
+option instead of picking between the two: a decorative breathing orb
+as a calm focal point (reusing AmbientPresence's visual language, which
+already existed and already fit "Headspace"), plus -- a further founder
+idea in the same exchange -- bringing the Counseling mode picker
+directly onto Home instead of behind an extra tap through ModeSelect.
+The founder's own framing of that second idea's tradeoff ("home screen
+is more cluttered but we reduce friction and clicks") is exactly right,
+and resolved by making it conditional on `sessions.length`, not
+permanent -- see below.
+
+**New `components/BreathingOrb.svelte`**: same breathing-cycle math as
+`AmbientPresence.svelte` (duplicated, not shared/imported -- see that
+file's own comment on this codebase's small-utility-duplication
+convention), deliberately WITHOUT the pulseCount/slowdown mechanic --
+AmbientPresence's own docstring explains that mechanic exists
+specifically to honestly reflect real backend stage-completion events
+during a live turn; Home has no such events to reflect, so this is pure
+ambient decoration (`aria-hidden="true"`, no `role="status"`), not a
+status indicator wearing the same visual costume.
+
+**New `components/ModePicker.svelte`**: the mode-card list extracted
+out of `screens/ModeSelect.svelte` (which now just wraps it with its
+own heading/back button), so Home's inline picker and ModeSelect's
+full-screen picker share one implementation rather than drifting apart.
+`ModeSelect.test.js` needed no changes after the extraction --
+testing-library's queries traverse the full rendered DOM regardless of
+component boundaries.
+
+**Conditional, not permanent**: Home shows the hero (orb + "Pick what
+fits right now." + inline `ModePicker`) only when
+`loaded && !showBookmarkedOnly && sessions.length === 0` -- a
+deliberately strict "genuinely empty account" condition, not a fuzzy
+"few Journeys" threshold, so it's unambiguous to reason about and easy
+to tighten later if the founder wants it to persist a little longer.
+The moment a real Journey exists, Home reverts to exactly its prior
+shape: filter toggle, journey card list, and the original small
+`+Begin something new` button (still routing through the full
+ModeSelect screen). `showBookmarkedOnly` is excluded from the condition
+on purpose -- switching to the Bookmarked filter with zero bookmarks
+should show the existing "No bookmarked Journeys yet." message, not the
+new-account hero; the hero is for people who have never started a
+Journey at all, not for an empty filtered view.
+
+**New `loaded` guard**: previously Home had no concept of "not yet
+fetched" distinct from "fetched and genuinely empty" -- both rendered
+the same single-button UI, so the difference was invisible. Now that
+the two states render completely differently (hero vs. list), a
+one-frame flash of the wrong one before `listSessions()` resolves would
+read as a glitch, not a loading state -- `loaded` (mirroring
+`Journey.svelte`'s own identical guard) suppresses both branches until
+the first real fetch completes.
+
+Verified: `npm test` (31 passed, including `ModeSelect.test.js`
+unaffected by the extraction), `npm run build` green, live Playwright
+screenshots of both states (empty account showing orb + all six mode
+cards; a real Journey correctly collapsing the hero back to the
+original compact list + button).
