@@ -166,6 +166,28 @@ def test_create_session_rejects_an_unrecognized_mode(client):
     assert res.status_code == 422
 
 
+def test_list_sessions_includes_chosen_mode(client):
+    """Home: time period + mode filtering (2026-07-18, see
+    frontend/decisions.md) -- GET /sessions never surfaced `mode`
+    before, so Home's new per-period mode filter had no way to group
+    without a separate request per session."""
+    session_id = client.post("/sessions", json={"mode": "vent"}).json()["id"]
+    db.append_message(session_id, "user", "Just needed to get this out.")
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["mode"] == "vent"
+
+
+def test_list_sessions_mode_is_null_when_none_was_chosen(client):
+    session_id = client.post("/sessions").json()["id"]
+    db.append_message(session_id, "user", "I want to move teams.")
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["mode"] is None
+
+
 def test_list_modes_returns_all_six_with_label_and_description(client):
     res = client.get("/modes")
     assert res.status_code == 200

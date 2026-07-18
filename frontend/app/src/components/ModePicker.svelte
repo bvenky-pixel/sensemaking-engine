@@ -12,23 +12,11 @@
   import { onMount } from 'svelte';
   import { fly } from 'svelte/transition';
   import { getModes } from '../lib/api.js';
+  import { tintFor } from '../lib/modeTints.js';
 
   let { onChoose, starting = false } = $props();
 
   let modes = $state([]);
-
-  const MODE_TINTS = {
-    vent: 'var(--accent-2)',
-    strategize: 'var(--accent)',
-    commit: 'var(--accent-5)',
-    explore: 'var(--accent-4)',
-    realign: 'var(--accent-3)',
-    adaptive: 'var(--accent)',
-  };
-
-  function tintFor(modeId) {
-    return MODE_TINTS[modeId] || 'var(--accent)';
-  }
 
   onMount(async () => {
     modes = await getModes();

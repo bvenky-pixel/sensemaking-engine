@@ -1134,3 +1134,67 @@ anything, confirmed Home showed its own empty-account hero again (no
 ghost entry) -- then confirmed directly against the SQLite file that
 zero session rows remained, not just that the list endpoint was hiding
 one.
+
+## Home: time period + mode filtering (2026-07-18)
+
+Home was still strictly `ORDER BY updated_at DESC`, no grouping of any
+kind -- fine for a handful of Journeys, but the founder pointed out
+that as the list grows it just becomes a long undifferentiated scroll.
+Requested: a This week / This month / This year / All time toggle with
+a count per bucket, and a mode filter scoped to whichever modes
+actually appear within the selected bucket.
+
+**Time buckets are computed client-side, in the browser's local time**,
+not server-side. This app has no per-person timezone stored anywhere
+(a known, already-documented single-user simplification) -- a
+server-side "this week" would either hardcode UTC (wrong for most
+people most of the time) or require building timezone infrastructure
+nobody asked for. `startOfWeek`/`startOfMonth`/`startOfYear` are pure
+functions in `Home.svelte`; week start is Monday (ISO convention, not
+Sunday).
+
+**Mode filter chips only render when there's something to filter**:
+`modesInPeriod.length > 1` gates the whole row. A period with Journeys
+in only one mode (or zero) shows no chip row at all -- directly serving
+the founder's own "reduce the clutter" framing rather than adding a
+filter UI that's redundant most of the time. Selecting a new time
+period resets the mode filter rather than carrying it over silently,
+since a mode selected in one period may not even exist in another.
+
+**Per-mode color coding, shared rather than duplicated**: `MODE_TINTS`
+already existed inside `ModePicker.svelte` (mode-card left edge + dot).
+Home's new mode-filter chips and journey-card left border need the
+identical colors, so it moved out to `lib/modeTints.js`
+(`MODE_TINTS` + `tintFor(modeId)`), matching the same "more than one
+deliberate identical use warrants sharing" threshold already applied to
+`tokens.css`'s own `.card`/`.btn-primary`/`.link-button` recipes.
+Journey cards get `border-left: 4px solid var(--mode-tint, transparent)`
+-- a Journey with a chosen mode gets a colored edge, a legacy
+mode-less one gets none (`transparent` fallback, not a fake default
+color implying every Journey has a mode).
+
+**Backend**: `SessionSummary.mode` is a new field (`Optional[str]`,
+`None` for any Journey predating Counseling modes or created with none
+chosen) -- `mode` was already stored per-session but never surfaced on
+`GET /sessions`, so Home had no way to group without one request per
+session. `db.list_sessions()`'s `SELECT` and row-unpacking extended to
+include it; no change to filtering/ordering.
+
+Verified: 2 new backend tests (`test_list_sessions_includes_chosen_mode`,
+`test_list_sessions_mode_is_null_when_none_was_chosen`). New
+`Home.test.js` (7 tests, using `vi.useFakeTimers()`/`setSystemTime` to
+pin "now" so calendar-boundary math is deterministic regardless of
+which real day the suite runs on): default All-time view shows
+everything; each period button shows the right count; selecting a
+period filters correctly; the mode chip row appears only when the
+selected period has more than one mode present and filters on click;
+changing period resets the mode filter; a period with nothing in it
+shows a contextual empty message instead of the generic one; mode-tinted
+vs. plain journey-card borders. Full suite: `pytest` 441 passed, `npm
+test` 47 passed, `npm run build` green. Live Playwright verification
+against a real served build with 5 seeded Journeys spanning all four
+buckets and four distinct modes: period toggle switched correctly with
+accurate live counts, the mode chip row correctly stayed hidden on
+"This week" (only one mode present in that bucket) and appeared on
+wider periods, and journey cards showed the right tinted edge per mode
+with the mode-less legacy Journey left plain.

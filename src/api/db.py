@@ -321,7 +321,7 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     nothing to Learning/Insight Engine/POM computation either way, so
     there's no reason to touch those.
     """
-    query = "SELECT id, world_state_json, updated_at, bookmarked FROM sessions " \
+    query = "SELECT id, world_state_json, updated_at, bookmarked, mode FROM sessions " \
             "WHERE id IN (SELECT DISTINCT session_id FROM messages WHERE role = 'user')"
     if bookmarked_only:
         query += " AND bookmarked = 1"
@@ -345,7 +345,7 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
     first_message = {session_id: content for session_id, content in first_message_rows}
 
     summaries = []
-    for session_id, world_state_json, updated_at, bookmarked in rows:
+    for session_id, world_state_json, updated_at, bookmarked, mode in rows:
         state = WorldState.model_validate_json(world_state_json)
         theme, detail = session_insight.get(session_id, (None, None))
         summaries.append(
@@ -354,6 +354,7 @@ def list_sessions(bookmarked_only: bool = False) -> List[SessionSummary]:
                 preview_text=first_message.get(session_id) or state.surface_complaint,
                 updated_at=updated_at,
                 bookmarked=bool(bookmarked),
+                mode=mode,
                 has_stagnation_signal=bool(compute_stagnation_signals(state)),
                 insight_theme=theme,
                 insight_detail=detail,

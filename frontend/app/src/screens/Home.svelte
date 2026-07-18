@@ -46,12 +46,29 @@
   // `.orb-companion` -- a small, always-present `BreathingOrb compact`
   // next to the greeting once the populated branch is showing, so the
   // orb is never fully absent from Home again.
+  //
+  // Home: time period + mode filtering (2026-07-18, see
+  // frontend/decisions.md) -- direct founder request: "reduce the
+  // clutter on the screen" as Journeys accumulate, via a This week/This
+  // month/This year/All time toggle (with a count per period) plus a
+  // mode filter scoped to whichever modes are actually present within
+  // the selected period. Boundaries are computed client-side against
+  // the browser's own local time -- this app has no per-person
+  // timezone stored anywhere (see src/api/db.py's own "single-user
+  // simplification" note), so a server-side "this week" would either
+  // hardcode UTC (wrong for most people, most of the time) or need new
+  // timezone infrastructure neither asked for nor needed just for this.
+  // Both filters compose with the existing All/Bookmarked filter and
+  // with each other -- switching time period resets the mode filter
+  // (a mode selected in "This month" may not exist at all in "This
+  // week"), never the reverse.
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
-  import { listSessions, setBookmark, createSession } from '../lib/api.js';
+  import { listSessions, setBookmark, createSession, getModes } from '../lib/api.js';
   import BreathingOrb from '../components/BreathingOrb.svelte';
   import ZenQuote from '../components/ZenQuote.svelte';
   import ModePicker from '../components/ModePicker.svelte';
+  import { tintFor } from '../lib/modeTints.js';
 
   let { onOpen, onSettings, onBeginNew } = $props();
 
@@ -64,17 +81,77 @@
   // every load would read as a glitch, not a loading state.
   let loaded = $state(false);
   let starting = $state(false);
+  let timePeriod = $state('all');
+  let modeFilter = $state(null);
+  let modeLabels = $state({});
+
+  const TIME_PERIODS = [
+    { id: 'week', label: 'This week' },
+    { id: 'month', label: 'This month' },
+    { id: 'year', label: 'This year' },
+    { id: 'all', label: 'All time' },
+  ];
+
+  function startOfWeek(now) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1) - day); // Monday as week start
+    return d;
+  }
+
+  function startOfMonth(now) {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  function startOfYear(now) {
+    return new Date(now.getFullYear(), 0, 1);
+  }
+
+  const PERIOD_START = { week: startOfWeek, month: startOfMonth, year: startOfYear };
+
+  function withinPeriod(session, periodId) {
+    if (periodId === 'all') return true;
+    return new Date(session.updated_at) >= PERIOD_START[periodId](new Date());
+  }
+
+  let periodCounts = $derived(
+    Object.fromEntries(TIME_PERIODS.map((p) => [p.id, sessions.filter((s) => withinPeriod(s, p.id)).length]))
+  );
+
+  let periodSessions = $derived(sessions.filter((s) => withinPeriod(s, timePeriod)));
+
+  // Only modes actually present in the currently-selected period --
+  // showing all six mode chips regardless of what's there would be
+  // exactly the clutter this feature exists to cut down on.
+  let modesInPeriod = $derived([...new Set(periodSessions.map((s) => s.mode).filter(Boolean))]);
+
+  let filteredSessions = $derived(
+    modeFilter ? periodSessions.filter((s) => s.mode === modeFilter) : periodSessions
+  );
 
   async function refresh() {
     sessions = await listSessions(showBookmarkedOnly);
     loaded = true;
   }
 
-  onMount(refresh);
+  onMount(async () => {
+    await refresh();
+    const modes = await getModes();
+    modeLabels = Object.fromEntries(modes.map((m) => [m.id, m.label]));
+  });
 
   async function toggleFilter(bookmarkedOnly) {
     showBookmarkedOnly = bookmarkedOnly;
     await refresh();
+  }
+
+  function selectPeriod(periodId) {
+    timePeriod = periodId;
+    modeFilter = null;
+  }
+
+  function selectModeFilter(modeId) {
+    modeFilter = modeFilter === modeId ? null : modeId;
   }
 
   async function toggleBookmark(event, session) {
@@ -117,6 +194,20 @@
     </div>
   {:else if loaded}
     {#if sessions.length > 0 || showBookmarkedOnly}
+      <div class="period-filter">
+        {#each TIME_PERIODS as period (period.id)}
+          <button
+            type="button"
+            class="ui-label filter-option"
+            class:active={timePeriod === period.id}
+            aria-label="{period.label} filter"
+            onclick={() => selectPeriod(period.id)}
+          >
+            {period.label} <span class="count">{periodCounts[period.id]}</span>
+          </button>
+        {/each}
+      </div>
+
       <div class="filter">
         <button
           type="button"
@@ -135,13 +226,37 @@
           Bookmarked
         </button>
       </div>
+
+      {#if modesInPeriod.length > 1}
+        <div class="mode-filter" transition:fade={{ duration: 200 }}>
+          <button type="button" class="mode-chip" class:active={!modeFilter} onclick={() => (modeFilter = null)}>
+            All modes
+          </button>
+          {#each modesInPeriod as modeId (modeId)}
+            <button
+              type="button"
+              class="mode-chip"
+              class:active={modeFilter === modeId}
+              style="--mode-tint: {tintFor(modeId)}"
+              onclick={() => selectModeFilter(modeId)}
+            >
+              <span class="mode-chip-dot"></span>{modeLabels[modeId] || modeId}
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
-    {#if sessions.length > 0}
+    {#if filteredSessions.length > 0}
       <ul class="journeys">
-        {#each sessions as session, i (session.id)}
+        {#each filteredSessions as session, i (session.id)}
           <li in:fly={{ y: 12, duration: 320, delay: Math.min(i * 40, 240) }}>
-            <button type="button" class="journey-card card card-interactive" onclick={() => onOpen(session.id)}>
+            <button
+              type="button"
+              class="journey-card card card-interactive"
+              style={session.mode ? `--mode-tint: ${tintFor(session.mode)}` : ''}
+              onclick={() => onOpen(session.id)}
+            >
               <div class="journey-row">
                 <span>{session.preview_text || 'A new Journey'}</span>
                 <span
@@ -169,8 +284,10 @@
           </li>
         {/each}
       </ul>
-    {:else if showBookmarkedOnly}
+    {:else if sessions.length === 0}
       <p class="voice" transition:fade={{ duration: 200 }}>No bookmarked Journeys yet.</p>
+    {:else}
+      <p class="voice" transition:fade={{ duration: 200 }}>No Journeys in this time period.</p>
     {/if}
 
     <button type="button" class="btn-primary start" onclick={onBeginNew}>
@@ -210,6 +327,21 @@
     text-align: left;
   }
 
+  /* Time period toggle (see script comment) -- same understated
+     .ui-label pill-of-text treatment as .filter below, just with a
+     count riding along. flex-wrap so four options + counts never
+     force horizontal scroll on a narrow phone. */
+  .period-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .count {
+    opacity: 0.7;
+  }
+
   .filter {
     display: flex;
     gap: var(--space-3);
@@ -226,6 +358,47 @@
     color: var(--accent);
   }
 
+  /* Mode filter chips (see script comment) -- same tinted-left-edge
+     language ModePicker's own mode cards already established, shrunk
+     to a small pill so a whole row of them reads as a filter, not a
+     second list of things to choose. Only ever shows modes actually
+     present in the current period (see modesInPeriod), so it never
+     grows past what's genuinely useful to filter by. */
+  .mode-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-bottom: var(--space-3);
+  }
+
+  .mode-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-muted);
+    background: var(--paper-raised);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-pill);
+    padding: 5px var(--space-2);
+    transition: border-color var(--motion-quick) ease-out, color var(--motion-quick) ease-out;
+  }
+
+  .mode-chip.active {
+    color: var(--ink);
+    border-color: var(--mode-tint, var(--accent));
+  }
+
+  .mode-chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--mode-tint, var(--ink-muted));
+    flex-shrink: 0;
+  }
+
   .journeys {
     list-style: none;
     margin: 0 0 var(--space-4);
@@ -238,12 +411,18 @@
 
   /* Journey rows become cards -- now the shared .card/.card-interactive
      recipe from tokens.css (see that file's own comment on why this is
-     no longer hand-duplicated). */
+     no longer hand-duplicated). Mode-tint left edge (see script
+     comment) mirrors ModePicker's own per-mode color coding -- only
+     drawn when a Journey actually has a mode (--mode-tint is only set
+     inline for those), so a mode-less legacy Journey stays a plain
+     card rather than getting an arbitrary default color implying a
+     mode it doesn't have. */
   .journey-card {
     display: block;
     width: 100%;
     text-align: left;
     padding: var(--space-3);
+    border-left: 4px solid var(--mode-tint, transparent);
   }
 
   .journey-row {

@@ -105,13 +105,26 @@ class SessionSummary(BaseModel):
     found anything at all), not the mechanical signal text itself or
     Judgment's own worded stagnation_notes; the frontend renders one
     fixed, generic phrase when it's true, matching Learning Phase 1's
-    own "mechanical signal only" precedent for a first pass."""
+    own "mechanical signal only" precedent for a first pass.
+
+    `mode` (2026-07-18, see frontend/decisions.md "Home: time period +
+    mode filtering"): the Counseling mode chosen at creation (see
+    src/orchestrator/modes.py), already stored per-session and already
+    exposed for a single session via GET-ing that session's own mode
+    indirectly through Planner's prompt -- never previously surfaced on
+    the LIST endpoint, which Home's new per-period mode filter needs to
+    group by without a separate request per session. `None` for any
+    Journey created with no mode chosen (every Journey from before this
+    feature existed, and anyone who skips picking one) -- the frontend
+    simply excludes those from the mode-filter chip row entirely rather
+    than inventing a fake "no mode" category."""
 
     id: str
     preview_text: str
     updated_at: str
     bookmarked: bool = False
     has_stagnation_signal: bool = False
+    mode: Optional[str] = None
 
     # Major update (2026-07-11, see engine/decisions.md): the theme text
     # of any Insight (src/insight/) this session is evidence for, if any

@@ -8224,4 +8224,20 @@ Verified: 5 new backend tests in `tests/test_api_server.py`
 with only the opt-out flag different, so a regression in the gate
 itself is exactly what it would catch -- export contents, and reset
 behavior including that `privacy_settings` survives). Full suite: 436
+
+## Expose `mode` on `SessionSummary` (2026-07-18)
+
+Small, standalone backend change made in support of Home's new
+time-period + mode filter UI (see `frontend/decisions.md`). `mode` was
+already stored per-session (set at `POST /sessions` time, one of the
+Counseling modes or `null` if none was chosen) but never surfaced on
+`GET /sessions` -- the frontend had no way to group Journeys by mode
+without a separate request per session. Added `mode: Optional[str] =
+None` to `SessionSummary` and extended `db.list_sessions()`'s `SELECT`
+and row-unpacking to include it. Read-only exposure -- no change to
+how `mode` is set, filtered, or ordered elsewhere.
+
+Verified: `test_list_sessions_includes_chosen_mode` and
+`test_list_sessions_mode_is_null_when_none_was_chosen` in
+`tests/test_api_server.py`. Full suite: 441 passed.
 passed (431 existing + 5 new).
