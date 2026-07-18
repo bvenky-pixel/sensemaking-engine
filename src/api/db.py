@@ -609,7 +609,7 @@ def get_aggregated_knowledge_for_pom() -> Tuple[List[str], List[str], List[Entit
             rel_text = "; ".join(entity.relationships)
             lines.append(f"Entity: {entity.name}" + (f" -- {attr_text} {rel_text}".rstrip() if attr_text or rel_text else ""))
         for signal in state.emotional_signal_items:
-            lines.append(f"Emotional signal: {signal.content}")
+            lines.append(f"Emotional signal: {signal.emotion} (intensity={signal.intensity}, source={signal.source})")
 
     aggregated_content = "\n".join(lines)
     return claims, assumptions, entities, aggregated_content
