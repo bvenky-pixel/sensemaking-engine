@@ -84,12 +84,47 @@ window, then the full answer appears at once.
 
 ## Target
 
-**Not yet set.** Picking a concrete number (e.g. "typical turn under
-20s wall-clock," "Response's first token within 2s") is a product
-decision, not an engineering one to make unilaterally — flagged here
-as the next open question rather than guessed at, same "don't invent
-a target the evidence doesn't support" discipline this codebase
-applies everywhere else.
+**Set 2026-07-18, direct founder answer**: anything above 15-20 seconds
+"feels too slow." That's the ceiling this doc measures progress
+against going forward -- today's ~40-50s average per turn is roughly
+2-3x over it. Not yet decided which lever (perceived-latency work vs.
+actual wall-clock reduction) closes how much of that gap -- streaming
+(see below) may close a large part of the FELT gap without touching
+the real number at all, which is exactly why the two levers are kept
+separate in this doc rather than treated as one problem.
+
+## Frontend-only mitigations (2026-07-18, direct founder proposals)
+
+Two ideas that reduce how much the ~40-50s wait actually costs a
+person, without touching backend latency at all -- a third category
+alongside the two levers above, since neither is "perceived latency
+via streaming" nor "actual wall-clock reduction":
+
+1. **Surface the Clarity Brief during the wait, not just after it.**
+   `Understanding.svelte` already renders the Clarity Brief (situation,
+   current_direction, key_insights, remaining_unknowns, decisions,
+   stagnation_notes) computed from the state as of the END of the
+   PREVIOUS turn -- it already exists, in full, the moment a person
+   hits send on the next message; nothing about it depends on the
+   in-flight turn finishing. Today it sits below the Composer, easy to
+   miss during the very moment (sending) when it would actually give
+   someone something worth reading instead of watching an orb animate.
+   Zero backend change, zero new latency cost -- pure frontend
+   reordering/prominence during `sending === true`.
+2. **Only the last exchange visible by default, older turns
+   scrollable.** `Transcript.svelte` renders every message in the
+   array, full history, always fully visible -- as a Journey grows,
+   the screen fills with old content and the actual current exchange
+   (the only part relevant to what's being waited on right now) gets
+   buried. Showing only the latest user message + latest assistant
+   response by default, with everything earlier reachable by
+   scrolling up, reduces cognitive load independent of the wait itself
+   -- but is the one item here needing a real interaction-design
+   decision (fixed-height scrollable pane vs. a collapse/expand
+   affordance) before implementation, not just a reorder.
+
+See backlog #236 (Clarity Brief during latency) and #237 (last-exchange-
+only default view) for the concrete work.
 
 ## Re-measuring
 
