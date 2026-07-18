@@ -8091,3 +8091,64 @@ Theory-of-Mind inferences on real conversation history -- that is
 exactly the accepted risk this round's user decision took on, and
 remains open until a real `pom-computation.yml` dispatch is explicitly
 requested.
+
+## Personal Operating Model -- first live verification (gpt-4o-mini)
+
+Dispatched `pom-walkthrough.yml` (see the script added in the commit
+above) twice, at the user's explicit request ("let's do a validation
+test now with gpt 4o", then "sorry use gpt 4o mini").
+
+**Round 1 (`openai/gpt-4o`) caught a real bug**, not a model-quality
+issue: both sessions ran the full pipeline successfully (real Facts/
+Claims/Goals/Decisions/Entities/EmotionalSignalItems extracted), but
+`get_aggregated_knowledge_for_pom` crashed formatting emotional
+signals -- `EmotionalSignalItem` has `emotion`/`intensity`/`source`/
+`status` fields, not `content`. No existing test had exercised this
+specific aggregation function against a WorldState containing a real
+`EmotionalSignalItem`, since every other POM test operates on
+already-aggregated inputs, not this DB-reading step itself. Fixed
+(`src/api/db.py`), added `tests/test_pom_aggregation.py` to close the
+gap directly, full suite reverified (431 passed), pushed before
+re-dispatching.
+
+**Round 2 (`openai/gpt-4o-mini`) succeeded end to end** and is the
+first real evidence about whether POM's LLM-inferred half actually
+produces sensible output, not just schema-valid output:
+- Grounding enforcement held up against real (not hand-built) model
+  output -- every surviving evidence string traced to something the
+  model actually extracted from the real conversation; nothing
+  fabricated survived `_ground_batch`.
+- **Motivation's three SDT dimensions were genuinely differentiated**
+  (autonomy=high, competence=moderate, relatedness=moderate), each
+  citing distinct real evidence -- the result most worth checking,
+  since a lazy model could have just copied one level across all
+  three. It didn't.
+- Narrative arc correctly identified as "redemptive" with an accurate
+  summary; Theory of Mind correctly limited itself to the one entity
+  (Sarah) with enough real content to infer anything about, rather
+  than inventing entries for people with no real signal.
+- Relationship correctly rendered empty -- Session B's "Sarah" entity
+  had no attributes/relationships extracted in this short 3-turn
+  session, and `compute_relationship_system`'s own skip-rule withheld
+  it rather than showing a bare, contentless mention. Correct
+  behavior, not a bug -- just a reminder that Relationship needs
+  richer/longer sessions before it has much to say.
+- **One real quality gap surfaced**: Learning Style's output ("prefers
+  to make their own decisions and is confident in technical skills")
+  just restates Motivation's autonomy/competence content instead of
+  describing an actual learning/processing style -- `src/pom/prompt.py`'s
+  field definition for `learning_style.style` isn't sharply
+  differentiated from Motivation's own fields yet. Not fixed this
+  round (no user request to fix it) -- logged here as a known,
+  observed gap for whenever POM's prompt gets revisited.
+- **One unrelated finding, out of POM's own scope**: turn 3 of Session
+  A hit a live Response Generator failure (the model omitted the
+  required `confidence` field) -- a pre-existing Response schema-
+  compliance miss, not something this round's POM work touches or is
+  responsible for fixing.
+
+Net result: the single biggest open risk from the POM round (whether a
+real model's inferences are sensible, not just schema-valid) is now
+answered with real evidence, not just accepted-in-principle -- the
+core mechanism works; Learning Style is the one field that needs
+prompt-level sharpening if this becomes a real, ongoing feature.
