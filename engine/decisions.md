@@ -10147,6 +10147,73 @@ turns that skip the LLM call (the common case). No behavior change --
 printing only. Verified: full suite (511 passed) and a structural
 smoke test (no API key set, runs to completion, 0/11 as expected).
 
+## Understanding #289: real multi-turn data found, and a real finding -- the recompute gate doesn't skip in practice
+
+Dispatched the newly-instrumented `worldstate-walkthrough.yml` (run
+29680235697, commit `7162c34`), `openrouter_model` left blank -- same
+real per-component pinned models as the #290 run
+(`qwen/qwen3-32b`/`google/gemini-2.5-flash-lite`). 11/11 turns
+succeeded, 55/55 provider attempts succeeded (100% reliability across
+every component including Tier2).
+
+**The GitHub API truncated the retrieved log to its last ~569KB**, so
+only turns 6-11's Tier 2 output survived retrieval (turns 1-5's own
+Tier 2 prints were pushed out by the WorldState render tables' own
+verbose box-drawing output) -- noted honestly, not glossed over: this
+run gives real data for turns 6-11 only, not the full 11-turn arc.
+
+**Real finding: `candidate_pool_size` grew every single turn observed**
+(48 -> 53 -> 55 -> 65 -> 72 -> 79, turns 6 through 11) **and
+`tier2_recomputed_this_turn=True` on every one of those six turns, with
+no exceptions.** The end-of-run summary confirms this holds for the
+WHOLE conversation, not just the six visible turns: `Tier2: 11 calls,
+11/11 succeeded` -- Tier 2 called the LLM on every single turn of an
+11-turn conversation, never once skipping via
+`should_recompute_tier2`'s caching gate.
+
+**This is a real, actionable finding, distinct from "no data exists."**
+The design's own cost justification (`tier2_engine.py`'s module
+docstring, `engine/decisions.md` "Tier 2 design") rests on "most turns
+skip the LLM call entirely." In this real, actively-elaborating
+career-decision conversation, that assumption did not hold even once:
+every turn introduced or updated enough WorldState content that the
+candidate pool's grounding signature changed every time, so the
+signature-based recompute trigger fired every turn regardless of the
+5-turn staleness backstop even existing. The staleness backstop
+(`TIER2_STALENESS_TURNS=5`) was never the trigger in this run --
+signature changes always got there first -- so its own real-world
+necessity remains untested by this data, not confirmed or refuted.
+
+**The recency window's actual pruning behavior is also untested by this
+run, for a structural reason, not an oversight**: `TIER2_RECENCY_WINDOW_TURNS=10`
+means a detail candidate from turn 1 only falls OUT of scope once
+`turn_count - last_updated > 10` -- at turn 11, a turn-1 item's gap is
+exactly 10, still inside the window. An 11-turn conversation is
+mathematically incapable of demonstrating the window's first exclusion;
+a 12+-turn transcript would be needed to observe it at all.
+
+**Resolution for #289**: no constant was changed. There is now real
+evidence that the ASSUMPTION behind the current design (gating saves
+cost on "most turns") doesn't hold for a realistic, information-dense
+conversation -- but that's a finding about the recompute TRIGGER's
+sensitivity (any grounding-signature change fires it, including minor
+status/text drift on already-included items), not evidence that
+`TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`'s specific numeric
+values are wrong. Changing either number wouldn't address what this run
+actually showed -- the pool's signature changes every turn regardless
+of window width, because new content keeps arriving. Guessing a
+"better" number here would be exactly the ungrounded-tuning mistake
+this project refuses to make elsewhere. New backlog #295 tracks the
+real, structurally distinct question this surfaced: whether the
+recompute trigger itself should be less sensitive (e.g., only fire on a
+THREAD item's status change or a minimum count of new detail items,
+rather than any signature delta) -- a mechanism question, not a
+threshold-tuning one, and out of scope for #289 itself.
+
+Cost: 55 calls, 466,410 tokens, 586s total latency; cost reports
+"unknown (partial -- some calls had no pricing entry)" -- qwen/gemini
+aren't in `pricing.py`'s table (same #294 gap already tracked).
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

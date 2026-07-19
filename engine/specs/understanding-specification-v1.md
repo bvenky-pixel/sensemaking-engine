@@ -150,12 +150,26 @@ grounding claims without engine-level verification.
    TIER2_RECENCY_WINDOW_TURNS/TIER2_STALENESS_TURNS/MIN_GROUNDING_ITEMS
    constants are all explicitly uncalibrated** first-cut values, same
    as `learned_patterns`' own `MIN_EVIDENCE` before Learning's own
-   calibration backlog item — none of these have been recalibrated
-   against real, accumulated production data. Tracked as backlog #289.
-3. **Tier 2 v2** (declarative-uncertainty and values-level synthesis
+   calibration backlog item. Backlog #289 dispatched a real 11-turn
+   live walkthrough specifically to check this (`engine/decisions.md`
+   "Understanding #289") — no constant was changed, since the finding
+   was about the recompute TRIGGER's sensitivity (see #295 below), not
+   evidence that either turn-count number itself is miscalibrated. The
+   recency window's own pruning behavior remains genuinely untested:
+   an 11-turn transcript is structurally incapable of exercising a
+   10-turn window's first exclusion.
+3. **Backlog #295** (new): the same 11-turn run showed Tier 2 recomputed
+   on 11/11 turns — the "most turns skip the LLM call" cost assumption
+   behind the design didn't hold once, because the candidate pool's
+   grounding signature changed every turn in this real,
+   actively-elaborating conversation. Whether the recompute trigger
+   itself should require something more specific than any signature
+   delta (e.g. a thread item's status change, or a minimum count of new
+   detail items) is an open mechanism question, not resolved here.
+4. **Tier 2 v2** (declarative-uncertainty and values-level synthesis
    beyond what the current candidate-pool design produces) is its own
    explicitly out-of-scope increment — see backlog #248.
-4. **Live-dispatch calibration (backlog #290) has now run three times**
+5. **Live-dispatch calibration (backlog #290) has now run three times**
    against `scripts/run_tier2_calibration.py`'s four scripted scenarios
    — see engine/decisions.md's three "Tier 2 ... live calibration run"
    entries. The third run (self-check gate added to law 3 of
