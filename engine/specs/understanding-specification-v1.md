@@ -158,17 +158,24 @@ grounding claims without engine-level verification.
    recency window's own pruning behavior remains genuinely untested:
    an 11-turn transcript is structurally incapable of exercising a
    10-turn window's first exclusion.
-3. **Backlog #295** (new): the same 11-turn run showed Tier 2 recomputed
-   on 11/11 turns — the "most turns skip the LLM call" cost assumption
-   behind the design didn't hold once, because the candidate pool's
-   grounding signature changed every turn in this real,
-   actively-elaborating conversation. Whether the recompute trigger
-   itself should require something more specific than any signature
-   delta (e.g. a thread item's status change, or a minimum count of new
-   detail items) is an open mechanism question, not resolved here.
+3. **Backlog #295 — RESOLVED 2026-07-19** (see engine/decisions.md
+   "Understanding: Tier 2 recompute gated to thread-item status changes
+   only"): the founder was asked directly, given the mechanism-question
+   framing above, and chose to gate `compute_tier2_grounding_signature`
+   on thread-kind (goal/decision/uncertainty) status changes ONLY,
+   excluding detail-kind (fact/claim/entity/assumption/inference/
+   emotional signal) candidates from the signature entirely — ordinary
+   detail accumulation no longer counts as "the situation changed
+   enough to re-synthesize," restoring the original design's intended
+   rarity. Detail kinds remain full candidates once a recompute IS
+   triggered by something else (`select_tier2_candidates` unaffected).
 4. **Tier 2 v2** (declarative-uncertainty and values-level synthesis
-   beyond what the current candidate-pool design produces) is its own
-   explicitly out-of-scope increment — see backlog #248.
+   beyond what the current candidate-pool design produces): a concrete
+   discussion-draft proposal was written 2026-07-19 at the founder's
+   direction (see `engine/specs/tier2-v2-design-proposal.md`), defining
+   both phrases concretely for the first time and recommending further
+   review before either is built — not yet approved, not yet
+   implemented. See backlog #248.
 5. **Live-dispatch calibration (backlog #290) has now run three times**
    against `scripts/run_tier2_calibration.py`'s four scripted scenarios
    — see engine/decisions.md's three "Tier 2 ... live calibration run"

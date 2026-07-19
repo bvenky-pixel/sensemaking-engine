@@ -418,6 +418,54 @@ def test_run_turn_response_failure_still_reports_planner_and_updated_state(monke
     assert any(g.content == "Move to the Product team." for g in result.state.goals)
 
 
+def test_run_turn_retries_a_failed_stage_once_and_succeeds_on_the_second_attempt(monkeypatch):
+    """Bounded single-stage retry (2026-07-19, backlog #250, see
+    engine/decisions.md "Orchestrator: bounded single-stage retry") --
+    the founder's own explicit choice. A stage that fails on its first
+    attempt but succeeds on an independent second attempt must recover
+    the turn, not report failed_stage."""
+    calls = {"n": 0}
+
+    def _judgment(state, tracker=None, retrieved_context=""):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise JudgmentError("transient failure")
+        return _JUDGMENT
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", _judgment)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
+    )
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert calls["n"] == 2
+    assert result.failed_stage is None
+    assert result.judgment == _JUDGMENT
+
+
+def test_run_turn_gives_up_after_exactly_two_attempts_at_a_failing_stage(monkeypatch):
+    """The retry is bounded to exactly one extra attempt, never a loop --
+    a stage that fails twice in a row must report failed_stage after
+    precisely 2 calls, not retry indefinitely."""
+    calls = {"n": 0}
+
+    def _raise(message, tracker=None):
+        calls["n"] += 1
+        raise InterpretationError("still failing")
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", _raise)
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert calls["n"] == 2
+    assert result.failed_stage == "interpretation"
+    assert result.error == "still failing"
+
+
 def test_run_turn_never_raises_on_any_stage_failure(monkeypatch):
     """Orchestrator's whole point: a stage failure is data (a TurnResult),
     never an exception the caller has to catch."""

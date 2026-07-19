@@ -36,13 +36,31 @@ here yet, same as Learning's status):
   src/llm/providers.py and stays there, per the spec's explicit scope
   boundary.
 
+BOUNDED SINGLE-STAGE RETRY (2026-07-19, backlog #250, see
+engine/decisions.md "Orchestrator: bounded single-stage retry" -- the
+founder's own explicit choice, distinct from the "managing retries"
+non-goal above, which still holds for anything beyond this): each of
+the four stages now gets exactly ONE additional attempt, at the stage
+level, if its first attempt raises that stage's own *Error -- i.e. only
+after `src/llm/providers.py`'s own call-level fallback has already
+exhausted every configured provider once. A transient failure isn't
+guaranteed to repeat on a second, fully independent attempt, so this
+recovers some turns the old stop-immediately behavior would have failed
+outright. Still bounded to exactly one retry, never a loop, never a
+retry of the whole turn or of stages that already succeeded -- if the
+SECOND attempt also raises, that exception propagates to this
+function's own except clause exactly as before, and the turn still
+fails honestly. See `_with_bounded_retry` below.
+
 Orchestrator never performs user reasoning: it only sequences calls and
 reports what happened, never judging what any stage's output means.
 """
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Type, TypeVar
+
+T = TypeVar("T")
 
 from src.insight.schema import Insight
 from src.instrumentation.events import diff_behavioral_events
@@ -57,6 +75,18 @@ from src.state.builder import apply_judgment_resolutions, apply_knowledge_correc
 from src.state.world_state import WorldState
 from src.understanding.engine import build_tier1_statements
 from src.understanding.tier2_engine import update_tier2
+
+
+def _with_bounded_retry(run_stage: Callable[[], T], error_type: Type[Exception]) -> T:
+    """Calls `run_stage()`, retrying exactly once more if the FIRST call
+    raises `error_type` (backlog #250 -- see this module's own docstring).
+    The second attempt's exception, if it also raises, propagates
+    unchanged -- this never swallows a genuine total failure, it only
+    delays reporting it by one independent attempt at the same stage."""
+    try:
+        return run_stage()
+    except error_type:
+        return run_stage()
 
 
 def run_turn(
@@ -153,7 +183,9 @@ def run_turn(
             on_stage_complete(stage)
 
     try:
-        interp = run_interpretation(message, tracker=tracker)
+        interp = _with_bounded_retry(
+            lambda: run_interpretation(message, tracker=tracker), InterpretationError
+        )
     except InterpretationError as exc:
         return TurnResult(state=state, failed_stage="interpretation", error=str(exc))
     _notify("interpretation")
@@ -182,7 +214,10 @@ def run_turn(
     state.understanding.tier1 = build_tier1_statements(state)
 
     try:
-        judgment = run_judgment(state, tracker=tracker, retrieved_context=retrieved_context)
+        judgment = _with_bounded_retry(
+            lambda: run_judgment(state, tracker=tracker, retrieved_context=retrieved_context),
+            JudgmentError,
+        )
     except JudgmentError as exc:
         return TurnResult(
             state=state, interpretation=interp, failed_stage="judgment", error=str(exc),
@@ -230,7 +265,9 @@ def run_turn(
     state = update_tier2(state, tracker=tracker)
 
     try:
-        plan = run_planner(state, judgment, tracker=tracker, mode=mode)
+        plan = _with_bounded_retry(
+            lambda: run_planner(state, judgment, tracker=tracker, mode=mode), PlannerError
+        )
     except PlannerError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment,
@@ -246,8 +283,11 @@ def run_turn(
     effective_mode = plan.active_lens if mode == "adaptive" and plan.active_lens else mode
 
     try:
-        response = run_response_generator(
-            state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom, insights=insights,
+        response = _with_bounded_retry(
+            lambda: run_response_generator(
+                state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom, insights=insights,
+            ),
+            ResponseGeneratorError,
         )
     except ResponseGeneratorError as exc:
         return TurnResult(

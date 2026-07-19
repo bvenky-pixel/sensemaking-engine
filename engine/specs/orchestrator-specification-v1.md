@@ -128,17 +128,29 @@ parameter it doesn't pass.
 
 ## Non-goals
 
-No model-tier selection, no mechanical skip-logic, no whole-stage
-retry — all explicitly deferred, see "What Orchestrator is, and what it
-isn't" above. No semantic judgment of any kind — sequencing and
-resourcing only.
+No model-tier selection, no mechanical skip-logic — still deferred, see
+"What Orchestrator is, and what it isn't" above. Whole-stage retry is
+no longer a non-goal (see Open Questions below) -- narrowly, bounded to
+one extra attempt per stage, not the broader "managing retries"
+scope. No semantic judgment of any kind — sequencing and resourcing
+only.
 
 ## Open questions
 
 **Backlog #238** ("Orchestrator: revisit deferred skip-logic/
-model-routing scope") and **#250** ("Orchestrator: revisit whole-stage
-retry, distinct from call-level fallback") both track the deliberately
-deferred §1 responsibilities above — neither resolved by this doc.
+model-routing scope") tracks the remaining deliberately deferred §1
+responsibility above — not resolved by this doc.
+
+**Backlog #250 ("Orchestrator: revisit whole-stage retry, distinct from
+call-level fallback") — RESOLVED 2026-07-19** (see engine/decisions.md
+"Orchestrator: bounded single-stage retry"): the founder was asked
+directly whether the honest partial-failure behavior should stay as-is
+or gain automatic retry, and chose to add ONE bounded re-attempt per
+stage -- `run_turn` now retries a stage exactly once if its first
+attempt raises that stage's own `*Error`, via `_with_bounded_retry`
+(`src/orchestrator/engine.py`). Still bounded, never a loop, never a
+retry of the whole turn or of stages that already succeeded -- a
+second failure still returns `failed_stage`/`error` exactly as before.
 
 ## Verification
 

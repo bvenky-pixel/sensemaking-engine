@@ -101,10 +101,10 @@ Two distinct surfaces, not one:
 No live/in-turn computation — Insight Engine only ever reflects the
 last `workflow_dispatch` run. No cross-account aggregation of any kind
 post-#273. No semantic deduplication of themes across separate
-`run_insight_detection` runs — each run replaces an account's insights
-wholesale rather than merging with the previous run's themes (tracked
-as backlog #293, worth revisiting once real multi-run production data
-exists).
+`run_insight_detection` runs — each run still replaces an account's
+insights wholesale rather than merging with the previous run's themes
+(backlog #293; see Open Questions below for what's shipped vs. still
+proposed).
 
 ## Open questions
 
@@ -118,6 +118,26 @@ Insight Engine has no scheduled recompute, only `workflow_dispatch` --
 the founder was asked directly and confirmed this stays a deliberate
 choice, not an oversight, same "workflow_dispatch-only, no cron"
 precedent `backup-database.yml` already established.
+
+**Backlog #293** ("dedupe/merge themes across successive computation
+runs") -- two-part, 2026-07-19:
+1. **Narrow fix, SHIPPED** (see engine/decisions.md "Insight Engine:
+   keep re-offering existing evidence sessions across runs"):
+   `get_session_texts_for_insights` (`src/api/db.py`) now always
+   includes any session that's currently evidence for an existing
+   Insight, even if it's aged out of the plain top-`MAX_SESSIONS_FOR_INSIGHT`
+   recency window -- stops a still-true Insight from being deleted by
+   the next run purely because its evidence session rotated out of
+   scope, with no merge/dedup decision involved.
+2. **Deeper merge/dedup logic, PROPOSED not built**: a discussion-draft
+   design (see `engine/specs/insight-dedup-design-proposal.md`) for
+   feeding an account's existing Insights back into the same
+   `run_insight_detection` call as context, so the model itself decides
+   whether a new theme is the same underlying pattern as an existing
+   one (and reuses its wording) rather than each run being wholly
+   independent. Not yet approved or implemented -- recommended to ship
+   and observe against real successive `workflow_dispatch` runs before
+   deciding whether a mechanical fallback matcher is also needed.
 
 ## Verification
 

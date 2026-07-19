@@ -11016,3 +11016,203 @@ change -- `PersonalOperatingModel.svelte` and `BehavioralPatterns.svelte`
 both already omit any parameter/pattern with nothing grounded, with no
 per-parameter suggestion text. The "omit rather than show a hollow
 signal" principle in `frontend/decisions.md` stands unrevised.
+
+## Orchestrator: bounded single-stage retry (2026-07-19, backlog #250)
+
+Backlog #250 named a real, deliberate non-goal from Orchestrator's own
+original design (`src/orchestrator/engine.py`'s module docstring):
+"managing retries" beyond stage-level stop-and-report was explicitly
+out of scope, distinct from `src/llm/providers.py`'s own call-level
+fallback across providers within one stage's attempt. Research this
+round found the current honest-partial-failure behavior already
+matches this project's "honest failure over invented recovery"
+discipline, with no evidence yet that stage retry reduces real
+user-visible failures -- and flagged a real ambiguity in what "whole-
+stage retry" even means (re-run just the failed stage once? the whole
+turn? something else?). Put directly to the founder rather than
+assumed either way.
+
+**CONFIRMED by the founder: add one bounded re-attempt per stage**,
+overriding this project's own "leave as-is" recommendation. New
+`_with_bounded_retry` helper in `src/orchestrator/engine.py`: calls a
+stage's `run_*` function, and if the FIRST call raises that stage's own
+`*Error` (i.e. only after `resolve_provider_chain()` already exhausted
+every configured provider once), tries the SAME stage exactly once
+more before letting a second failure propagate to `run_turn`'s existing
+`except` clause unchanged. All four stages (Interpretation, Judgment,
+Planner, Response) wrapped identically. Never a loop, never a retry of
+the whole turn, never a retry of a stage that already succeeded -- a
+second failure still returns `failed_stage`/`error` exactly as before
+this change. A transient provider hiccup isn't guaranteed to repeat on
+a second, fully independent attempt, so this recovers some turns the
+old stop-immediately behavior would have failed outright, at the cost
+of at most one extra attempt on an already-worst-case path (every
+provider already failed once).
+
+Verified: two new tests in `tests/test_orchestrator.py` --
+`test_run_turn_retries_a_failed_stage_once_and_succeeds_on_the_second_attempt`
+(a stage that fails once then succeeds recovers the turn, not
+`failed_stage`) and
+`test_run_turn_gives_up_after_exactly_two_attempts_at_a_failing_stage`
+(a stage that fails twice reports `failed_stage` after EXACTLY 2 calls,
+confirming the retry is bounded, not a loop). Every existing failure
+test in that file (which mocks a stage to always raise) still passes
+unchanged, since a mock that always fails still fails on the bounded
+retry's second attempt too. Full `pytest` (563 passed) clean.
+`engine/specs/orchestrator-specification-v1.md`'s own Non-goals/Open
+Questions updated to reflect this is no longer deferred.
+
+## Understanding: Tier 2 recompute gated to thread-item status changes only (2026-07-19, backlog #295)
+
+Backlog #295 already had its root cause diagnosed by an earlier round
+this session (see "Understanding #289: real multi-turn data found --
+the recompute gate doesn't skip in practice" above): a live 11-turn
+walkthrough showed `should_recompute_tier2` firing on 11/11 turns,
+because `compute_tier2_grounding_signature`'s hash covered EVERY
+candidate (thread AND detail kinds, id+status+text), and ordinary
+fact/claim/entity accumulation -- the common case on nearly every turn
+-- changed that hash just as much as a real goal/decision/uncertainty
+status transition did. That round explicitly declined to guess a fix
+("changing either recency/staleness number wouldn't address what this
+run actually showed... guessing a 'better' number here would be
+exactly the ungrounded-tuning mistake this project refuses to make
+elsewhere") and left the actual mechanism question -- what SHOULD
+trigger recompute -- to a founder decision. This round put that
+decision directly to the founder, with the candidates decisions.md
+itself had already floated (gate on thread-item status changes only;
+require a minimum count of changed items; accept current behavior).
+
+**CONFIRMED by the founder: gate on thread-item status changes only**
+(the recommended option). `compute_tier2_grounding_signature`
+(`src/understanding/tier2_engine.py`) now hashes only thread-kind
+(`goal`/`decision`/`uncertainty`) candidates' `id:status` -- detail
+kinds (fact/claim/entity/assumption/inference/emotional signal) are
+excluded from the signature entirely, even though `select_tier2_candidates`
+still includes them in whatever pool `run_tier2_synthesis` actually
+sees once a recompute IS triggered by something else. `text` is also
+dropped from the hash (not just detail kinds) -- a thread item's Tier 1
+text is a deterministic function of content+status, so a real status
+transition is the meaningful signal, not incidental rewording.
+
+Verified: `tests/test_tier2.py`'s
+`test_signature_changes_when_a_new_candidate_is_added` (a Fact-based
+test asserting the OLD full-pool behavior) rewritten as
+`test_signature_changes_when_a_new_thread_candidate_is_added` (same
+assertion, now using a Goal, since that's what should still change the
+signature) plus a new
+`test_signature_is_unaffected_by_a_new_detail_candidate` (the direct
+regression test: a new Fact must NOT change the signature, even though
+it's still a real candidate `select_tier2_candidates` includes). Full
+`pytest` (563 passed, up from 560) clean.
+`engine/specs/understanding-specification-v1.md`'s Open Question #3
+updated to RESOLVED.
+
+## Understanding: Tier 2 v2 design proposal drafted (2026-07-19, backlog #248)
+
+Research confirmed `engine/specs/understanding-specification-v1.md`'s
+own "declarative-uncertainty and values-level synthesis" phrase
+(Open Question #4) had no concrete definition anywhere in this
+codebase or its specs -- just a name, not a scoped feature, first
+written down when backlog #248 was created. Put to the founder as: defer/
+close (recommended, since building against an undefined term risks
+either redundancy with Tier 2 v1's existing `synthesis` kind or,
+worse, violating Tier 2's own hard "never characterize the person"
+rule), or draft a concrete design proposal first.
+
+**The founder chose to draft a design proposal** (the non-recommended
+option), overriding the recommendation to defer outright. Wrote
+`engine/specs/tier2-v2-design-proposal.md` -- a DISCUSSION DRAFT, same
+status/shape as `engine/specs/judgement-v3-design` -- concretely
+defining, for the first time, both phrases as two possible new Tier 2
+statement kinds extending the existing single LLM call (no new call,
+no new engine): **declarative uncertainty** (naming the specific
+boundary of what remains unknown across several candidates, as a
+stated fact, distinct from Tier 1's own question-shaped `uncertainty`
+kind and from Tier 2 v1's situational `synthesis` kind) and **values-level
+synthesis** (naming a tension between two things the person's own
+words already state, e.g. "wanting to move forward here means setting
+aside not disappointing your manager"). The document is explicit that
+`values_synthesis` carries a real risk of violating law 5 (never
+label a trait/value the person didn't state) and that this risk is not
+yet solved by prompt wording alone -- recommends further review of
+`declarative_uncertainty` as lower-risk, and treats `values_synthesis`
+as not yet safely buildable until its enforcement question is
+answered. No code, prompt, or schema changes made -- per the document's
+own explicit scope, same as `judgement-v3-design`'s own precedent.
+`engine/specs/understanding-specification-v1.md`'s Open Question #4
+updated to point to the new document.
+
+## Insight Engine: keep re-offering existing evidence sessions across runs (2026-07-19, backlog #293, narrow fix)
+
+Research confirmed a real, mechanical bug independent of any merge/dedup
+design decision: `get_session_texts_for_insights` (`src/api/db.py`)
+capped its query at the top `MAX_SESSIONS_FOR_INSIGHT` most-recently-
+updated sessions with no exception for sessions that are evidence for
+an account's EXISTING Insights. Once an account has more than
+`MAX_SESSIONS_FOR_INSIGHT` qualifying sessions, an old evidence session
+scrolling out of that window meant the next `run_insight_detection`
+call never even saw it again -- `replace_insights`' truncate-and-
+replace would then delete a still-true Insight for no reason connected
+to the person's actual situation, purely from recency-window churn.
+
+Fixed by widening the query: `get_session_texts_for_insights` now
+unions the top-N recency window with every session id currently
+referenced by one of this account's own `insight_sessions` rows (via a
+join scoped to `insights.user_id = ?`, so another account's insight
+evidence can never leak in), then re-sorts by `updated_at DESC`. This
+doesn't merge or dedupe anything across runs -- it only ensures the
+SAME single LLM call this run still gets a chance to see and re-cite
+evidence it relied on last time, using the existing, unmodified
+grounding logic (`_enforce_grounding` in `src/insight/engine.py`) to
+decide fresh each run whether the theme still holds. The deeper "how do
+we decide two runs found the same theme" question stays separate --
+see the design-proposal entry below.
+
+Verified: new `tests/test_insight_db.py` (a dedicated file, mirroring
+`tests/test_pom_aggregation.py`'s own style, since
+`get_session_texts_for_insights` had no direct test coverage anywhere
+before this) -- confirms a session's own judgment text is returned, a
+session with no completed judgment is excluded,
+`test_an_existing_insights_evidence_session_survives_rotating_out_of_the_recency_window`
+(the direct regression test: `MAX_SESSIONS_FOR_INSIGHT` newer sessions
+pushed an old evidence session out of the plain window, and it's still
+present in the result), and that another account's evidence sessions
+are never pulled in. Full `pytest` (567 passed, up from 563) clean.
+
+## Insight Engine: cross-run merge design proposal drafted (2026-07-19, backlog #293, deeper piece)
+
+Alongside the narrow fix above, the founder was asked what should
+happen with the deeper, still-unresolved question this backlog item was
+originally about: deciding whether two separate `run_insight_detection`
+runs found "the same theme," for real merging (not just the recency-
+window fix, which doesn't address wording drift or a theme
+disappearing because the model itself just didn't re-cite it this
+time). Options put: defer until real multi-run production data exists
+(recommended, same "blocked until real production data exists"
+precedent as backlog #213), or design the merge logic now.
+
+**The founder chose to design the merge logic now**, overriding the
+recommendation to defer. Wrote `engine/specs/insight-dedup-design-
+proposal.md` -- a DISCUSSION DRAFT proposing that `run_insight_detection`
+accept a new optional `prior_insights` parameter (default `None`, a
+true no-op for every existing call site), with `src/insight/prompt.py`
+gaining a new labeled "PREVIOUSLY IDENTIFIED THEMES" section (populated
+only when non-empty) instructing the model to reuse a prior theme's
+exact wording when a new one describes the same underlying pattern,
+never carry a theme forward that current evidence doesn't support, and
+to keep treating prior themes as context only -- never evidence in
+place of `_enforce_grounding`'s existing, unmodified mechanical floor.
+`scripts/run_insight_detection.py` would fetch `db.get_insights(user_id)`
+before recomputing and pass it through; `replace_insights` itself needs
+no change, since the merge decision moves inside the one LLM call
+rather than becoming a separate database operation. Explicitly does
+NOT add a second, independent matching mechanism (fuzzy text/embedding
+similarity) -- recommends shipping the prompt-only version and
+observing at least two real successive `workflow_dispatch` runs before
+deciding whether a mechanical fallback is worth its own complexity, same
+"observe before building" discipline as this session's whole "blocked
+on real data" precedent for other uncalibrated thresholds. No code,
+prompt, or schema changes made this round -- per the document's own
+explicit scope. `engine/specs/insight-engine-specification-v1.md`'s
+Non-goals/Open Questions updated to reflect both the shipped narrow fix
+and the still-proposed deeper piece.

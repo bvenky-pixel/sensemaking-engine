@@ -1142,12 +1142,47 @@ def get_session_texts_for_insights(user_id: str) -> List[Tuple[str, str, str]]:
     surface_complaint/primary_problem pair from). Capped at
     MAX_SESSIONS_FOR_INSIGHT most-recently-updated sessions -- now a
     genuine per-account recency cap, same cost/latency reasoning as
-    src/insight/schema.py's docstring."""
+    src/insight/schema.py's docstring.
+
+    Also always includes any session that's currently evidence for one
+    of this account's existing Insights, even if it's aged out of that
+    recency window (2026-07-19, backlog #293, see engine/decisions.md
+    "Insight Engine: keep re-offering existing evidence sessions across
+    runs"). Without this, an Insight's evidence session silently
+    rotating out of the top-N window meant the NEXT run's single LLM
+    call never even saw it again -- replace_insights would then
+    truncate-and-replace with whatever that run found, deleting a still-
+    true Insight for no reason connected to the person's actual
+    situation, just recency-window churn. This doesn't merge or dedupe
+    themes across runs (that remains backlog #293's own still-open,
+    deeper question) -- it only ensures the SAME single LLM call this
+    run still gets a chance to see and re-cite evidence it relied on
+    last time, using the existing, unmodified grounding logic
+    (_enforce_grounding in src/insight/engine.py) to decide fresh each
+    run whether the theme still holds."""
     with _connect() as conn:
+        recent_ids = [
+            row[0] for row in conn.execute(
+                "SELECT id FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (user_id, MAX_SESSIONS_FOR_INSIGHT),
+            ).fetchall()
+        ]
+        evidence_ids = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT insight_sessions.session_id FROM insight_sessions "
+                "JOIN insights ON insights.id = insight_sessions.insight_id "
+                "WHERE insights.user_id = ?",
+                (user_id,),
+            ).fetchall()
+        ]
+        candidate_ids = list(dict.fromkeys(recent_ids + evidence_ids))
+        if not candidate_ids:
+            return []
+        placeholders = ",".join("?" * len(candidate_ids))
         rows = conn.execute(
-            "SELECT id, world_state_json, debug_json FROM sessions "
-            "WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
-            (user_id, MAX_SESSIONS_FOR_INSIGHT),
+            f"SELECT id, world_state_json, debug_json FROM sessions "
+            f"WHERE user_id = ? AND id IN ({placeholders}) ORDER BY updated_at DESC",
+            (user_id, *candidate_ids),
         ).fetchall()
     texts: List[Tuple[str, str, str]] = []
     for session_id, world_state_json, debug_json in rows:
