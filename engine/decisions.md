@@ -9287,3 +9287,35 @@ Unblocks the rest of the Learning sequencing chain from
 "Learning: docstring reconciliation + first versioned spec" above --
 #214 (frontend disclosure surface) can now be built without the
 per-account correctness gap that entry flagged.
+
+## CONFIDANT_RECORD_EVENTS enabled in production (2026-07-18)
+
+Backlog #211, the last item in the Learning sequencing chain the
+founder set with "fix per-account scoping first, then the rest." All
+three prerequisites `src/instrumentation/events.py::is_events_enabled`'s
+own docstring named are now real: per-account scoping (#257),
+`GET /patterns` requiring login, and a real frontend disclosure surface
+(#214, Settings' new "Patterns" card, each pattern's `evidence_count`
+shown plainly per `trust-and-privacy-ux-v1.md`'s Principle 6).
+
+`fly.toml`'s `[env]` block now sets `CONFIDANT_RECORD_EVENTS = "1"`,
+same non-secret-plain-var pattern the rest of that block already uses
+(nothing sensitive in the value, no need for `fly secrets set`).
+`is_events_enabled`'s own docstring updated to match -- previously
+said "deliberately NOT defaulted on anywhere yet, including the
+deployed Fly.io environment," now records when and why that changed.
+
+**Committed, not deployed.** This config change only takes effect on
+the next `deploy.yml` run -- per the founder's own standing rule, a
+live deploy needs its own explicit "deploy to live app" instruction
+each time, separate from approving the underlying change itself.
+`scripts/run_learning.py` still needs to actually run (manually, or on
+a schedule) after deploy for any real patterns to appear -- flipping
+this flag only starts accumulating `behavioral_events`, it doesn't
+compute `learned_patterns` on its own (Learning stays offline-only, by
+design, per its own non-goals).
+
+Verified: full suite `pytest` 484 passed, no test changes needed (pure
+config + docstring). Backlog #213 (calibrating `MIN_EVIDENCE`) stays
+blocked until real production data actually accumulates post-deploy --
+not something a same-day change can satisfy regardless of this flag.

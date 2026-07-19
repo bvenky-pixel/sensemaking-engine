@@ -88,17 +88,14 @@ real dependency chain, not three independent nice-to-haves.
    real per-account attribution having made this possible for the
    first time.
 
-**The real order, now that (1) and (3) are resolved**: #214 (frontend
-disclosure) can be built without the correctness gap this section
-originally flagged. `CONFIDANT_RECORD_EVENTS` should still only be
-turned on in production (#211) once #214 actually ships — a real
-disclosure surface existing in code isn't the same as it being live for
-real users to see (`src/instrumentation/events.py`'s own docstring:
-"turning this on in production is a deliberate product/privacy
-decision, not an engineering default"). Backlog #213 (calibrating
-`MIN_EVIDENCE` against real data) is still blocked behind #211, since
-it needs real accumulated production data to calibrate against in the
-first place.
+**Status: all three RESOLVED 2026-07-18.** #214 shipped Settings' new
+"Patterns" card; `CONFIDANT_RECORD_EVENTS = "1"` is now set in
+`fly.toml` (#211) — committed, not yet deployed as of this spec
+revision; takes effect on the next `deploy.yml` run. Backlog #213
+(calibrating `MIN_EVIDENCE` against real data) remains blocked until
+real production data has actually accumulated after deploy — a
+same-day calibration attempt would have nothing real to calibrate
+against yet.
 
 ## Verification
 

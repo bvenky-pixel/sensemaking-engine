@@ -46,18 +46,23 @@ BehavioralEventType = Literal["goal_status_changed", "decision_status_changed"]
 
 def is_events_enabled() -> bool:
     """
-    Off by default, mirroring src/instrumentation/usage.py's
+    Off by default in code, mirroring src/instrumentation/usage.py's
     is_tracking_enabled() -- but checked at the PERSISTENCE boundary
     (src/api/db.py::save_events), not here, since diff_behavioral_events
     itself stays a pure function with no environment dependency.
-    Deliberately NOT defaulted on anywhere yet, including the deployed
-    Fly.io environment: trust-and-privacy-ux-v1.md's Principle 6
-    (amended for this feature) requires a real disclosure surface and
-    deletion path before real behavioral data should accumulate in
-    production, and neither exists yet (see that principle's own "what
-    Phase 1 actually ships" admission). Turning this on in production is
-    a deliberate product/privacy decision, not an engineering default --
-    see engine/decisions.md.
+
+    Set to "1" in production (2026-07-18, see fly.toml's own
+    CONFIDANT_RECORD_EVENTS comment, engine/decisions.md "Learning made
+    per-account" and "Learning surfaced to users") -- was deliberately
+    left unset everywhere, including the deployed Fly.io environment,
+    until trust-and-privacy-ux-v1.md's Principle 6 (amended for this
+    feature) was genuinely satisfied: real per-account attribution on
+    learned_patterns (no longer a global, unowned aggregate), a real
+    frontend disclosure surface (Settings' "Patterns" card), and a real
+    deletion path independent of a full database wipe. All three are
+    real now. Turning this on in production was a deliberate
+    product/privacy decision made once those existed, not an
+    engineering default -- see engine/decisions.md.
     """
     return os.environ.get("CONFIDANT_RECORD_EVENTS", "").strip().lower() in ("1", "true", "yes")
 

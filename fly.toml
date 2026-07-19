@@ -26,6 +26,20 @@ primary_region = 'lhr'
   # component forced to one model, e.g. reproducing a calibration
   # workflow's controlled-comparison setup in production.
 
+  # CONFIDANT_RECORD_EVENTS (2026-07-18, see engine/decisions.md
+  # "Learning made per-account", "Learning surfaced to users") -- was
+  # deliberately left unset everywhere, including here, until three
+  # prerequisites `src/instrumentation/events.py::is_events_enabled`'s
+  # own docstring named were real: (1) real per-account attribution on
+  # `learned_patterns` (no longer a global, unowned aggregate anyone
+  # could see a blend of), (2) a real frontend disclosure surface
+  # (Settings' new "Patterns" card, showing each pattern's own
+  # evidence_count plainly), (3) a real deletion path independent of a
+  # full database wipe ("Forget everything" now deletes this account's
+  # own patterns). All three are now real -- flipped on here, a
+  # deliberate product/privacy decision, not a default.
+  CONFIDANT_RECORD_EVENTS = "1"
+
 [build]
 
 [[mounts]]
