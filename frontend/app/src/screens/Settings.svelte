@@ -54,6 +54,11 @@
   // self-contained (fetches its own data, renders its own
   // .setting-section card), so it's mounted here exactly like a fourth
   // sibling, not merged into Privacy/Account's own markup.
+  //
+  // Learning surfaced to users (2026-07-18, see frontend/decisions.md
+  // "Learning surfaced to users") -- BehavioralPatterns.svelte is the
+  // same self-contained shape, mounted as a fifth sibling right after
+  // PersonalOperatingModel.
   import { onMount } from 'svelte';
   import {
     getPrivacySettings,
@@ -65,6 +70,7 @@
   import { authState, logout } from '../lib/auth.svelte.js';
   import LoginGate from '../components/LoginGate.svelte';
   import PersonalOperatingModel from '../components/PersonalOperatingModel.svelte';
+  import BehavioralPatterns from '../components/BehavioralPatterns.svelte';
 
   let { onBack } = $props();
 
@@ -240,6 +246,7 @@
     </section>
 
     <PersonalOperatingModel />
+    <BehavioralPatterns />
   {/if}
 </div>
 

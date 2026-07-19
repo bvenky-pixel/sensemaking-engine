@@ -1595,3 +1595,52 @@ test (would need a real Journey list long enough to scroll, i.e. real
 messages through the live LLM pipeline) -- the fix itself is a pure
 DOM-reordering change with no new logic, so unit coverage plus a read
 of the resulting markup order is enough confidence for this one.
+
+## Learning surfaced to users (2026-07-18)
+
+Backlog #214, unblocked by the per-account scoping fix above
+(engine/decisions.md "Learning made per-account") -- `GET /patterns`
+had zero frontend consumers until now, same starting gap
+"POM surfaced to users" closed for `personal_operating_model`.
+
+**Where it lives**: new `BehavioralPatterns.svelte`, mounted in
+Settings right after `PersonalOperatingModel`, same self-contained
+"fetches its own data, renders its own `.setting-section` card"
+shape -- a fifth sibling, not merged into any existing section's
+markup.
+
+**Disclosure treatment deliberately different from POM's own card**:
+POM hides its raw confidence level entirely, using it only as a
+display gate, because POM's frameworks (Self-Determination Theory,
+Narrative Identity Theory) are interpretive and only lightly
+calibrated. A behavioral pattern is the opposite case -- purely
+mechanical, evidence-counted, never LLM-inferred
+(`src/learning/engine.py::compute_behavioral_patterns`) -- so
+`trust-and-privacy-ux-v1.md`'s Principle 6 applies directly rather than
+needing POM's own workaround: "a noticed pattern must never be
+presented with more confidence than its evidence count actually earns
+-- visible undercount is safer than invisible overreach." Each
+pattern's `evidence_count` is shown plainly next to its `detail`
+sentence, not hidden. Raw internal vocabulary (`pattern_type` values
+like `decision_status_changed`) never reaches the screen -- only
+`detail`, the real plain-language sentence the engine already produced.
+
+Same "omit rather than show a hollow signal" discipline every other
+Settings card already follows: empty until `scripts/run_learning.py`
+has computed something for this account, and stays empty below
+`MIN_EVIDENCE` by design.
+
+New `getBehavioralPatterns()` in `lib/api.js` (thin `GET /patterns`
+wrapper, requires login same as `getPersonalOperatingModel`).
+
+Verified: new `BehavioralPatterns.test.js` (2 tests: empty placeholder,
+populated state with evidence counts shown and raw event-type
+vocabulary absent), `Settings.test.js` updated to mock/default the new
+API call. Full frontend suite: 87 passed (was 85; +2 new). `npm run
+build` green. Backend: full suite still 484 passed, no backend changes
+this round beyond the new `getBehavioralPatterns` wrapper's own
+`GET /patterns` call (already login-gated by the per-account round
+above). Not live-verified end to end -- same "would require sending
+real messages through the live LLM pipeline" reasoning as every other
+UI-only round held back by the founder's standing hold on live
+dispatches.

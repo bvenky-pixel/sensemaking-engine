@@ -25,6 +25,10 @@ import { authState } from '../lib/auth.svelte.js';
 // POM surfaced to users (2026-07-18, see frontend/decisions.md):
 // getPersonalOperatingModel mocked too, since Settings now mounts
 // PersonalOperatingModel.svelte as a third section whenever signed in.
+// Learning surfaced to users (2026-07-18, see frontend/decisions.md
+// "Learning surfaced to users"): getBehavioralPatterns mocked too,
+// since Settings now mounts BehavioralPatterns.svelte as a fourth
+// section whenever signed in.
 vi.mock('../lib/api.js', () => ({
   getPrivacySettings: vi.fn(),
   setCrossSessionLearningEnabled: vi.fn(),
@@ -35,6 +39,7 @@ vi.mock('../lib/api.js', () => ({
   verifyMagicLink: vi.fn(),
   logout: vi.fn(),
   getPersonalOperatingModel: vi.fn(),
+  getBehavioralPatterns: vi.fn(),
 }));
 
 describe('Settings', () => {
@@ -45,6 +50,9 @@ describe('Settings', () => {
     // Default: no POM computed yet -- PersonalOperatingModel.test.js
     // covers its own populated/empty states directly.
     api.getPersonalOperatingModel.mockResolvedValue(null);
+    // Default: no patterns computed yet -- BehavioralPatterns.test.js
+    // covers its own populated/empty states directly.
+    api.getBehavioralPatterns.mockResolvedValue([]);
     // Every existing test below exercises the signed-in screen -- see
     // the new describe block further down for the signed-out gate
     // itself. Reset explicitly rather than relying on a previous

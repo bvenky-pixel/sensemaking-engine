@@ -223,3 +223,15 @@ export async function getPersonalOperatingModel() {
   const res = await fetch('/personal-operating-model');
   return _json(res);
 }
+
+// Learning surfaced to users (2026-07-18, see frontend/decisions.md
+// "Learning surfaced to users") -- backs Settings' own behavioral-
+// patterns card. Requires login, same as /personal-operating-model
+// (see engine/decisions.md "Learning made per-account"). Returns an
+// empty array both when nothing's been computed yet AND (implicitly,
+// since this is only ever called from Settings' own authenticated
+// branch) never from a logged-out caller.
+export async function getBehavioralPatterns() {
+  const res = await fetch('/patterns');
+  return _json(res);
+}
