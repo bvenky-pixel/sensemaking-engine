@@ -10534,6 +10534,54 @@ own generated text, no new UI surface needed. Live browser/dispatch
 verification deferred to the end-of-backlog validation pass, same
 standing instruction #207/#208/#209 all honored.
 
+## Learning: MIN_EVIDENCE calibration remains blocked; production deploy dispatched to start the clock (2026-07-19, backlog #213)
+
+Investigated backlog #213 ("calibrate `MIN_EVIDENCE` against real data").
+Confirmed this is NOT the same shape as #289/#290/#292's calibration
+rounds -- those calibrate LLM output quality on a realistic-but-scripted
+conversation, which a live dispatch can honestly exercise. Learning's
+`MIN_EVIDENCE` (`src/learning/engine.py`) gates `compute_behavioral_patterns`,
+a pure population-frequency threshold with **zero LLM calls** -- what it
+needs is the real distribution of how often genuine multi-session users'
+goals/decisions actually change status over real calendar time, which no
+scripted scenario can stand in for (a scripted event count is an
+artifact of what was written, not a sample of real behavior). This
+codebase's own prior reasoning already says as much, repeatedly (see
+this same entry's precedent in the #289 round: *"crafted fixtures can't
+stand in for actual usage patterns any more than a unit test could
+calibrate Learning's own MIN_EVIDENCE"*).
+
+Also confirmed: `CONFIDANT_RECORD_EVENTS=1` was committed to `fly.toml`
+(and is present on `main`) back on 2026-07-18, but nothing in
+decisions.md recorded an actual `deploy.yml` dispatch since -- meaning
+production was likely not yet writing real `behavioral_events` at all,
+before today.
+
+Asked the founder directly how to proceed, given the task is genuinely
+blocked rather than facing a design fork: leave it blocked and move on,
+dispatch `deploy.yml` to start the data-collection clock, or attempt a
+`backup-database.yml`-style pull of whatever data might already exist
+(despite an equivalent ask being declined once before, for #289).
+Chosen: **dispatch `deploy.yml`** -- not to calibrate anything today,
+but so `CONFIDANT_RECORD_EVENTS` actually takes effect live and real
+usage can start accumulating from this point forward.
+
+Dispatched against `main` (commit `4b7ef99`), NOT this session's own
+feature branch (`claude/sensemaking-engine-60xbki`, 15 commits ahead of
+`main`, unmerged) -- deploying unreviewed feature-branch work would
+have been a separate, much bigger decision than what was actually asked
+here. `main` already carries the `CONFIDANT_RECORD_EVENTS=1` config
+from the earlier round, so this deploy alone is sufficient to start
+recording. Run completed successfully (workflow run 29686664395,
+`deploy.yml`, `main`, conclusion: success).
+
+Backlog #213 itself remains genuinely blocked: real behavioral_events
+now have a chance to accumulate going forward, but calibrating
+`MIN_EVIDENCE` against them still requires real usage volume over real
+time, which no action taken today can shortcut. No code change to
+`MIN_EVIDENCE` itself this round -- it stays at its honest, uncalibrated
+first-cut value of 3 until genuine data exists to check it against.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
