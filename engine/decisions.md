@@ -9965,6 +9965,20 @@ Each new item was cross-referenced back into its originating spec doc's
 Open Questions section (not left orphaned in the backlog alone).
 Doc-only changes elsewhere; full suite still 511 passed.
 
+## Understanding: fix stale __init__.py docstring (2026-07-19)
+
+Backlog #288. `src/understanding/__init__.py`'s module docstring still
+described Tier 2 as "deferred," written before Tier 2 shipped
+(`src/understanding/tier2_engine.py`) -- flagged as an open question
+while writing `engine/specs/understanding-specification-v1.md` rather
+than fixed silently as part of that doc. Rewrote the Tier 2 bullet to
+describe what actually ships today (conditional recompute,
+non-blocking failure mode) and point at the real spec doc + decisions
+entry instead of "the plan file this round shipped from," which no
+longer exists as a live reference point. Docstring-only change --
+`tests/test_understanding.py` (19 tests) still green, no behavior
+touched.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
