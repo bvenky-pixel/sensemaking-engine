@@ -83,21 +83,24 @@ an empty-but-present "Retrieved Context" section in Judgment's prompt.
 
 ## Non-goals
 
-No selective/relevance-based filtering of patterns or insights (see
-above — deliberately deferred pending real evidence for what
-"relevant" should mean). No caching or memoization — `send_message`
-calls this fresh every turn, cheap since it's pure string formatting
-over data already read from the DB. No LLM call of its own.
+No selective/relevance-based filtering of patterns or insights —
+**confirmed by the founder (2026-07-19, backlog #224, see
+engine/decisions.md)** as the deliberate, ongoing shape, not merely a
+deferral pending future evidence. No caching or memoization —
+`send_message` calls this fresh every turn, cheap since it's pure
+string formatting over data already read from the DB. No LLM call of
+its own.
 
 ## Open questions
 
-**Backlog #224** ("Retrieval: close the 'label-only, not filtering'
-gap") tracks the still-open question this module's own docstring
-raises but doesn't resolve: once Need State Inference (or some other
-signal) has enough real evidence behind it, should Retrieval actually
-start filtering patterns/insights by inferred need, rather than only
-labeling them? Not resolved here — this spec documents the current,
-deliberately-narrow shape, not a commitment to stay this way forever.
+**Backlog #224 resolved (2026-07-19, see engine/decisions.md)**: this
+module's own docstring used to raise, but not resolve, whether
+Retrieval should someday filter patterns/insights by inferred need
+rather than only labeling them. Put directly to the founder alongside
+Need State's own sibling fork (backlog #225) — CONFIRMED: stay
+label-only. No pattern_type/theme-to-need taxonomy exists, and none is
+being built; this is no longer an open question, though it remains
+revisitable in principle if real evidence later justifies it.
 
 ## Verification
 

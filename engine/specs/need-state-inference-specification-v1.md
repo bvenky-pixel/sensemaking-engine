@@ -22,7 +22,7 @@ Retrieval, Reflection Retrieval"), not an invented larger taxonomy,
 plus a `"general"` fallback for when nothing more specific fires. This
 is explicitly NOT the vision's fuller scored need-state vector.
 
-## Process note: an unresolved design fork, decided under a tooling failure
+## Process note: a design fork, decided under a tooling failure, later confirmed by the founder
 
 Two real design forks existed here that this project normally resolves
 via a direct question to the founder before implementing (the same
@@ -38,10 +38,13 @@ times with a tool-level stream error, not a user response. The
 implementation proceeded on best judgment rather than blocking
 indefinitely, flagged plainly in `engine/decisions.md` and in chat at
 the time specifically so either choice could be overridden if the other
-was actually wanted. **Neither fork has since been revisited with the
-founder** — backlog #225 ("Need State: resolve the unresolved design
-fork") tracks this explicitly. This spec documents what was built under
-that constraint, not a confirmed-correct design.
+was actually wanted.
+
+**Both forks were later put directly to the founder (2026-07-19,
+backlog #224/#225, see engine/decisions.md) and CONFIRMED as the right
+calls** — deterministic classifier, and label-only. This is no longer
+an unconfirmed placeholder awaiting override; it's the founder's own
+deliberate choice, made with full knowledge of the alternative.
 
 ## Fork 1 (computation) — chosen: deterministic, no new LLM call
 
@@ -119,13 +122,15 @@ vision doc's Retrieval discussion names.
 
 ## Open questions
 
-**Backlog #225** is this doc's central open item: both forks above were
-decided without founder confirmation, under a tooling failure, not as a
-considered design choice ratified by the person who owns the vision
-doc. Revisiting either fork — e.g. moving to an LLM-based inference
-once real usage exists to calibrate it, or moving Retrieval from
-label-only to actual filtering — is explicitly still on the table and
-not resolved by this spec.
+**Backlog #225 resolved (2026-07-19, see engine/decisions.md)**: both
+forks above were originally decided without founder confirmation, under
+a tooling failure, not as a considered design choice ratified by the
+person who owns the vision doc. Put directly to the founder afterward
+and CONFIRMED: deterministic classifier (Fork 1), label-only (Fork 2).
+Both remain revisitable in principle (e.g. an LLM-based inference once
+real usage exists to calibrate it, or moving to actual filtering) but
+are no longer open questions awaiting a first decision -- they're the
+founder's own deliberate, confirmed choice.
 
 ## Verification
 

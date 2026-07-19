@@ -10582,6 +10582,58 @@ time, which no action taken today can shortcut. No code change to
 `MIN_EVIDENCE` itself this round -- it stays at its honest, uncalibrated
 first-cut value of 3 until genuine data exists to check it against.
 
+## Need State + Retrieval: founder confirms both previously-unilateral forks (2026-07-19, backlog #224/#225)
+
+Backlog #225 ("Need State: resolve the unresolved design fork") named
+two forks decided without founder confirmation at build time (Need
+State Inference's own `AskUserQuestion` attempt failed twice with a
+tool-level stream error, not a user response -- see that round's
+"Process note" in this file and in `engine/specs/need-state-inference-
+specification-v1.md`). Backlog #224 ("Retrieval: close the 'label-only,
+not filtering' gap") turned out to be the exact same underlying
+question as #225's second fork, viewed from Retrieval's side rather
+than Need State's -- resolving one resolves the other, not two
+independent decisions.
+
+Research this round confirmed #224/#225 are NOT blocked on real usage
+data the way #213 is (compute_behavioral_patterns has zero LLM
+involvement and needs a real usage distribution; the label-vs-filter
+question is a scope/design call the founder could make today either
+way, and the computation-method question is a preference, not a
+data-availability gate) -- so, unlike #213, these were taken straight
+to the founder rather than deferred further.
+
+Two questions put directly to the founder:
+
+1. **Need State computation** -- deterministic classifier (current,
+   `src/need_state/engine.py::infer_need_state`) vs. a dedicated LLM
+   call. **CONFIRMED: keep the deterministic classifier.** No new LLM
+   call, no new hallucination surface, consistent with this project's
+   "mechanical over invented ML until evidence justifies more"
+   discipline used everywhere else (Learning, POM's mechanical
+   systems).
+2. **Retrieval's effect** -- label-only (current) vs. actually
+   filtering Patterns/Insights by inferred need. **CONFIRMED: stay
+   label-only.** No `pattern_type`/`theme`-to-`NeedState` taxonomy
+   exists or is being built; Judgment keeps seeing every Pattern/Insight
+   unfiltered, with the inferred need surfaced only as an added text
+   line. A follow-up question about HOW filtering would work
+   (mechanical keyword-mapping vs. letting Judgment itself filter via
+   prompt instruction) was correctly answered N/A once label-only was
+   confirmed.
+
+**No code behavior changed** -- both forks were already implemented
+exactly this way; what changed is that these are now the founder's own
+deliberate, confirmed choices rather than an unresolved placeholder a
+tooling failure forced onto best judgment. Updated the "unconfirmed,
+override if wanted" framing in `src/need_state/engine.py`'s module
+docstring, `src/retrieval/engine.py`'s module docstring, and both specs'
+(`need-state-inference-specification-v1.md`, `retrieval-specification-
+v1.md`) Process Note / Open Questions / Non-goals sections to reflect
+the confirmation instead of leaving them reading as still-open.
+`tests/test_need_state.py` + `tests/test_retrieval.py` (27 tests)
+re-run clean -- no behavior to break, since only prose changed.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

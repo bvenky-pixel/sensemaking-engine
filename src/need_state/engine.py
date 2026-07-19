@@ -8,17 +8,19 @@ LLM call already happening at the right point in the pipeline to fold
 this into for free.
 
 Two design forks existed here (mechanical vs. a new LLM call; label-only
-vs. actually filtering Retrieval's output) that would normally be
-confirmed with the user before implementing, matching how Retrieval's
-and Synthesis's own forks were resolved -- attempted via AskUserQuestion
-twice, both attempts failed with a tool-level stream error rather than a
-user response. Proceeded on my own best judgment rather than block
-indefinitely; flagged plainly in engine/decisions.md and in chat so it's
-easy to override if the other choice was actually wanted.
+vs. actually filtering Retrieval's output). Originally decided without
+founder confirmation -- AskUserQuestion was attempted twice at build
+time and both attempts failed with a tool-level stream error rather than
+a user response, so the implementer proceeded on best judgment rather
+than block indefinitely. **Both forks were later put directly to the
+founder (2026-07-19, backlog #224/#225, see engine/decisions.md) and
+CONFIRMED as the right calls** -- this is no longer an unconfirmed,
+override-if-wanted placeholder; it's the founder's own deliberate
+choice.
 
-Chosen: **deterministic, no new LLM call** -- a pure function over
-already-existing WorldState signals, same trusted category as
-src/judgment/engine.py::compute_stagnation_signals and
+Chosen and confirmed: **deterministic, no new LLM call** -- a pure
+function over already-existing WorldState signals, same trusted category
+as src/judgment/engine.py::compute_stagnation_signals and
 recommend_phase_transition (mechanical, not a judgment call). A real
 LLM-based inference step would be the vision's more faithful design, but
 is exactly the "invent a scored model with no evidence to calibrate it
