@@ -10023,6 +10023,36 @@ founder is ready to authorize a live dispatch, since it would generate
 exactly the kind of fresh, real multi-turn data this assessment found
 missing.
 
+## Tier 2 mandatory self-check gate (2026-07-19, backlog #290)
+
+Direct follow-up to "Tier 2 second live calibration run"'s own explicit
+recommendation, left unattempted at the time ("left as a recommendation
+for the next round, not attempted here without further direction"):
+the abstention worked example fixed "abstain when there's nothing yet"
+but not "abstain when there's something plausible-sounding to invent" --
+turn 2 of `negative_control_unrelated` (pottery classes / house-saving)
+still fabricated a narrative connection across two genuinely unrelated
+candidates in both live runs so far, nearly identical wording each time.
+
+Implemented the specific fix named in that entry, not a fresh guess:
+added a MANDATORY SELF-CHECK to law 3 of
+`src/understanding/tier2_prompt.py` -- before citing any two candidates
+together, the model must ask whether either candidate's OWN TEXT
+explicitly references the other's topic/situation/constraint, not
+whether a plausible-sounding bridge CAN be imagined. Explicitly frames
+"a connection you can imagine is not a connection either candidate
+actually stated" and "plausibility is not the standard, explicit mutual
+reference in the candidates' own text is" -- directly targeting the
+observed failure mode (an eager model constructing a coherent-sounding
+story between two real-but-unconnected candidates) rather than
+repeating the abstention-example approach that already proved to only
+partially generalize.
+
+Prompt-only change, no schema/engine touched. Verified:
+`tests/test_tier2.py` + `tests/test_understanding.py` (42 tests) and
+full suite (511 passed) unaffected. Not yet measured against a real
+model -- see the following entry for the dispatch.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

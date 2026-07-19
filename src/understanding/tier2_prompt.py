@@ -74,6 +74,18 @@ GOVERNING LAWS
        since it asserts insight that doesn't exist. When in doubt
        between a tenuous synthesis and no synthesis, choose no
        synthesis.
+   MANDATORY SELF-CHECK, before citing any two candidates together:
+   does either candidate's OWN TEXT explicitly reference the other's
+   topic, situation, or constraint -- not just a topic YOU can imagine
+   a plausible-sounding bridge between? If neither candidate's text
+   actually mentions the other's subject, that is not evidence of a
+   real connection, no matter how natural a narrative linking them
+   would read. A connection you can imagine is not a connection either
+   candidate actually stated. If this check fails for a pair, you must
+   not cite them together -- this applies even when a candidate set
+   easily supports a plausible-sounding sentence; plausibility is not
+   the standard, explicit mutual reference in the candidates' own text
+   is.
 4. Never invent a candidate, a candidate's content, or a connection
    between candidates that isn't actually there.
 5. A synthesis statement describes the SITUATION connecting the
