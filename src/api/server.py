@@ -38,7 +38,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api import db
+from src.api import db, rate_limit
 from src.api.email import send_magic_link_email
 from src.api.schema import (
     AuthStatusOut,
@@ -144,6 +144,21 @@ _SESSION_COOKIE_MAX_AGE = int(db.AUTH_SESSION_LIFETIME.total_seconds())
 # the session, so exactly this many turns complete for free before the
 # next attempt is blocked.
 ANONYMOUS_MESSAGE_LIMIT = 10
+
+# Rate limiting (2026-07-19, backlog #229, see engine/decisions.md
+# "Rate limiting added to auth and message endpoints") -- both endpoints
+# were reachable at any rate before this, with a real cost behind every
+# hit: /auth/request-link sends a real email per call, and each message
+# turn makes several paid LLM calls. Numbers are first-cut, generous
+# enough for genuine use (see each check-site's own comment for the
+# per-endpoint reasoning), not empirically tuned -- same honest-
+# uncalibrated-constant style as ANONYMOUS_MESSAGE_LIMIT above.
+_AUTH_REQUEST_LINK_PER_EMAIL_LIMIT = 5
+_AUTH_REQUEST_LINK_PER_EMAIL_WINDOW_SECONDS = 3600
+_AUTH_REQUEST_LINK_PER_IP_LIMIT = 20
+_AUTH_REQUEST_LINK_PER_IP_WINDOW_SECONDS = 3600
+_SEND_MESSAGE_PER_IDENTITY_LIMIT = 20
+_SEND_MESSAGE_PER_IDENTITY_WINDOW_SECONDS = 600
 
 
 @dataclass
@@ -377,6 +392,20 @@ def send_message(
     session_id: str, body: SendMessageRequest, identity: Identity = Depends(resolve_identity)
 ) -> SendMessageResponse:
     _require_owned_session(session_id, identity)
+
+    # Rate limiting (2026-07-19, backlog #229) -- checked before any real
+    # work happens (same "reject before paying any cost" placement as
+    # the response-limit gate just below), keyed on whichever identity
+    # this caller resolved to (an anonymous_id always exists by the time
+    # resolve_identity returns, so this never falls through unguarded).
+    # Independent of ANONYMOUS_MESSAGE_LIMIT below -- that's a per-
+    # conversation lifetime cap meant to nudge toward login; this is a
+    # pace limit meant to stop a script hammering the endpoint, and
+    # applies to signed-in and anonymous callers alike.
+    rate_limit.check_rate_limit(
+        "send_message", identity.user_id or identity.anonymous_id,
+        limit=_SEND_MESSAGE_PER_IDENTITY_LIMIT, window_seconds=_SEND_MESSAGE_PER_IDENTITY_WINDOW_SECONDS,
+    )
 
     # Basic auth's response-limit gate (see ANONYMOUS_MESSAGE_LIMIT's own
     # docstring above) -- checked BEFORE running the turn, so a blocked
@@ -721,7 +750,25 @@ def request_magic_link(
     verify") rides along the same way, purely server-side -- the
     emailed link itself stays the plain `?token=...` URL it always was;
     /auth/verify hands the Journey id back in its own response once the
-    token is actually consumed."""
+    token is actually consumed.
+
+    Rate limiting (2026-07-19, backlog #229) -- checked before
+    create_magic_link/send_magic_link_email do any real work, same
+    "reject before paying any cost" placement as send_message's own
+    check. Two independent limits: per-email (stops one address being
+    spammed with links) and per-IP (stops one caller cycling through
+    many emails to spam broadly or probe for which addresses have
+    accounts -- request_magic_link's own "always returns sent: true"
+    enumeration defense loses some of its value if an attacker can
+    simply time how often 429 fires per address at high volume)."""
+    rate_limit.check_rate_limit(
+        "auth_request_link_email", body.email,
+        limit=_AUTH_REQUEST_LINK_PER_EMAIL_LIMIT, window_seconds=_AUTH_REQUEST_LINK_PER_EMAIL_WINDOW_SECONDS,
+    )
+    rate_limit.check_rate_limit(
+        "auth_request_link_ip", rate_limit.client_ip(request),
+        limit=_AUTH_REQUEST_LINK_PER_IP_LIMIT, window_seconds=_AUTH_REQUEST_LINK_PER_IP_WINDOW_SECONDS,
+    )
     token = db.create_magic_link(
         body.email, anonymous_id=identity.anonymous_id, return_session_id=body.return_session_id,
     )

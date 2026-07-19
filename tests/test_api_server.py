@@ -30,7 +30,7 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from src.api import db, server
+from src.api import db, rate_limit, server
 from src.insight.schema import Insight
 from src.learning.engine import Pattern
 from src.pom.schema import IdentitySystem, PersonalOperatingModel
@@ -152,6 +152,12 @@ def _login(client, email="person@example.com"):
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    # Rate limiting (2026-07-19, backlog #229, see engine/decisions.md
+    # "Rate limiting added to auth and message endpoints") -- the
+    # limiter is a module-level in-memory store, so without this reset
+    # one test's hits would silently count against the next test's own
+    # limit checks.
+    rate_limit.reset_all()
     monkeypatch.setattr(
         "src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT)
     )
@@ -367,6 +373,29 @@ def test_send_message_omits_retrieved_context_when_nothing_learned_yet(client, m
 
     _, judgment_messages = seen["judgment"]
     assert "Retrieved Context" not in judgment_messages[0]["content"]
+
+
+def test_send_message_rate_limited_per_identity(client, monkeypatch):
+    """Rate limiting (2026-07-19, backlog #229, see engine/decisions.md
+    "Rate limiting added to auth and message endpoints") -- direct
+    regression test for the pace limit, distinct from
+    ANONYMOUS_MESSAGE_LIMIT's own lifetime cap. Logged in specifically
+    so the anonymous response-limit gate (10 messages) can't fire first
+    and mask whether the rate limiter (20) is actually being reached."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    _login(client)
+    session_id = client.post("/sessions").json()["id"]
+
+    for _ in range(server._SEND_MESSAGE_PER_IDENTITY_LIMIT):
+        res = client.post(f"/sessions/{session_id}/messages", json={"content": "Still thinking about it."})
+        assert res.status_code == 200
+
+    res = client.post(f"/sessions/{session_id}/messages", json={"content": "One more."})
+    assert res.status_code == 429
+    assert res.json()["detail"] == "rate_limited"
 
 
 def test_send_message_threads_inferred_need_state_into_judgment_prompt(client, monkeypatch):
@@ -770,6 +799,28 @@ def test_request_magic_link_always_reports_sent_regardless_of_email(client):
     the email-enumeration defense every real auth system needs."""
     res = client.post("/auth/request-link", json={"email": "nobody-yet@example.com"})
     assert res.json() == {"sent": True}
+
+
+def test_request_magic_link_rate_limited_per_email(client):
+    """Rate limiting (2026-07-19, backlog #229, see engine/decisions.md
+    "Rate limiting added to auth and message endpoints") -- direct
+    regression test for the per-email limit. Each request uses a
+    distinct IP-equivalent (TestClient has no real network, so every
+    call shares one IP bucket) -- staying under the per-IP limit
+    (20) while exceeding the per-email limit (5) isolates which of the
+    two actually fired."""
+    for _ in range(server._AUTH_REQUEST_LINK_PER_EMAIL_LIMIT):
+        res = client.post("/auth/request-link", json={"email": "hammered@example.com"})
+        assert res.status_code == 200
+
+    res = client.post("/auth/request-link", json={"email": "hammered@example.com"})
+    assert res.status_code == 429
+    assert res.json()["detail"] == "rate_limited"
+
+    # A different email is unaffected -- the limit is per-email, not a
+    # blanket lockout of the whole endpoint.
+    res = client.post("/auth/request-link", json={"email": "someone-else@example.com"})
+    assert res.status_code == 200
 
 
 def test_verify_magic_link_logs_in_and_claims_anonymous_journeys(client, monkeypatch):

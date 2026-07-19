@@ -9488,3 +9488,66 @@ against a simulated old-shape database (dropped `insight_sessions`
 before `insights` deregistered, per-account round-trip through
 `replace_insights`/`get_insights` worked correctly afterward). Full
 suite: `pytest` 487 passed (484 + 3 new).
+
+## Rate limiting added to auth and message endpoints (2026-07-19)
+
+Backlog #229, picked as the most critical item on the reliability
+backlog: both `POST /auth/request-link` and `POST
+/sessions/{id}/messages` were reachable at any rate before this, with
+a real cost behind every single hit -- `/auth/request-link` sends a
+real email per call (a cost, and a spam vector against one address);
+every message turn makes several paid LLM calls (Interpretation,
+Judgment, Planner, Response, sometimes Tier 2) -- a straightforward
+cost-drain on a live, publicly reachable app with no cap on how fast
+either could be hit.
+
+New `src/api/rate_limit.py`: an in-memory, per-process sliding-window
+counter (`deque` of call timestamps per `(bucket, key)`, behind a
+`threading.Lock` since FastAPI runs this codebase's plain `def` routes
+in a worker thread pool, not the event loop -- concurrent requests
+genuinely race here). Deliberately not distributed (no Redis, no
+shared store) -- same "no ORM, no external services" discipline the
+rest of `src/api` already follows, and correct for this app's current
+single-machine deployment (`fly.toml` has no autoscaling/concurrency
+section; `min_machines_running = 0` only means it scales to zero when
+idle, not that it ever runs multiple machines at once). Revisit with a
+shared store if that ever changes -- a real gap to flag then, not a
+silent one now.
+
+Two endpoints, three checks, all placed BEFORE any real work happens
+(same "reject before paying any cost" discipline the response-limit
+gate in `send_message` already established):
+
+- **`POST /auth/request-link`**: per-email (5/hour) and per-IP
+  (20/hour), independent limits in the same `auth_request_link_*`
+  bucket family. Per-email stops one address being spammed with links;
+  per-IP stops one caller cycling through many emails to spam broadly.
+- **`POST /sessions/{id}/messages`**: per-identity (`user_id` or
+  `anonymous_id`, 20 per 10 minutes). Deliberately independent of
+  `ANONYMOUS_MESSAGE_LIMIT` (the existing 10-per-conversation lifetime
+  cap that nudges anonymous callers toward login) -- this is a PACE
+  limit against hammering, not a lifetime cap, and applies to
+  signed-in and anonymous callers alike (a signed-in account has no
+  lifetime cap today, so without this a logged-in caller could send
+  messages as fast as the network allows).
+
+All limits are first-cut, generous-for-genuine-use numbers, honestly
+uncalibrated -- same style as `ANONYMOUS_MESSAGE_LIMIT`/`MIN_EVIDENCE`
+elsewhere in this codebase. A 429 with `detail: "rate_limited"` falls
+into the frontend's existing generic-failure handling
+(`Journey.svelte`'s catch-all "I couldn't reach Confidant just now.
+Please try again in a moment.") without any special-casing needed --
+that message happens to be literally true for a rate-limited caller
+too, so no frontend change was required.
+
+Verified: new `tests/test_rate_limit.py` (5 tests) covers the module
+directly -- under-limit calls allowed, the exact call that crosses the
+limit blocked, independent buckets/keys don't collide, and expired
+hits age out of the window correctly. `tests/test_api_server.py` gained
+`test_request_magic_link_rate_limited_per_email` and
+`test_send_message_rate_limited_per_identity` (the latter logs in
+first so the anonymous response-limit gate can't fire before the rate
+limiter does, isolating which one is actually being tested). The
+`client` fixture now calls `rate_limit.reset_all()` so one test's hits
+never bleed into the next's. Full suite: `pytest` 494 passed (487 + 7
+new).
