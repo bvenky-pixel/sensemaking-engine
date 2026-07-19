@@ -9319,3 +9319,70 @@ Verified: full suite `pytest` 484 passed, no test changes needed (pure
 config + docstring). Backlog #213 (calibrating `MIN_EVIDENCE`) stays
 blocked until real production data actually accumulates post-deploy --
 not something a same-day change can satisfy regardless of this flag.
+
+## Learning + POM computation workflows fixed to reach real production data (2026-07-19)
+
+Prompted by "is there anything else in learning that needs sharpening,
+adding or finetunning?" Investigating turned up a gap more foundational
+than anything already tracked: `scripts/run_learning.py` and
+`scripts/run_pom_computation.py` -- the real, no-synthetic-data
+production computation scripts -- had **no path to ever run against real
+production data**. `pom-computation.yml` ran entirely on an ephemeral
+GitHub Actions `ubuntu-latest` runner against a throwaway local
+`--db-path` (`pom_computation.db` by default); `learning-walkthrough.yml`
+only ever runs `scripts/run_learning_walkthrough.py` (the demo/
+verification script, synthetic sessions, real billable LLM calls made
+purely to prove the pipeline works) against the same kind of ephemeral
+runner-local file. GitHub-hosted runners have no network path to
+Fly.io's persistent volume (`confidant_data`, mounted at `/data`) --
+every dispatch of the old `pom-computation.yml` computed a POM from
+nothing and discarded it on teardown, never touching a single real
+account. No workflow existed at all for `run_learning.py` against real
+data.
+
+The fix was already proven once in this repo:
+`.github/workflows/backfill-knowledge-item-ids.yml` runs its script
+via `flyctl ssh console --app confidantsense --command "..."`, executing
+directly inside the live, already-deployed container -- where the real
+`CONFIDANT_DB_PATH=/data/confidant_mvp.db` volume actually lives (see
+Dockerfile), and where the script, dependencies, and current frontend
+build are already present (`COPY . .`). Its "wake the machine" step
+(`flyctl machine start` + `flyctl machine wait`) is required because
+`flyctl ssh console` connects over Fly's private network directly,
+bypassing the HTTP proxy's `auto_start_machines` wake path that
+`fly.toml`'s `min_machines_running = 0` otherwise relies on.
+
+Applied the identical pattern to both:
+
+- **New `.github/workflows/learning-computation.yml`** -- runs
+  `python scripts/run_learning.py` (no `--db-path`, so it resolves
+  `CONFIDANT_DB_PATH` from the container's own environment). No
+  `OPENROUTER_MODEL`/`OPENROUTER_API_KEY` handling needed --
+  `compute_behavioral_patterns` makes no LLM call at all.
+- **Rewrote `.github/workflows/pom-computation.yml`** -- dropped the
+  `db_path` input entirely (there is only one real production database
+  to target now); kept the `openrouter_model` override input, applied
+  via `env OPENROUTER_MODEL=... python scripts/run_pom_computation.py`
+  inside the one `flyctl ssh console` command, since POM computation
+  does make one real LLM call per account. `OPENROUTER_API_KEY` is not
+  passed in from GitHub secrets -- it's already a Fly secret on the
+  production machine (the live app needs it to function at all), so
+  the container has it already.
+
+**Not dispatched yet, deliberately.** Building these workflow files is
+a code change; actually running either of them against the real
+`confidantsense` machine is a production-data-affecting action that
+gets its own explicit go-ahead each time, same standing discipline as
+`deploy.yml`. `engine/specs/learning-specification-v1.md`'s
+Verification section updated to record the gap being closed without
+claiming a real dispatch has happened -- it hasn't.
+
+**Also true of `scripts/run_insight_detection.py` (Insight Engine)**,
+which has no GitHub Actions workflow at all today -- flagged, not
+fixed here; out of the scope the founder approved this round
+("Learning, and the same fix for POM").
+
+Verified: both YAML files checked for syntax with
+`python3 -c "import yaml; yaml.safe_load(open(...))"`; full `pytest`
+suite unaffected (pure workflow-file + docs change, no Python source
+touched).

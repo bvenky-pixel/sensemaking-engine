@@ -3,41 +3,69 @@ name: Personal Operating Model computation
 # Manual only -- each run makes one real, billable LLM call per account
 # with any sessions (the InferredPOMBatch call in
 # src/pom/engine.py::run_inferred_pom), computed and stored separately
-# for each account found in the given --db-path (POM made per-user,
+# for each account found on the production machine (POM made per-user,
 # 2026-07-18, see engine/decisions.md "POM made per-user"). See
 # scripts/run_pom_computation.py and engine/decisions.md "Personal
 # Operating Model".
+#
+# Fixed 2026-07-19 (see engine/decisions.md "Learning + POM computation
+# workflows fixed to reach real production data") to run via
+# `flyctl ssh console` directly against the production Fly.io machine
+# (confidantsense), executing inside the already-deployed container --
+# same pattern as backfill-knowledge-item-ids.yml and
+# learning-computation.yml. Previously this workflow ran entirely on an
+# ephemeral GitHub Actions runner against a throwaway local --db-path
+# ("pom_computation.db" by default) with no network path to Fly.io's
+# persistent volume at all -- every run before this fix computed a POM
+# from nothing and discarded it on runner teardown, never touching a
+# single real account.
+#
+# OPENROUTER_API_KEY is already set as a Fly secret on the production
+# machine (the live app needs it to function at all) -- this workflow
+# does not need its own copy. OPENROUTER_MODEL is deliberately left
+# unset in fly.toml (see its own comment) so production uses
+# src/llm/providers.py's per-component defaults; the override below
+# only applies for the duration of this one ssh command, exactly the
+# same controlled-comparison escape hatch the old db_path-based version
+# offered.
+#
+# Requires a FLY_API_TOKEN repo secret (Settings -> Secrets and
+# variables -> Actions), same as backfill-knowledge-item-ids.yml.
 on:
   workflow_dispatch:
     inputs:
       openrouter_model:
-        description: "OPENROUTER_MODEL override (blank = provider default)"
+        description: "OPENROUTER_MODEL override for this run only (blank = production's own per-component default)"
         required: false
         default: ""
-      db_path:
-        description: "SQLite DB path to read sessions from / write the computed POM to"
-        required: false
-        default: "pom_computation.db"
 
 jobs:
   compute:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Personal Operating Model computation
+      - name: Wake the machine
+        # fly.toml sets auto_stop_machines/min_machines_running=0 -- the
+        # app scales to zero when idle. `flyctl ssh console` connects
+        # directly over Fly's private network and does NOT go through
+        # the HTTP proxy's auto_start_machines wake-up, so a stopped
+        # machine must be started explicitly first.
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          MACHINE_ID=$(flyctl machine list --app confidantsense --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          echo "machine_id=$MACHINE_ID" >> "$GITHUB_ENV"
+          flyctl machine start "$MACHINE_ID" --app confidantsense
+          flyctl machine wait "$MACHINE_ID" --app confidantsense --state started --wait-timeout 60s
+
+      - name: Run Personal Operating Model computation against production
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
         run: |
           if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
-            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+            flyctl ssh console --app confidantsense --command "env OPENROUTER_MODEL=$OPENROUTER_MODEL_INPUT python scripts/run_pom_computation.py"
+          else
+            flyctl ssh console --app confidantsense --command "python scripts/run_pom_computation.py"
           fi
-          python scripts/run_pom_computation.py --db-path "${{ github.event.inputs.db_path }}"

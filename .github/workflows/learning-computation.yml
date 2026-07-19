@@ -1,0 +1,54 @@
+name: Learning computation
+
+# Manual only -- runs scripts/run_learning.py directly against the
+# production Fly.io machine (confidantsense) via `flyctl ssh console`,
+# executing inside the already-deployed container (script, dependencies,
+# and CONFIDANT_DB_PATH are already there -- see Dockerfile). Same
+# runner/secret pattern as backfill-knowledge-item-ids.yml, and (as of
+# the same change) pom-computation.yml.
+#
+# Why this workflow didn't exist until now: no workflow at all ever ran
+# scripts/run_learning.py -- the real, production computation script --
+# against real data. learning-walkthrough.yml only ever runs
+# scripts/run_learning_walkthrough.py (the demo/verification script,
+# synthetic sessions, real billable LLM calls made purely to prove the
+# pipeline works) against an ephemeral GitHub Actions runner's own local
+# SQLite file, which has no network path to Fly.io's persistent volume
+# at all. See engine/specs/learning-specification-v1.md "Verification"
+# and engine/decisions.md.
+#
+# Learning makes NO LLM calls -- compute_behavioral_patterns is pure,
+# evidence-counting arithmetic over behavioral_events (see
+# src/learning/engine.py) -- so unlike POM computation, this workflow
+# needs no OPENROUTER_* secret or model override input.
+#
+# Requires a FLY_API_TOKEN repo secret (Settings -> Secrets and
+# variables -> Actions), same as backfill-knowledge-item-ids.yml.
+on:
+  workflow_dispatch:
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Wake the machine
+        # fly.toml sets auto_stop_machines/min_machines_running=0 -- the
+        # app scales to zero when idle. `flyctl ssh console` connects
+        # directly over Fly's private network and does NOT go through
+        # the HTTP proxy's auto_start_machines wake-up, so a stopped
+        # machine must be started explicitly first.
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          MACHINE_ID=$(flyctl machine list --app confidantsense --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          echo "machine_id=$MACHINE_ID" >> "$GITHUB_ENV"
+          flyctl machine start "$MACHINE_ID" --app confidantsense
+          flyctl machine wait "$MACHINE_ID" --app confidantsense --state started --wait-timeout 60s
+
+      - name: Run Learning computation against production
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl ssh console --app confidantsense --command "python scripts/run_learning.py"

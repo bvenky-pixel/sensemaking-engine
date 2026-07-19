@@ -111,3 +111,19 @@ with no `OPENROUTER_API_KEY` set), but per engine/decisions.md the real
 `workflow_dispatch` run against a live LLM provider was never
 triggered. This remains open regardless of what the rest of this
 sequencing section resolves to.
+
+**Gap closed, dispatch still pending (2026-07-19):** until now, no
+workflow existed that could run `scripts/run_learning.py` against real
+production data at all — `pom-computation.yml` and
+`learning-walkthrough.yml` both only ever touched an ephemeral GitHub
+Actions runner's own local SQLite file, with no network path to
+Fly.io's persistent volume. `.github/workflows/learning-computation.yml`
+now runs `scripts/run_learning.py` for real inside the live,
+already-deployed `confidantsense` container via `flyctl ssh console`
+(same pattern as `backfill-knowledge-item-ids.yml`); `pom-computation.yml`
+was fixed the same way (see engine/decisions.md "Learning + POM
+computation workflows fixed to reach real production data"). Neither
+workflow has actually been dispatched against production yet — that is
+a separate, deliberate action requiring its own explicit go-ahead each
+time, consistent with this project's standing discipline around
+production-touching dispatches.
