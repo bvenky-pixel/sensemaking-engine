@@ -10238,6 +10238,75 @@ this was still open.
 
 Docstring/doc-only change, no behavior touched.
 
+## POM: opt-in Journey-close reflection question (2026-07-19, backlog #207)
+
+No prior design existed for this beyond the one-line backlog title, and
+the app has no existing "close a Journey" concept at all -- Journey.svelte's
+`onBack` just navigates to Home, there's no explicit end-of-conversation
+action. Two genuine design forks, confirmed with the founder directly
+before building rather than assumed:
+
+1. **Close trigger** -- chosen: reuse the existing `onBack` navigation
+   as the close signal, no new UI affordance. Same "winds down" moment
+   `markJourneyCompleted`'s login nudge already treats as end-of-Journey.
+2. **Answer destination** -- chosen: feeds POM as free-text evidence,
+   folded into `get_aggregated_knowledge_for_pom`'s aggregated_content
+   (same "surface everything already known" treatment as every other
+   content type POM ingests), not a personal-journal-only feature and
+   not a direct override of specific POM fields.
+
+**Schema** (`src/api/db.py`): `privacy_settings` gains a second column,
+`reflection_prompt_enabled` -- opt-IN, defaults `False` (unlike
+`cross_session_learning_enabled`'s opt-out default: being interrupted
+with a question at the end of every Journey should be a deliberate
+choice, not an ambient default). Additive `ALTER TABLE` migration, same
+"try, ignore if the column already exists" pattern as
+`magic_links.return_session_id`. New `journey_reflections` table
+(`session_id`, `user_id`, `content`, `created_at`) holds submitted
+answers. `get_reflection_prompt_enabled`/`set_reflection_prompt_enabled`
+mirror the existing cross-session-learning accessors;
+`save_journey_reflection`/`get_reflections_for_pom` are new.
+`get_aggregated_knowledge_for_pom` appends each reflection as its own
+`Reflection: ...` line. `export_all_data`/`reset_all_data` both updated
+-- reflections are content (like sessions/messages), not a preference
+(like `privacy_settings` itself), so a data reset deletes them.
+
+**API** (`src/api/schema.py`, `src/api/server.py`): `PrivacySettingsOut`/
+`SetPrivacySettingsRequest` both gained the second field -- POST
+`/privacy/settings` always takes both fields together, no partial
+update. New `POST /sessions/{id}/reflection` (`SubmitJourneyReflectionRequest`,
+blank-content rejected same "fail loud" validator as `Response.response_text`),
+gated behind `require_user` + `_require_owned_session` + a server-side
+re-check of `reflection_prompt_enabled` -- a stale client that opted in
+then out before this specific submission lands must not have it
+silently stored anyway, same "server never trusts client-side toggle
+state alone" discipline as `send_message`'s own
+`cross_session_learning_enabled` read-path gate.
+
+**Frontend**: `Settings.svelte` gets a second toggle, "Ask a reflection
+question when I finish a Journey," shown ONLY when "Learn across
+Journeys" is on (asking a question whose answer will never be read by
+anything would be a pointless interruption) -- turning learning off
+also turns reflection off; turning learning back on does NOT
+auto-re-enable it, still its own deliberate opt-in.
+`api.js::setCrossSessionLearningEnabled`/`setReflectionPromptEnabled`
+both now take both current values and send the whole settings object
+each time, matching the backend's own "no partial update" shape.
+`Journey.svelte`'s `handleBack` shows the prompt (a full-screen
+`.reflection-prompt` card, replacing the Journey body, same "stands in
+for everything else on screen" treatment as `.limit-gate`) instead of
+calling `onBack()` immediately, for a Journey with real content and
+this account opted in; Skip and a failed submission both still
+navigate home -- a lost reflection is an honest, non-blocking tradeoff,
+never something that traps a person on the screen.
+
+Verified: 518 backend tests (new coverage: endpoint auth/ownership/gate/
+validation, aggregation wiring, export/reset), 94 frontend tests (new
+coverage: toggle visibility/persistence, prompt show/skip/submit/
+submission-failure flows), clean `npm run build`. Live browser
+verification deferred to the end-of-backlog validation pass per
+explicit instruction this round, not skipped outright.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

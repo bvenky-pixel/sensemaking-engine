@@ -10,6 +10,8 @@
     deleteSession,
     getBookmark,
     setBookmark,
+    getPrivacySettings,
+    submitJourneyReflection,
     ApiError,
   } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
@@ -111,6 +113,17 @@
   let showProximityLoginForm = $state(false);
   let userMessageCount = $derived(messages.filter((m) => m.role === 'user').length);
 
+  // Journey-close reflection question (2026-07-19, backlog #207) --
+  // opt-in, see Settings.svelte's own toggle. `reflectionPromptEnabled`
+  // is fetched once on mount, same "read privacy settings once,
+  // logged-in only" pattern Settings.svelte itself uses.
+  // `showReflectionPrompt` gates handleBack's own navigation below --
+  // shown instead of immediately calling onBack(), not on top of it.
+  let reflectionPromptEnabled = $state(false);
+  let showReflectionPrompt = $state(false);
+  let reflectionText = $state('');
+  let submittingReflection = $state(false);
+
   async function refreshBrief() {
     const previous = brief;
     const next = await getClarityBrief(sessionId);
@@ -146,6 +159,16 @@
       await refreshUnderstanding();
       const bookmark = await getBookmark(sessionId);
       bookmarked = bookmark.bookmarked;
+      // Journey-close reflection question (2026-07-19, backlog #207) --
+      // same "gated behind sign-in, fetched once" pattern
+      // Settings.svelte's own privacy fetch uses. A failure here (or
+      // being signed out) just leaves reflectionPromptEnabled at its
+      // false default -- never worth failing the whole Journey load
+      // over.
+      if (authState.authenticated) {
+        const privacy = await getPrivacySettings();
+        reflectionPromptEnabled = privacy.reflection_prompt_enabled;
+      }
     } catch {
       onBack();
     }
@@ -293,7 +316,35 @@
       // markJourneyCompleted itself is a no-op once already signed in
       // or once this browser has ever seen the nudge before.
       markJourneyCompleted(sessionId);
+      // Journey-close reflection question (2026-07-19, backlog #207) --
+      // the same "winds down" moment as the login nudge above, opt-in
+      // via Settings. Shown INSTEAD of navigating home immediately --
+      // submitReflection/skipReflection below are what actually call
+      // onBack() once the person has answered or explicitly skipped.
+      if (reflectionPromptEnabled) {
+        showReflectionPrompt = true;
+        return;
+      }
     }
+    onBack();
+  }
+
+  async function submitReflection() {
+    submittingReflection = true;
+    try {
+      await submitJourneyReflection(sessionId, reflectionText);
+    } catch {
+      // A failed submission must not trap the person on this screen --
+      // same "never block navigation on a background action" discipline
+      // as everywhere else in this file. The reflection is simply lost,
+      // same honest tradeoff as any other best-effort, non-retried write.
+    } finally {
+      submittingReflection = false;
+      onBack();
+    }
+  }
+
+  function skipReflection() {
     onBack();
   }
 
@@ -316,6 +367,31 @@
 </script>
 
 <div class="journey">
+  {#if showReflectionPrompt}
+    <div class="reflection-prompt card" in:fade={{ duration: 220 }}>
+      <p class="voice">Before you go -- anything about this conversation you'd want to remember or reflect on?</p>
+      <textarea
+        class="reflection-input"
+        bind:value={reflectionText}
+        placeholder="Optional -- write as much or as little as you'd like."
+        rows="4"
+        disabled={submittingReflection}
+      ></textarea>
+      <div class="reflection-actions">
+        <button type="button" class="link-button" onclick={skipReflection} disabled={submittingReflection}>
+          Skip
+        </button>
+        <button
+          type="button"
+          class="btn-primary"
+          onclick={submitReflection}
+          disabled={submittingReflection || !reflectionText.trim()}
+        >
+          {submittingReflection ? 'Saving…' : 'Share and leave'}
+        </button>
+      </div>
+    </div>
+  {:else}
   <div class="scroll-fade" aria-hidden="true"></div>
 
   <div class="journey-header">
@@ -419,6 +495,7 @@
   {/if}
 
   <Understanding {brief} {tier2} {deepeningClarityNote} />
+  {/if}
 </div>
 
 <style>
@@ -489,6 +566,37 @@
   .opening-hero {
     text-align: center;
     margin: var(--space-4) 0;
+  }
+
+  /* Journey-close reflection question (2026-07-19, backlog #207) --
+     replaces the whole Journey body (same "stands in for everything
+     else on screen" treatment as .limit-gate below), shown at the
+     "winds down" moment right as a person leaves a Journey with real
+     content, before onBack() actually navigates away. */
+  .reflection-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: var(--space-4) 0;
+    padding: var(--space-4);
+  }
+
+  .reflection-input {
+    font-family: var(--font-ui);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--paper-raised);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    resize: vertical;
+  }
+
+  .reflection-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
   }
 
   /* Response-limit login gate (see script comment on

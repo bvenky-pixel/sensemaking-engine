@@ -88,6 +88,16 @@ One more table, added for Privacy, made real (see frontend/decisions.md):
   per-account on both sides rather than one global switch every
   account shared.
 
+  **Second column added 2026-07-19** (backlog #207, see
+  engine/decisions.md): `reflection_prompt_enabled` -- opt-IN (defaults
+  `False`, unlike `cross_session_learning_enabled`'s opt-out default),
+  gates whether Journey.svelte shows its Journey-close reflection
+  prompt. A sibling `journey_reflections` table (`session_id`,
+  `user_id`, `content`, `created_at`) holds the actual submitted
+  answers -- read by `get_reflections_for_pom`, folded into
+  `get_aggregated_knowledge_for_pom`'s own aggregated_content as its own
+  labeled line.
+
 Three more tables, added for basic auth (2026-07-18, see
 frontend/decisions.md "Auth, the low-friction way" and engine/decisions.md):
 this is the "revisit if/when multi-user support exists" moment the
@@ -259,6 +269,17 @@ CREATE TABLE IF NOT EXISTS personal_operating_model (
 CREATE TABLE IF NOT EXISTS privacy_settings (
     user_id TEXT PRIMARY KEY,
     cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1,
+    reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS journey_reflections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -416,8 +437,19 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute(
                 "CREATE TABLE privacy_settings ("
                 "user_id TEXT PRIMARY KEY, cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1, "
+                "reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0, "
                 "FOREIGN KEY (user_id) REFERENCES users(id))"
             )
+        # Journey-close reflection question (2026-07-19, backlog #207,
+        # see engine/decisions.md) -- purely additive (a per-account row
+        # already exists post-migration above, or doesn't exist yet
+        # either way), same "try ALTER TABLE, ignore if the column
+        # already exists" pattern as magic_links.return_session_id above
+        # -- no data to migrate, just a new column with a real default.
+        try:
+            conn.execute("ALTER TABLE privacy_settings ADD COLUMN reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         # POM made per-user (2026-07-18, basic auth follow-up, see
         # engine/decisions.md "POM made per-user") -- `personal_operating_model`
         # was a genuine "id INTEGER PRIMARY KEY CHECK (id = 1)" global
@@ -1199,6 +1231,15 @@ def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str]
         for signal in state.emotional_signal_items:
             lines.append(f"Emotional signal: {signal.emotion} (intensity={signal.intensity}, source={signal.source})")
 
+    # Journey-close reflection question (2026-07-19, backlog #207) --
+    # this account's own free-text reflection answers, same "surface
+    # everything already known" treatment as every other content type
+    # above: appended as its own labeled line so the LLM inference can
+    # draw on it like any other WorldState content, not folded into
+    # claims/assumptions (a reflection is a direct first-person
+    # self-report, not an extracted Claim/Assumption).
+    lines += [f"Reflection: {r}" for r in get_reflections_for_pom(user_id)]
+
     aggregated_content = "\n".join(lines)
     return claims, assumptions, entities, aggregated_content
 
@@ -1279,6 +1320,61 @@ def set_cross_session_learning_enabled(user_id: str, enabled: bool) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET cross_session_learning_enabled = excluded.cross_session_learning_enabled",
             (user_id, 1 if enabled else 0),
         )
+
+
+def get_reflection_prompt_enabled(user_id: str) -> bool:
+    """Journey-close reflection question (2026-07-19, backlog #207, see
+    engine/decisions.md) -- opt-IN, unlike cross_session_learning_enabled's
+    opt-out default: defaults to False when no row exists yet for this
+    account. Being asked a reflection question at the end of every
+    Journey is an interruption a person should deliberately choose, not
+    something that's on by default the way background pattern-learning
+    is."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT reflection_prompt_enabled FROM privacy_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return bool(row[0]) if row else False
+
+
+def set_reflection_prompt_enabled(user_id: str, enabled: bool) -> None:
+    """Same upsert pattern as set_cross_session_learning_enabled."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO privacy_settings (user_id, reflection_prompt_enabled) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET reflection_prompt_enabled = excluded.reflection_prompt_enabled",
+            (user_id, 1 if enabled else 0),
+        )
+
+
+def save_journey_reflection(session_id: str, user_id: str, content: str) -> None:
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    one free-text answer per Journey-close prompt. Never gated here on
+    reflection_prompt_enabled/cross_session_learning_enabled -- the
+    caller (src/api/server.py) already checked both before accepting
+    the submission; this is a plain append, same as append_message."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO journey_reflections (session_id, user_id, content, created_at) VALUES (?, ?, ?, ?)",
+            (session_id, user_id, content, _now()),
+        )
+
+
+def get_reflections_for_pom(user_id: str) -> List[str]:
+    """Read side for get_aggregated_knowledge_for_pom below -- every
+    reflection answer THIS account has ever submitted, oldest first.
+    Not scoped by whether cross_session_learning_enabled is currently
+    True: the caller (scripts/run_pom_computation.py) already skips this
+    account's entire computation when learning is off, so a reflection
+    submitted while it was on is correctly still usable once it's back
+    on, same as every other already-extracted WorldState content."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT content FROM journey_reflections WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+    return [row[0] for row in rows]
 
 
 def _rows_for_session_ids(conn: sqlite3.Connection, table: str, session_ids: List[str]) -> List[dict]:
@@ -1367,6 +1463,9 @@ def export_all_data(user_id: str) -> dict:
             "SELECT * FROM privacy_settings WHERE user_id = ?", (user_id,)
         ).fetchone()
         privacy_settings_row = dict(privacy_settings_row) if privacy_settings_row else None
+        journey_reflections = [dict(row) for row in conn.execute(
+            "SELECT * FROM journey_reflections WHERE user_id = ?", (user_id,)
+        )]
 
     for session in sessions:
         session["world_state"] = json.loads(session.pop("world_state_json"))
@@ -1388,6 +1487,7 @@ def export_all_data(user_id: str) -> dict:
         "learned_patterns": learned_patterns,
         "personal_operating_model": pom_row,
         "privacy_settings": privacy_settings_row,
+        "journey_reflections": journey_reflections,
     }
 
 
@@ -1438,6 +1538,11 @@ def reset_all_data(user_id: str) -> None:
         conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))
+        # Journey-close reflection question (2026-07-19, backlog #207) --
+        # this account's own reflection answers ARE content, same
+        # category as sessions/messages, not a preference like
+        # privacy_settings above -- "forget everything" deletes them.
+        conn.execute("DELETE FROM journey_reflections WHERE user_id = ?", (user_id,))
 
 
 def record_llm_usage(session_id: Optional[str], usage: LLMUsage) -> None:

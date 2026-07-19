@@ -58,6 +58,7 @@ from src.api.schema import (
     SessionSummary,
     SetBookmarkRequest,
     SetPrivacySettingsRequest,
+    SubmitJourneyReflectionRequest,
     UnderstandingResponse,
     UnderstandingStatementOut,
     VerifyMagicLinkRequest,
@@ -327,6 +328,37 @@ def delete_session(
     as a reversible one."""
     _require_owned_session(session_id, identity)
     db.delete_session(session_id)
+
+
+@app.post("/sessions/{session_id}/reflection", status_code=204)
+def submit_journey_reflection(
+    session_id: str,
+    body: SubmitJourneyReflectionRequest,
+    identity: Identity = Depends(resolve_identity),
+    user_id: str = Depends(require_user),
+) -> None:
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    Journey.svelte calls this when a person submits an answer to the
+    opt-in reflection prompt shown as they leave a Journey with real
+    content. Feeds POM as free-text evidence (see
+    db.py::get_aggregated_knowledge_for_pom), same "surface everything
+    already known" treatment as every other content type POM ingests.
+
+    Gated behind `require_user` (same as every other Settings/Privacy-
+    adjacent action) plus `_require_owned_session` (this reflection
+    belongs to a specific Journey this account owns).
+
+    Server-side gate on `reflection_prompt_enabled`, not just trusting
+    the frontend's own toggle state: a stale client (opted in, then
+    later opted out before this specific submission reached the
+    server) must not have its reflection silently stored and used
+    anyway -- same "server never trusts client-side toggle state
+    alone" discipline as `send_message`'s own
+    `cross_session_learning_enabled` read-path gate."""
+    _require_owned_session(session_id, identity)
+    if not db.get_reflection_prompt_enabled(user_id):
+        raise HTTPException(status_code=403, detail="reflection_prompt_disabled")
+    db.save_journey_reflection(session_id, user_id, body.content)
 
 
 @app.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
@@ -688,8 +720,16 @@ def get_privacy_settings(user_id: str = Depends(require_user)) -> PrivacySetting
     now returns THIS account's own preference, not a single global
     singleton every signed-in visitor used to share. The last of the
     three-item carve-out (`privacy_settings`/`learned_patterns`/
-    `insights`) this docstring used to flag is closed."""
-    return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled(user_id))
+    `insights`) this docstring used to flag is closed.
+
+    `reflection_prompt_enabled` (2026-07-19, backlog #207) is a second,
+    independent preference on this same row -- opt-IN, defaults False,
+    see db.py's own `get_reflection_prompt_enabled` docstring for why
+    that default direction differs from `cross_session_learning_enabled`."""
+    return PrivacySettingsOut(
+        cross_session_learning_enabled=db.get_cross_session_learning_enabled(user_id),
+        reflection_prompt_enabled=db.get_reflection_prompt_enabled(user_id),
+    )
 
 
 @app.post("/privacy/settings", response_model=PrivacySettingsOut)
@@ -697,7 +737,11 @@ def set_privacy_settings(
     body: SetPrivacySettingsRequest, user_id: str = Depends(require_user)
 ) -> PrivacySettingsOut:
     db.set_cross_session_learning_enabled(user_id, body.cross_session_learning_enabled)
-    return PrivacySettingsOut(cross_session_learning_enabled=body.cross_session_learning_enabled)
+    db.set_reflection_prompt_enabled(user_id, body.reflection_prompt_enabled)
+    return PrivacySettingsOut(
+        cross_session_learning_enabled=body.cross_session_learning_enabled,
+        reflection_prompt_enabled=body.reflection_prompt_enabled,
+    )
 
 
 @app.get("/privacy/export")

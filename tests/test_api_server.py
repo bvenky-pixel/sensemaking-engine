@@ -1558,7 +1558,7 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
 def test_privacy_settings_default_to_cross_session_learning_enabled(client):
     _login(client)
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": True}
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": False}
 
 
 def test_privacy_settings_requires_login(client):
@@ -1573,14 +1573,32 @@ def test_privacy_settings_requires_login(client):
 
 def test_privacy_settings_can_be_disabled_and_persist(client):
     _login(client)
-    res = client.post("/privacy/settings", json={"cross_session_learning_enabled": False})
-    assert res.json() == {"cross_session_learning_enabled": False}
+    res = client.post(
+        "/privacy/settings",
+        json={"cross_session_learning_enabled": False, "reflection_prompt_enabled": False},
+    )
+    assert res.json() == {"cross_session_learning_enabled": False, "reflection_prompt_enabled": False}
 
     # A fresh GET, not just trusting the POST's own echoed response --
     # confirms it actually persisted to the DB rather than the endpoint
     # just reflecting back whatever the request body said.
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": False}
+    assert res.json() == {"cross_session_learning_enabled": False, "reflection_prompt_enabled": False}
+
+
+def test_reflection_prompt_enabled_can_be_set_independently_and_persists(client):
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    a second, independent preference on the same row as
+    cross_session_learning_enabled."""
+    _login(client)
+    res = client.post(
+        "/privacy/settings",
+        json={"cross_session_learning_enabled": True, "reflection_prompt_enabled": True},
+    )
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": True}
+
+    res = client.get("/privacy/settings")
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": True}
 
 
 def test_privacy_settings_are_independent_per_account(client):
@@ -1596,7 +1614,7 @@ def test_privacy_settings_are_independent_per_account(client):
 
     _login(client, email="own-privacy-account@example.com")
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": True}
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": False}
 
 
 def test_send_message_omits_retrieved_context_when_cross_session_learning_disabled(client, monkeypatch):
@@ -1692,6 +1710,62 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     # resetting journal content isn't the same action as reverting a
     # setting they deliberately chose.
     assert db.get_cross_session_learning_enabled(user_id) is False
+
+
+def test_submit_journey_reflection_requires_login(client):
+    res = client.post("/sessions/nonexistent/reflection", json={"content": "Something to remember."})
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
+def test_submit_journey_reflection_requires_reflection_prompt_enabled(client):
+    """Server-side gate, not just trusting the frontend's own toggle --
+    a submission must be rejected even if the frontend somehow tried to
+    send one while the account's own preference is off (its default)."""
+    email = _login(client)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "Something to remember."})
+
+    assert res.status_code == 403
+    assert res.json()["detail"] == "reflection_prompt_disabled"
+
+
+def test_submit_journey_reflection_succeeds_when_enabled_and_persists(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "Something to remember."})
+
+    assert res.status_code == 204
+    assert db.get_reflections_for_pom(user_id) == ["Something to remember."]
+
+
+def test_submit_journey_reflection_rejects_blank_content(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "   "})
+
+    assert res.status_code == 422
+
+
+def test_submit_journey_reflection_404s_for_a_session_owned_by_someone_else(client):
+    _login(client, email="other-reflection-account@example.com")
+    other_session_id = client.post("/sessions").json()["id"]
+    client.post("/auth/logout")
+
+    email = _login(client, email="person@example.com")
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+
+    res = client.post(f"/sessions/{other_session_id}/reflection", json={"content": "Not my Journey."})
+
+    assert res.status_code == 404
 
 
 def test_privacy_export_never_includes_another_accounts_sessions(client, monkeypatch):

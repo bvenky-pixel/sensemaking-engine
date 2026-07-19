@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.orchestrator.modes import CounselingMode
 from src.orchestrator.schema import FailedStage
@@ -225,15 +225,30 @@ class InsightOut(BaseModel):
 
 class PrivacySettingsOut(BaseModel):
     """Privacy, made real (2026-07-18, see frontend/decisions.md) --
-    GET/POST /privacy/settings. One field today
-    (`cross_session_learning_enabled`); see src/api/db.py's
-    `privacy_settings` table docstring for exactly what it gates."""
+    GET/POST /privacy/settings. See src/api/db.py's `privacy_settings`
+    table docstring for exactly what each field gates.
+    `reflection_prompt_enabled` added 2026-07-19, backlog #207."""
 
     cross_session_learning_enabled: bool
+    reflection_prompt_enabled: bool
 
 
 class SetPrivacySettingsRequest(BaseModel):
     cross_session_learning_enabled: bool
+    reflection_prompt_enabled: bool
+
+
+class SubmitJourneyReflectionRequest(BaseModel):
+    """POST /sessions/{id}/reflection body -- backlog #207."""
+
+    content: str
+
+    @field_validator("content", mode="after")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
 
 
 class RequestMagicLinkRequest(BaseModel):

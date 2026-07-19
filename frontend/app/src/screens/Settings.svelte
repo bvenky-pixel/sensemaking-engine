@@ -63,6 +63,7 @@
   import {
     getPrivacySettings,
     setCrossSessionLearningEnabled,
+    setReflectionPromptEnabled,
     exportPrivacyData,
     resetAllData,
   } from '../lib/api.js';
@@ -87,6 +88,7 @@
 
   let reduceMotion = $state(false);
   let crossSessionLearning = $state(true);
+  let reflectionPromptEnabled = $state(false);
   let exporting = $state(false);
   let pendingReset = $state(false);
   let resetting = $state(false);
@@ -102,6 +104,7 @@
     if (authState.authenticated) {
       const privacy = await getPrivacySettings();
       crossSessionLearning = privacy.cross_session_learning_enabled;
+      reflectionPromptEnabled = privacy.reflection_prompt_enabled;
     }
   });
 
@@ -113,7 +116,22 @@
 
   async function toggleCrossSessionLearning() {
     crossSessionLearning = !crossSessionLearning;
-    await setCrossSessionLearningEnabled(crossSessionLearning);
+    // Turning learning off also turns the reflection prompt off --
+    // asking a reflection question whose answer will never actually
+    // feed POM (get_aggregated_knowledge_for_pom is only ever read by
+    // an offline computation that already skips this account entirely
+    // when learning is off) would be a pointless interruption. Turning
+    // learning back ON does NOT auto-re-enable reflection prompting --
+    // that's still its own separate, deliberate opt-in.
+    if (!crossSessionLearning) {
+      reflectionPromptEnabled = false;
+    }
+    await setCrossSessionLearningEnabled(crossSessionLearning, reflectionPromptEnabled);
+  }
+
+  async function toggleReflectionPrompt() {
+    reflectionPromptEnabled = !reflectionPromptEnabled;
+    await setReflectionPromptEnabled(reflectionPromptEnabled, crossSessionLearning);
   }
 
   // Blob -> object URL -> a throwaway <a download> click is the
@@ -191,6 +209,26 @@
           <span class="toggle-thumb"></span>
         </button>
       </div>
+
+      {#if crossSessionLearning}
+        <div class="toggle-row">
+          <div>
+            <p class="toggle-label">Ask a reflection question when I finish a Journey</p>
+            <p class="toggle-hint">When you leave a Journey with something in it, Confidant will offer one optional question to reflect on -- your answer becomes part of what Confidant learns about you over time.</p>
+          </div>
+          <button
+            type="button"
+            class="toggle"
+            class:on={reflectionPromptEnabled}
+            role="switch"
+            aria-checked={reflectionPromptEnabled}
+            aria-label="Ask a reflection question when I finish a Journey"
+            onclick={toggleReflectionPrompt}
+          >
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+      {/if}
 
       <div class="privacy-actions">
         <button type="button" class="link-button" onclick={handleExport} disabled={exporting}>

@@ -32,6 +32,7 @@ import { authState } from '../lib/auth.svelte.js';
 vi.mock('../lib/api.js', () => ({
   getPrivacySettings: vi.fn(),
   setCrossSessionLearningEnabled: vi.fn(),
+  setReflectionPromptEnabled: vi.fn(),
   exportPrivacyData: vi.fn(),
   resetAllData: vi.fn(),
   getAuthStatus: vi.fn(),
@@ -46,7 +47,10 @@ describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default resolved value every test gets unless it overrides.
-    api.getPrivacySettings.mockResolvedValue({ cross_session_learning_enabled: true });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
     // Default: no POM computed yet -- PersonalOperatingModel.test.js
     // covers its own populated/empty states directly.
     api.getPersonalOperatingModel.mockResolvedValue(null);
@@ -64,7 +68,10 @@ describe('Settings', () => {
   });
 
   it('reflects the current cross-session-learning setting on load', async () => {
-    api.getPrivacySettings.mockResolvedValue({ cross_session_learning_enabled: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: false,
+      reflection_prompt_enabled: false,
+    });
 
     const { getByRole } = render(Settings, { props: { onBack: () => {} } });
 
@@ -74,8 +81,14 @@ describe('Settings', () => {
   });
 
   it('toggles cross-session learning and persists it via the API', async () => {
-    api.getPrivacySettings.mockResolvedValue({ cross_session_learning_enabled: true });
-    api.setCrossSessionLearningEnabled.mockResolvedValue({ cross_session_learning_enabled: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    api.setCrossSessionLearningEnabled.mockResolvedValue({
+      cross_session_learning_enabled: false,
+      reflection_prompt_enabled: false,
+    });
 
     const { getByRole } = render(Settings, { props: { onBack: () => {} } });
 
@@ -85,7 +98,63 @@ describe('Settings', () => {
     await fireEvent.click(toggle);
 
     expect(toggle.getAttribute('aria-checked')).toBe('false');
-    expect(api.setCrossSessionLearningEnabled).toHaveBeenCalledWith(false);
+    // Turning learning off also turns reflection prompting off (see
+    // Settings.svelte's own toggleCrossSessionLearning) -- both current
+    // values are always sent together, not a partial update.
+    expect(api.setCrossSessionLearningEnabled).toHaveBeenCalledWith(false, false);
+  });
+
+  it('turning cross-session learning back on does not re-enable the reflection prompt', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: false,
+      reflection_prompt_enabled: false,
+    });
+    api.setCrossSessionLearningEnabled.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+
+    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+
+    const toggle = await waitFor(() => getByRole('switch', { name: 'Learn across Journeys' }));
+    await fireEvent.click(toggle);
+
+    expect(api.setCrossSessionLearningEnabled).toHaveBeenCalledWith(true, false);
+  });
+
+  it('shows the reflection-prompt toggle only when cross-session learning is on', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: false,
+      reflection_prompt_enabled: false,
+    });
+
+    const { queryByRole } = render(Settings, { props: { onBack: () => {} } });
+
+    await waitFor(() => expect(api.getPrivacySettings).toHaveBeenCalled());
+    expect(queryByRole('switch', { name: 'Ask a reflection question when I finish a Journey' })).toBeNull();
+  });
+
+  it('toggles the reflection prompt and persists it via the API', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    api.setReflectionPromptEnabled.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: true,
+    });
+
+    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+
+    const toggle = await waitFor(() =>
+      getByRole('switch', { name: 'Ask a reflection question when I finish a Journey' })
+    );
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    await fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(api.setReflectionPromptEnabled).toHaveBeenCalledWith(true, true);
   });
 
   it('asks for confirmation before forgetting everything, and does nothing on Cancel', async () => {

@@ -83,6 +83,22 @@ def test_get_aggregated_knowledge_for_pom_empty_when_no_sessions_exist(tmp_path,
     assert aggregated_content == ""
 
 
+def test_get_aggregated_knowledge_for_pom_includes_journey_reflections(tmp_path, monkeypatch):
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    a submitted reflection is folded into aggregated_content as its own
+    labeled line, same "surface everything already known" treatment as
+    every other content type here."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db(tmp_path / "test.db")
+    session_a = db.create_session(user_id="user-1")
+    db.save_world_state_for_backfill(session_a, WorldState(claims=[Claim(content="Belief from session A.")]))
+    db.save_journey_reflection(session_a, "user-1", "This conversation made me realize I've been avoiding this.")
+
+    _, _, _, aggregated_content = db.get_aggregated_knowledge_for_pom("user-1")
+
+    assert "Reflection: This conversation made me realize I've been avoiding this." in aggregated_content
+
+
 def test_get_aggregated_knowledge_for_pom_excludes_other_accounts_sessions(tmp_path, monkeypatch):
     """POM made per-user (2026-07-18, see engine/decisions.md "POM made
     per-user"): the direct regression test for the bug this round
