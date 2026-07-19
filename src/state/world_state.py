@@ -10,9 +10,15 @@ semantics, not the full spec in one pass. Deferred to later iterations
 - v1.1: provenance (source/first_seen/last_updated) and turn numbering --
   IMPLEMENTED 2026-07-10 (see engine/decisions.md "WorldState provenance
   -- trajectory prerequisite"; Provenance class + WorldState.turn_count
-  below). `supporting_evidence` and stable object IDs remain deferred --
-  no motivating use case yet for the former, and nothing in this round
-  depends on the latter (matching still goes by content/word-overlap).
+  below). Stable object IDs -- IMPLEMENTED 2026-07-12 (backlog #81/#82,
+  see `KnowledgeItem.id` below). `supporting_evidence` on `Provenance`
+  itself (a turn-log of every reaffirmation, not just first_seen/
+  last_updated) remains deferred -- still no motivating use case;
+  see Provenance's own docstring. Judgment's SEPARATE `supporting_evidence`
+  field has since migrated from prose quotes to real `KnowledgeItem.id`
+  references (2026-07-19, backlog #242, see engine/decisions.md
+  "Judgment: supporting_evidence migrated to KnowledgeItem id
+  references") -- that migration lives in src/judgment/, not here.
 - v1.2: conversation_summary, emotional_history (trend computation)
 - v1.3: project graph, cross-links between entities and goals
 
@@ -40,24 +46,32 @@ history: lifecycle previously only ever advanced in the "Resolved"/
 fact/claim; Goal and Decision status had no advancement signal at all
 before this round.
 
-TODO / DESIGN NOTE (2026-07-05, not implemented -- see engine/decisions.md):
-WorldState currently conflates two different kinds of state under one
-container:
+DESIGN NOTE (2026-07-05, see engine/decisions.md; RESOLVED 2026-07-19,
+backlog #243, see engine/decisions.md "WorldState: read-only Working
+Memory / Durable Knowledge groupings added"): WorldState conflates two
+different kinds of state under one container:
 - Durable Knowledge: Facts, Claims, Goals, Decisions, Unknowns, Entities
-  -- things actually true (or believed/weighed) about the user's world,
-  meant to persist and accumulate across the whole relationship.
+  (+ the id-bearing Assumption/Inference/EmotionalSignalItem lists added
+  2026-07-12/07-15) -- things actually true (or believed/weighed) about
+  the user's world, meant to persist and accumulate across the whole
+  relationship.
 - Working Memory: surface_complaint/core_question/core_question_confidence,
-  assumptions/inferences/biases, clarity_level, phase -- reasoning
-  scaffolding Judgment needs turn-to-turn to track where the CONVERSATION
-  currently stands, not facts about the user's world.
-`phase` and the core_question tracking are clearly the latter; assumptions/
-inferences/biases are murkier (an assumption surfaced today could turn out
-to be durable knowledge about the user, not just conversational
-scratchpad) and deliberately NOT force-classified here -- per the "let it
-evolve based on what Judgment actually needs" principle, splitting these
-into a separate WorkingMemory container is deferred until Judgment's
-actual usage patterns make the right split obvious, rather than guessed
-at now.
+  assumptions/inferences/biases (the flat string lists), clarity_level,
+  phase -- reasoning scaffolding Judgment needs turn-to-turn to track
+  where the CONVERSATION currently stands, not facts about the user's
+  world.
+Originally deferred pending Judgment's actual usage patterns making the
+right split obvious, rather than guessed at up front. The founder was
+asked directly whether to pursue an actual restructure now, given no
+concrete downstream consumer has asked for it and the original
+ambiguity (were assumptions/inferences durable or scratchpad?) had
+already partially self-resolved through later incremental work (the
+id-bearing `_items` counterparts landing in the Durable Knowledge
+bucket). **Chose read-only groupings only** -- see
+`WorldState.durable_knowledge()`/`working_memory()` below: plain
+methods grouping the existing fields for any future reader, not a
+restructure of WorldState's own shape. No existing caller, prompt, or
+persisted JSON is affected.
 """
 
 from __future__ import annotations
@@ -109,9 +123,10 @@ class Provenance(BaseModel):
 class KnowledgeItem(BaseModel):
     """
     Common shape shared by every durable knowledge object (Fact, Claim,
-    Goal, Decision, Unknown, Entity, Assumption, Inference), so a future
-    WorkingMemory/Knowledge split (see module TODO above) has a single,
-    consistent base to work from rather than six-plus ad hoc shapes.
+    Goal, Decision, Unknown, Entity, Assumption, Inference), so the
+    Durable Knowledge grouping (see module DESIGN NOTE above,
+    `WorldState.durable_knowledge()`) has a single, consistent base to
+    work from rather than six-plus ad hoc shapes.
 
     `status` is required on every subtype (each narrows the Literal and
     default to its own lifecycle). `provenance` is populated by
@@ -183,14 +198,18 @@ class Decision(KnowledgeItem):
 
 class Unknown(KnowledgeItem):
     """
-    status defaults to "open" and the field exists for shape consistency,
-    but nothing currently transitions an Unknown to "resolved" in place --
-    src/state/builder.py still removes a resolved Unknown and promotes its
-    content into Facts, same as before this field existed. Per Design
-    Principle 3 ("nothing is silently deleted"), marking resolved and
-    retaining would be more consistent with Facts/Claims -- deferred
-    rather than changed here, since that's a behavior change beyond what
-    was asked (standardizing shape, not merge behavior).
+    status defaults to "open"; a resolved Unknown now transitions to
+    "resolved" in place (fixed 2026-07-19, backlog #246, see
+    engine/decisions.md "State builder: Unknown resolution keeps
+    history in place" and src/state/builder.py::_reconcile_unknowns) --
+    previously discarded outright and promoted into a brand-new Fact
+    with no back-link, which Design Principle 3 ("nothing is silently
+    deleted") argued against, same parity fix already proven for
+    Facts/Claims via `superseded` (backlog #245). src/understanding/
+    engine.py's own Tier 1 visibility filter only shows `{"open"}`
+    Unknowns, so a resolved one stays correctly hidden from display --
+    this only stops discarding provenance/history nothing currently
+    reads, it doesn't change what's ever visible.
     """
 
     content: str
@@ -311,7 +330,7 @@ class EmotionalSignalItem(KnowledgeItem):
 
 
 class WorldState(BaseModel):
-    # --- Working Memory (see module TODO) ---
+    # --- Working Memory (see module DESIGN NOTE above, WorldState.working_memory()) ---
     # Phase 2 (Discover) tracking -- not in the spec's Core Structure
     # table, but carried forward from the old ConversationState: the spec
     # is silent on where "what's the real question" lives, and dropping
@@ -338,7 +357,7 @@ class WorldState(BaseModel):
     # Where the conversation is in the Confidant Method.
     phase: str = "prepare"
 
-    # --- Durable Knowledge (Core Structure) ---
+    # --- Durable Knowledge (Core Structure; see WorldState.durable_knowledge()) ---
     facts: List[Fact] = Field(default_factory=list)
     claims: List[Claim] = Field(default_factory=list)
     goals: List[Goal] = Field(default_factory=list)
@@ -385,6 +404,56 @@ class WorldState(BaseModel):
     # above -- this is a rendering of already-decided content, not a new
     # input for those stages to reason over.
     understanding: UnderstandingState = Field(default_factory=UnderstandingState)
+
+    # Read-only groupings (added 2026-07-19, backlog #243, see
+    # engine/decisions.md "WorldState: read-only Working Memory /
+    # Durable Knowledge groupings added" -- the founder's own explicit
+    # choice, over both closing the item outright and a full restructure)
+    # -- give this module's own "Working Memory / Durable Knowledge"
+    # TODO above a real, usable shape for any future reader (e.g. an
+    # inspector) WITHOUT restructuring WorldState's actual fields: plain
+    # methods, not pydantic fields or @computed_field properties, so
+    # they're invisible to model_dump_json() and every existing
+    # prompt-building call site -- zero behavior change, zero migration
+    # cost for already-persisted flat JSON, no new entry needed in
+    # PROMPT_EXCLUDED_FIELDS below. `turn_count`/`understanding` are
+    # deliberately excluded from both groupings -- they're WorldState's
+    # own bookkeeping/rendering layer, not "facts about the user's
+    # world" or "conversation-tracking scratchpad."
+    def durable_knowledge(self) -> dict:
+        """The Durable Knowledge half of this module's own TODO --
+        things actually true (or believed/weighed) about the user's
+        world, meant to persist and accumulate across the whole
+        relationship."""
+        return {
+            "facts": self.facts,
+            "claims": self.claims,
+            "goals": self.goals,
+            "decisions": self.decisions,
+            "unknowns": self.unknowns,
+            "entities": self.entities,
+            "assumption_items": self.assumption_items,
+            "inference_items": self.inference_items,
+            "emotional_signal_items": self.emotional_signal_items,
+        }
+
+    def working_memory(self) -> dict:
+        """The Working Memory half -- reasoning scaffolding Judgment
+        needs turn-to-turn to track where the CONVERSATION currently
+        stands, not facts about the user's world. `assumptions`/
+        `inferences`/`biases` (the flat string lists) stay here, per
+        this module's own original TODO framing -- their id-bearing
+        `_items` counterparts above are Durable Knowledge instead."""
+        return {
+            "surface_complaint": self.surface_complaint,
+            "core_question": self.core_question,
+            "core_question_confidence": self.core_question_confidence,
+            "assumptions": self.assumptions,
+            "inferences": self.inferences,
+            "biases": self.biases,
+            "clarity_level": self.clarity_level,
+            "phase": self.phase,
+        }
 
 
 # Added 2026-07-12 (see engine/decisions.md "Understanding layer --

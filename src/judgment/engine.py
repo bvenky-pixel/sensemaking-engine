@@ -111,6 +111,23 @@ def compute_stagnation_signals(
     return signals
 
 
+def _known_knowledge_item_ids(state: WorldState) -> set:
+    """Every KnowledgeItem's id across all eight subtypes -- used only to
+    ground Judgment's own `supporting_evidence` (backlog #242, see
+    engine/decisions.md "Judgment: supporting_evidence migrated to
+    KnowledgeItem id references"). Same field list as
+    src/understanding/tier2_engine.py's own `_knowledge_item_lookup`,
+    deliberately duplicated rather than imported -- small, per-package
+    helpers are duplicated across engine packages in this codebase
+    rather than sharing a dependency neither package otherwise needs."""
+    items = (
+        state.facts + state.claims + state.goals + state.decisions
+        + state.unknowns + state.entities + state.assumption_items
+        + state.inference_items + state.emotional_signal_items
+    )
+    return {item.id for item in items}
+
+
 class JudgmentError(Exception):
     """Raised when no configured provider could produce a valid Judgment."""
 
@@ -191,6 +208,17 @@ def run_judgment(
         tracker.record_outcome(AttemptRecord(
             component="Judgment", provider=provider_name, outcome="success",
         ))
+        # Grounding enforcement for supporting_evidence (backlog #242) --
+        # never trust the model's own ids uncritically, same discipline
+        # as src/insight/engine.py's/src/understanding/tier2_engine.py's
+        # own grounding filters. Silently drops a hallucinated or
+        # stale id; no minimum-count floor, since supporting_evidence
+        # was never itself a gate on anything -- an empty list here is
+        # exactly as valid as it was when this field was prose-based.
+        known_ids = _known_knowledge_item_ids(state)
+        result = result.model_copy(update={
+            "supporting_evidence": [eid for eid in result.supporting_evidence if eid in known_ids],
+        })
         return result
 
     raise JudgmentError("All configured LLM providers failed: " + "; ".join(failures))

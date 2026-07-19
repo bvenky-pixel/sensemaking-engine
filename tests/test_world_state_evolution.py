@@ -150,6 +150,11 @@ def test_unknown_resolution_fires_on_high_word_overlap():
     Validates the word-overlap mechanism directly: high shared vocabulary
     between an existing unknown and a new fact resolves the unknown and
     promotes its content into Facts.
+
+    Resolved Unknowns are kept (status="resolved"), not deleted (backlog
+    #246, see engine/decisions.md "State builder: Unknown resolution
+    keeps history in place") -- same parity treatment as Facts/Claims'
+    own `superseded` status.
     """
     state = WorldState()
     state = update_state(state, make_interp(unknowns=["why hr rejected me"]))
@@ -159,7 +164,9 @@ def test_unknown_resolution_fires_on_high_word_overlap():
         state, make_interp(observed_facts=["HR gave a reason: why hr rejected me was a frozen headcount."])
     )
 
-    assert state.unknowns == [], f"expected the unknown to resolve, got {state.unknowns}"
+    assert [u.status for u in state.unknowns] == ["resolved"], (
+        f"expected the unknown kept, marked resolved, got {state.unknowns}"
+    )
     assert "why hr rejected me" in [f.content for f in state.facts], (
         f"expected the resolved unknown promoted into facts, got {[f.content for f in state.facts]}"
     )
@@ -181,8 +188,41 @@ def test_unknown_resolution_word_overlap_catches_reordered_phrasing():
         state, make_interp(observed_facts=["HR is rejecting applications due to budget cuts."])
     )
 
-    assert state.unknowns == [], f"expected the unknown to resolve, got {state.unknowns}"
+    assert [u.status for u in state.unknowns] == ["resolved"], (
+        f"expected the unknown kept, marked resolved, got {state.unknowns}"
+    )
     assert "Why is HR rejecting applications" in [f.content for f in state.facts]
+
+
+def test_resolved_unknown_keeps_its_original_id_and_bumps_last_updated_but_stays_hidden_from_tier1():
+    """Backlog #246 (2026-07-19, see engine/decisions.md "State builder:
+    Unknown resolution keeps history in place") -- the direct regression
+    test: a resolved Unknown keeps its own id/first_seen (history is
+    genuinely preserved, not just re-created), gets last_updated bumped
+    to the resolving turn, and -- despite no longer being deleted --
+    stays correctly excluded from Tier 1's rendering, since Understanding's
+    own visibility filter only shows {"open"} Unknowns."""
+    from src.understanding.engine import build_tier1_statements
+
+    state = WorldState()
+    state = update_state(state, make_interp(unknowns=["why hr rejected me"]))
+    original_id = state.unknowns[0].id
+    assert state.unknowns[0].provenance.first_seen == 1
+    assert state.unknowns[0].provenance.last_updated == 1
+
+    state = update_state(
+        state, make_interp(observed_facts=["HR gave a reason: why hr rejected me was a frozen headcount."])
+    )
+
+    resolved = state.unknowns[0]
+    assert resolved.id == original_id
+    assert resolved.provenance.first_seen == 1  # unchanged
+    assert resolved.provenance.last_updated == 2  # bumped to the resolving turn
+
+    tier1_uncertainty_kinds = [s for s in build_tier1_statements(state) if s.kind == "uncertainty"]
+    assert tier1_uncertainty_kinds == [], (
+        f"resolved Unknown must stay hidden from Tier 1, got {tier1_uncertainty_kinds}"
+    )
 
 
 def test_unknown_resolution_still_misses_deep_semantic_gap_by_design():
@@ -1135,6 +1175,35 @@ def test_entity_stamped_with_provenance_at_creation():
     assert provenance.last_updated == 1
 
 
+def test_entity_attribute_update_on_an_existing_entity_bumps_last_updated():
+    """Backlog #244 (2026-07-19, see engine/decisions.md "State builder:
+    Entity attribute updates now bump last_updated") -- the direct
+    regression test: enriching an EXISTING entity's attributes on a
+    LATER turn must advance its provenance.last_updated to that turn,
+    not leave it frozen at the entity's original creation turn. Before
+    this fix, src/understanding/tier2_engine.py's recency-window filter
+    would silently and permanently drop an entity from Tier 2's
+    candidate pool 10 turns after first mention, even if the person
+    kept adding new attributes about it every turn."""
+    state = WorldState()
+    state = update_state(state, make_interp(entities=["Sarah"]))
+    assert state.entities[0].provenance.first_seen == 1
+    assert state.entities[0].provenance.last_updated == 1
+
+    state = update_state(
+        state,
+        make_interp(
+            entity_attribute_updates=[
+                EntityAttributeUpdate(entity="Sarah", attribute="role", value="manager")
+            ]
+        ),
+    )
+
+    entity = state.entities[0]
+    assert entity.provenance.first_seen == 1  # creation turn never changes
+    assert entity.provenance.last_updated == 2  # bumped to the turn of the update
+
+
 # --- Understanding layer -- Journey-scoped identity (2026-07-12, see
 # engine/decisions.md) ---
 
@@ -1294,3 +1363,39 @@ def test_distinct_emotions_accumulate_as_separate_items():
     assert len(state.emotional_signal_items) == 2
     emotions = {item.emotion for item in state.emotional_signal_items}
     assert emotions == {"anxiety", "hope"}
+
+
+# --- Read-only Working Memory / Durable Knowledge groupings (2026-07-19,
+# backlog #243, see engine/decisions.md "WorldState: read-only Working
+# Memory / Durable Knowledge groupings added") ---
+
+
+def test_durable_knowledge_and_working_memory_groupings_partition_the_expected_fields():
+    state = WorldState()
+    state = update_state(state, make_interp(
+        goals=["Move to the Product team."],
+        entities=["Sarah"],
+    ))
+
+    durable = state.durable_knowledge()
+    working = state.working_memory()
+
+    assert durable["goals"] == state.goals
+    assert durable["entities"] == state.entities
+    assert durable["assumption_items"] == state.assumption_items
+    assert working["phase"] == state.phase
+    assert working["assumptions"] == state.assumptions
+    # turn_count/understanding belong to neither grouping.
+    assert "turn_count" not in durable and "turn_count" not in working
+    assert "understanding" not in durable and "understanding" not in working
+
+
+def test_groupings_are_plain_methods_invisible_to_model_dump_json():
+    """These groupings must never leak into any prompt-building call site
+    -- confirmed here by checking they're absent from a plain
+    model_dump_json() with no exclude= at all, since they're plain
+    methods, not pydantic fields or @computed_field properties."""
+    state = WorldState()
+    dumped = state.model_dump_json()
+    assert "durable_knowledge" not in dumped
+    assert "working_memory" not in dumped

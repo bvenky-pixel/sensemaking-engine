@@ -297,12 +297,20 @@ class Judgment(BaseModel):
 
     confidence: float = Field(ge=0.0, le=1.0)
 
-    # Content-based (not ID-based) for now -- WorldState objects have no
-    # stable IDs yet (deferred to WorldState v1.1). Each entry should be a
-    # direct quote/close paraphrase of the specific WorldState content
-    # (a Fact, Claim, Goal, ...) that justifies a conclusion above, so a
-    # reader can trace every assessment back to something actually in
-    # WorldState -- migrate to ID references once WorldState supports them.
+    # Migrated from content-based (prose quotes/paraphrases) to real
+    # KnowledgeItem.id references (2026-07-19, backlog #242, see
+    # engine/decisions.md "Judgment: supporting_evidence migrated to
+    # KnowledgeItem id references") -- WorldState objects have carried
+    # stable ids since backlog #81/#82, and every WorldState item's `id`
+    # is already visible to the model (it's a plain field, not excluded
+    # from the prompt's `state.model_dump_json` dump), so this no longer
+    # needs to be prose. Each entry should be the real `id` of the
+    # specific WorldState item (a Fact, Claim, Goal, ...) that justifies
+    # a conclusion above. src/judgment/engine.py::run_judgment filters
+    # this down to ids that actually exist in the WorldState given this
+    # call -- never trusts the model's own ids uncritically, same
+    # discipline as src/insight/engine.py's/src/understanding/tier2_engine.py's
+    # own grounding enforcement.
     supporting_evidence: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")

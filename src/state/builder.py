@@ -541,23 +541,31 @@ def _reconcile_unknowns(
     "Confirmed gap 2": that needs a real signal from a richer Interpretation
     schema or from Judgment, not a better string-matching trick here.
 
-    TODO (see Unknown's status field in src/state/world_state.py): this
-    removes a resolved unknown outright rather than marking its status
-    "resolved" and retaining it -- Design Principle 3 ("nothing is
-    silently deleted") would argue for the latter, matching Facts/Claims.
-    Not changed here since that's a merge-behavior change beyond this
-    round's ask, not a shape change.
+    A resolved Unknown is kept in the returned list with its own status
+    flipped to "resolved" and `provenance.last_updated` bumped to `turn`
+    (fixed 2026-07-19, backlog #246, see engine/decisions.md "State
+    builder: Unknown resolution keeps history in place") -- previously
+    dropped outright, matching Facts/Claims' own `superseded` treatment
+    (backlog #245). Understanding Tier 1's own visibility filter already
+    only shows `{"open"}` Unknowns, so this changes nothing about what's
+    ever displayed -- it only stops discarding history nothing currently
+    reads.
     """
     still_open = []
     resolved_contents = []
+    resolved_unknowns = []
     for u in existing:
         if any(_is_resolved_by(u.content, f) for f in resolved_by):
             resolved_contents.append(u.content)
+            u.status = "resolved"
+            if u.provenance is not None:
+                u.provenance.last_updated = turn
+            resolved_unknowns.append(u)
         else:
             still_open.append(u)
 
     merged = _merge_content_items(still_open, new_unknowns, Unknown, turn)
-    return merged, resolved_contents
+    return merged + resolved_unknowns, resolved_contents
 
 
 def _merge_entities(
@@ -582,9 +590,16 @@ def _merge_entities(
     `turn` (added 2026-07-10, see engine/decisions.md "WorldState
     provenance -- trajectory prerequisite") stamps every newly created
     Entity the same way _merge_content_items does. Enriching an EXISTING
-    entity's attributes does NOT bump last_updated -- out of scope this
-    round (trajectory only cares about Goal/Decision status transitions,
-    per the approved plan; entities aren't part of that).
+    entity's attributes DOES bump last_updated (fixed 2026-07-19, backlog
+    #244, see engine/decisions.md "State builder: Entity attribute
+    updates now bump last_updated") -- previously did not, on the
+    reasoning that trajectory only cares about Goal/Decision status
+    transitions; that left Entity permanently frozen at its creation
+    turn, which src/understanding/tier2_engine.py's recency-window
+    filter (TIER2_RECENCY_WINDOW_TURNS) reads directly, so an entity a
+    person kept adding new attributes about would still silently and
+    permanently drop out of Tier 2's candidate pool 10 turns after
+    first mention, regardless of how recently it was actually enriched.
     """
     result = list(existing)
     by_name = {e.name.strip().lower(): e for e in result}
@@ -616,6 +631,8 @@ def _merge_entities(
             entity.attributes.append(
                 EntityAttribute(attribute=update.attribute, value=update.value)
             )
+        if entity.provenance is not None:
+            entity.provenance.last_updated = turn
 
     return result
 

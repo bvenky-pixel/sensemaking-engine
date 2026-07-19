@@ -11216,3 +11216,176 @@ prompt, or schema changes made this round -- per the document's own
 explicit scope. `engine/specs/insight-engine-specification-v1.md`'s
 Non-goals/Open Questions updated to reflect both the shipped narrow fix
 and the still-proposed deeper piece.
+
+## State builder: Entity attribute updates now bump last_updated (2026-07-19, backlog #244)
+
+`_merge_entities` (`src/state/builder.py`) enriched an EXISTING entity's
+attributes without ever touching its `provenance.last_updated` -- a
+deliberate scope-limit from the original 2026-07-10 trajectory round
+("entities aren't part of that"), but with a real, confirmed downstream
+consequence: `src/understanding/tier2_engine.py`'s recency-window
+filter (`TIER2_RECENCY_WINDOW_TURNS`) reads `provenance.last_updated`
+directly, so an Entity frozen at its creation turn would silently and
+permanently drop out of Tier 2's candidate pool 10 turns after first
+mention -- even if the person kept stating brand-new attributes about
+it every turn. Unambiguous bug fix, no founder decision needed (Entity
+already has one shared `provenance` field like every other
+KnowledgeItem; per-attribute provenance would be a much bigger, entirely
+unmotivated schema change).
+
+Fixed: the attribute-update loop in `_merge_entities` now sets
+`entity.provenance.last_updated = turn` after setting/appending an
+attribute on an already-existing entity (harmless no-op for a
+same-turn-created entity, already stamped `turn`). Verified with a new
+direct regression test,
+`test_entity_attribute_update_on_an_existing_entity_bumps_last_updated`
+(`tests/test_world_state_evolution.py`) -- confirms `first_seen` stays
+at the creation turn while `last_updated` advances to the update turn.
+`relationships` staying unpopulated by the real pipeline (a separate,
+pre-existing gap this round's research also surfaced) is out of scope
+here.
+
+## Fix stale FactStatus.superseded backlog description (2026-07-19, backlog #245)
+
+Research confirmed this item was already resolved by later work: the
+2026-07-05 origin ("`FactStatus.superseded` exists in the schema but no
+code path ever sets it") predates 2026-07-12's Fact/Claim correction
+round (`apply_knowledge_corrections`, see engine/decisions.md "Fact/Claim
+correction and near-duplicate consolidation"), which sets exactly this
+status via `Judgment.knowledge_corrections[].kind`, live-confirmed
+firing organically in a real gpt-4o run
+(`tests/test_world_state_evolution.py`'s own
+`test_contradiction_is_not_detected_known_gap` docstring was already
+updated at that time to point at the fix). No code change needed --
+this entry exists only to close the backlog item explicitly and record
+that its literal premise is stale, same "reconcile the description, not
+the mechanism" treatment already used for backlog #226 (Learning vs.
+POM's overlapping scope).
+
+## State builder: Unknown resolution keeps history in place (2026-07-19, backlog #246)
+
+`_reconcile_unknowns` (`src/state/builder.py`) discarded a resolved
+Unknown outright and promoted a brand-new, unlinked Fact in its place --
+`UnknownStatus` has permitted `"resolved"` since the field was added,
+but nothing ever set it, same shape as `FactStatus.superseded`'s own
+pre-#245 gap. The function's own docstring already named this precisely
+as a deferred parity gap against Design Principle 3 ("nothing is
+silently deleted"), deferred as "a merge-behavior change beyond this
+round's ask" at the time `status` was added. Research confirmed no
+consumer anywhere reads `Unknown.status == "resolved"` expecting
+matches, and Understanding Tier 1's own visibility filter already only
+shows `{"open"}` Unknowns -- so applying the exact same parity fix
+`apply_knowledge_corrections` already proved for Facts/Claims carries
+zero display/behavioral blast radius. Low-risk mechanical fix, no
+founder decision needed.
+
+Fixed: a resolved Unknown now has its `status` flipped to `"resolved"`
+and `provenance.last_updated` bumped to the resolving turn, and is kept
+in the returned list (previously discarded) alongside the newly
+promoted Fact. Two pre-existing tests
+(`test_unknown_resolution_fires_on_high_word_overlap`,
+`test_unknown_resolution_word_overlap_catches_reordered_phrasing`) that
+asserted `state.unknowns == []` were updated to assert
+`[u.status for u in state.unknowns] == ["resolved"]` instead -- the
+direct, deliberate behavior change these tests exist to pin down. New
+direct regression test
+`test_resolved_unknown_keeps_its_original_id_and_bumps_last_updated_but_stays_hidden_from_tier1`
+confirms the resolved Unknown keeps its own original id/first_seen
+(genuine history preservation, not just a new object), gets
+`last_updated` bumped, and -- despite no longer being deleted -- stays
+correctly excluded from `build_tier1_statements`' rendering. Full
+`pytest` (569 passed) clean.
+
+## WorldState: read-only Working Memory / Durable Knowledge groupings added (2026-07-19, backlog #243)
+
+The 2026-07-05 "Working Memory / Durable Knowledge split" TODO in
+`src/state/world_state.py`'s own module docstring was deliberately
+deferred pending Judgment's actual usage patterns making the right
+split obvious -- naming assumptions/inferences/biases as the genuinely
+ambiguous case at the time (durable knowledge about the user, or just
+conversational scratchpad?). Research this round found that ambiguity
+had substantially self-resolved through later, unrelated incremental
+work: the id-bearing `assumption_items`/`inference_items` counterparts
+(added 2026-07-12) already landed in the "Durable Knowledge" section of
+the class body, without anyone deliberately revisiting this TODO. No
+concrete downstream consumer asks for the split today. Put to the
+founder as a real go/no-go, given the genuine cost spread across three
+options (close/defer, read-only groupings only, or a full restructure
+touching every prompt-building call site, the inspector, tests, and
+migration for already-persisted flat JSON).
+
+**CONFIRMED by the founder: add read-only groupings only** (the
+recommended option). Added `WorldState.durable_knowledge()` and
+`WorldState.working_memory()` -- plain Python methods (not pydantic
+fields or `@computed_field` properties) returning a dict grouping the
+existing fields per the TODO's own original split, deliberately
+invisible to `model_dump_json()` and every existing prompt-building call
+site (`src/judgment/engine.py`, `src/planner/engine.py`,
+`src/response/engine.py` all still dump the same flat fields
+unchanged -- no new entry needed in `PROMPT_EXCLUDED_FIELDS`). Zero
+behavior change, zero migration cost for already-persisted sessions.
+`turn_count`/`understanding` deliberately excluded from both groupings
+-- WorldState's own bookkeeping/rendering layer, neither "facts about
+the user's world" nor "conversation scratchpad." Module docstring
+rewritten from a TODO to a RESOLVED design note recording this choice.
+Verified with two new tests confirming the groupings partition the
+expected fields correctly and stay absent from a plain
+`model_dump_json()` call. Full `pytest` (571 passed) clean.
+
+## Judgment: supporting_evidence migrated to KnowledgeItem id references (2026-07-19, backlog #242)
+
+Research confirmed backlog #242's own "stable object IDs" half was
+already fully resolved by earlier work (backlog #81/#82, 2026-07-12) --
+every KnowledgeItem subtype has carried a stable `id` since then. The
+remaining, genuinely open piece was `supporting_evidence`, which turned
+out to name two different candidate features: (a) migrating
+`Judgment.supporting_evidence` from prose quotes/paraphrases to real
+`KnowledgeItem.id` references, now that WorldState actually has stable
+ids to reference (a plumbing change); (b) adding a NEW
+`Provenance.supporting_evidence` turn-log (every turn that reaffirmed an
+item, not just first_seen/last_updated) -- a real bookkeeping-cost
+question with no concrete consumer, explicitly deferred when
+`Provenance` itself shipped and still deferred (Provenance's own
+docstring is unchanged). Put to the founder as a real choice between
+closing both, building (a), or building (b).
+
+**CONFIRMED by the founder: migrate Judgment's field to id references**
+(option (a), overriding the recommendation to close both). Every
+WorldState item's `id` field was already visible to the model (it's a
+plain, non-excluded field on every KnowledgeItem, dumped verbatim into
+Judgment's prompt via `state.model_dump_json(exclude=PROMPT_EXCLUDED_FIELDS)`),
+so this needed no new WorldState-side plumbing -- only:
+1. `src/judgment/prompt.py`'s `supporting_evidence` field definition
+   rewritten to instruct citing the real `id` field verbatim, never a
+   quote/paraphrase. The Retrieved Context paragraph (which previously
+   suggested drawing on it "in supporting_evidence") was also corrected
+   -- Retrieved Context has no WorldState item id of its own, so it can
+   never appear there now; a Retrieved-Context-informed conclusion must
+   be grounded in the WorldState content it connects to instead (e.g.
+   `situation_assessment`).
+2. `src/judgment/schema.py`'s `supporting_evidence` field docstring
+   rewritten to describe the new id-based contract.
+3. New `_known_knowledge_item_ids(state)` helper in
+   `src/judgment/engine.py` (deliberately duplicated from, not imported
+   from, `src/understanding/tier2_engine.py`'s own
+   `_knowledge_item_lookup` -- same "small per-package helpers
+   duplicated across engine packages" convention as
+   `src/insight/engine.py`'s `_words`/`src/pom/engine.py`'s
+   `_render_entity_text`) -- `run_judgment` now filters
+   `supporting_evidence` down to ids that actually exist in the
+   WorldState given to that call, silently dropping a hallucinated or
+   stale one, same "never trust the model's own ids uncritically"
+   discipline as Insight Engine's/Tier 2's own grounding filters. No
+   minimum-count floor -- `supporting_evidence` was never itself a gate
+   on anything, so an empty list remains exactly as valid as it was when
+   this field was prose-based.
+
+No frontend or `src/api/` consumer reads `supporting_evidence` today
+(confirmed via search) -- this is purely an internal Judgment-chain
+field, so there was no display surface to update. Verified with a new
+`tests/test_judgment_engine.py` (this module's `run_judgment` had no
+dedicated mocked-LLM test file before this, per
+`tests/test_judgment_stagnation.py`'s own docstring noting as much) --
+confirms a real cited id survives grounding, and the direct regression
+test that a hallucinated id never in the given WorldState is silently
+dropped. Full `pytest` (573 passed) clean.

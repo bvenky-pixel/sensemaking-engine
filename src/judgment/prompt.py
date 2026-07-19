@@ -35,13 +35,18 @@ computed, offline, about this same person from PAST Journeys (see
 Retrieval, engine/decisions.md). Like Stagnation Signals, this is raw
 input, not your own conclusion, and it may be absent entirely (a new
 Journey, or simply nothing learned about this person yet). Treat it as
-background you MAY draw on in supporting_evidence when a past pattern
-is genuinely relevant to what THIS WorldState currently shows -- never
-as something more certain than this turn's own WorldState, and never as
-license to invent a new pattern beyond what Retrieved Context literally
-states. If Retrieved Context and this turn's WorldState point in
-different directions, THIS WorldState wins -- Retrieved Context
-describes a past tendency, not a fact about what's happening right now.
+background you MAY draw on in your own reasoning (e.g. situation_assessment)
+when a past pattern is genuinely relevant to what THIS WorldState
+currently shows -- never as something more certain than this turn's own
+WorldState, and never as license to invent a new pattern beyond what
+Retrieved Context literally states. Retrieved Context has no WorldState
+item id of its own, so it can never appear in supporting_evidence
+(which only ever cites real WorldState item ids, see that field's own
+definition below) -- ground a Retrieved-Context-informed conclusion in
+whatever WorldState content it connects to instead. If Retrieved
+Context and this turn's WorldState point in different directions, THIS
+WorldState wins -- Retrieved Context describes a past tendency, not a
+fact about what's happening right now.
 
 Your sole job: given this WorldState, what conclusions are justified?
 
@@ -370,10 +375,13 @@ FIELD DEFINITIONS
       Same Stagnation Signal, but with NO explaining fact in WorldState ->
       stagnation_notes: ["The goal of moving to the Product team has had
       no movement in 4 turns, with nothing in view explaining the pause."]
-- supporting_evidence: for each conclusion above, a direct quote or very
-  close paraphrase of the specific WorldState content that justifies it.
-  Every entry must be traceable to something that is actually IN the
-  WorldState you were given -- never a summary you composed.
+- supporting_evidence: for each conclusion above, the real `id` field
+  (verbatim, exactly as it appears) of the specific WorldState item
+  (a Fact, Claim, Goal, Decision, Unknown, Entity, ...) that justifies
+  it -- never invented, never an id that wasn't actually part of the
+  WorldState you were given, never a quote or paraphrase of the content
+  itself. Every WorldState item you were given already carries its own
+  "id" field for exactly this purpose.
 
 OBSERVATIONS VS ASSESSMENTS
 open_unknowns and active_decisions are closer to observations (a
