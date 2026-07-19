@@ -161,6 +161,12 @@ own metrics/scoring machinery for calibration rounds, built
 independently of this package's reliability/cost tracking. Not resolved
 here.
 
+**Backlog #294** tracks routine upkeep both cost tables' own docstrings
+already call out: `pricing.py`/`frontier_pricing.py` are manually-
+maintained snapshots that will go stale, and neither has a scheduled
+re-verification cadence against OpenRouter's/Anthropic's current
+pricing pages.
+
 ## Verification
 
 Covered by `tests/test_instrumentation.py` (usage/outcome recording,

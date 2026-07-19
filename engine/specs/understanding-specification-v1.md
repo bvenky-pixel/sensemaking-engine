@@ -145,16 +145,21 @@ grounding claims without engine-level verification.
    correction). Worth a direct docstring fix, tracked separately, not
    done as part of writing this spec (same "don't silently expand
    scope while documenting" discipline as `learning-specification-v1.md`'s
-   own reconciliation entries).
+   own reconciliation entries). Tracked as backlog #288.
 2. **Tier 1's status-visibility filters and Tier 2's
    TIER2_RECENCY_WINDOW_TURNS/TIER2_STALENESS_TURNS/MIN_GROUNDING_ITEMS
    constants are all explicitly uncalibrated** first-cut values, same
    as `learned_patterns`' own `MIN_EVIDENCE` before Learning's own
    calibration backlog item — none of these have been recalibrated
-   against real, accumulated production data.
+   against real, accumulated production data. Tracked as backlog #289.
 3. **Tier 2 v2** (declarative-uncertainty and values-level synthesis
    beyond what the current candidate-pool design produces) is its own
    explicitly out-of-scope increment — see backlog #248.
+4. **No dedicated live-dispatch calibration round for Tier 2 synthesis
+   quality** — distinct from #248 (scoping Tier 2 v2's feature set),
+   this is about validating whether v1's actual LLM-produced statements
+   read as genuinely useful syntheses against real conversation data,
+   not just structurally valid ones. Tracked as backlog #290.
 
 ## Verification
 

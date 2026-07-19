@@ -102,7 +102,9 @@ No live/in-turn computation — Insight Engine only ever reflects the
 last `workflow_dispatch` run. No cross-account aggregation of any kind
 post-#273. No semantic deduplication of themes across separate
 `run_insight_detection` runs — each run replaces an account's insights
-wholesale rather than merging with the previous run's themes.
+wholesale rather than merging with the previous run's themes (tracked
+as backlog #293, worth revisiting once real multi-run production data
+exists).
 
 ## Open questions
 

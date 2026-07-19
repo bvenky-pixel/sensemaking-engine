@@ -9921,6 +9921,50 @@ Verified: doc-only changes, full test suite unaffected. This completes
 the 8-item spec-doc cluster (#215, #216, #217, #218, #219, #220, #221,
 #227).
 
+## Spec-doc backlog sweep: #288-294 (2026-07-19)
+
+Direct follow-up to the "spec docs" cluster: went back through all 8
+just-written spec docs (Understanding, Retrieval, POM, Need State
+Inference, Insight Engine, Orchestrator, Instrumentation, Response
+v2/v3) specifically looking for gaps each doc surfaces but that had no
+existing backlog number yet -- as opposed to the many open questions
+that already pointed at an existing item (#224, #225, #238, #248, #249,
+#250, #251, #268, #223, #207-210, #272 all already existed and needed
+no new entry).
+
+Six genuinely new gaps found, none previously tracked:
+
+- **#288** Understanding: `src/understanding/__init__.py`'s docstring
+  still calls Tier 2 "deferred," stale since Tier 2 shipped.
+- **#289** Understanding: Tier 1's status filters and Tier 2's three
+  numeric constants (recency window, staleness turns, min grounding
+  items) are all uncalibrated first guesses, same category as
+  Learning's own `MIN_EVIDENCE` before its calibration item existed.
+- **#290** Understanding: no live-dispatch calibration round has ever
+  checked Tier 2's actual synthesis QUALITY, as opposed to its
+  structural correctness (which tests already cover) -- distinct from
+  #248's feature-scoping question.
+- **#291** POM: the Motivation/Narrative textbook-vs-founder's-own-
+  formulation caveat, stated plainly in `src/pom/schema.py`'s own
+  docstring since POM was built, has never actually been taken back to
+  the founder for a real yes/no.
+- **#292** POM: same "no live-dispatch quality calibration yet" gap as
+  #290, for the six LLM-inferred POM systems instead of Understanding's
+  Tier 2.
+- **#293** Insight Engine: `replace_insights` truncates and replaces an
+  account's themes wholesale on every run, with no merging/dedup logic
+  across successive `run_insight_detection` runs -- flagged as a
+  Non-goal in the spec, not necessarily a defect yet at today's low
+  run-frequency, but worth a real decision once multi-run production
+  data exists.
+- **#294** Instrumentation: `pricing.py`/`frontier_pricing.py` are
+  both explicitly manually-maintained snapshots their own docstrings
+  admit will go stale, with no scheduled re-verification cadence.
+
+Each new item was cross-referenced back into its originating spec doc's
+Open Questions section (not left orphaned in the backlog alone).
+Doc-only changes elsewhere; full suite still 511 passed.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

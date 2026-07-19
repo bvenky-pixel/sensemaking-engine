@@ -151,7 +151,12 @@ see the caveat above.
 3. **The Motivation/Narrative textbook-vs-founder's-own-formulation
    gap** (see the caveat above) has never been resolved with the
    founder directly — this spec documents the current, standard-theory
-   implementation, not a confirmed match to original intent.
+   implementation, not a confirmed match to original intent. Tracked
+   as backlog #291.
+4. **No dedicated live-dispatch calibration round has been run for the
+   six LLM-inferred systems' actual output quality** against real
+   conversation data — only unit-level grounding/downgrade logic is
+   covered by tests today. Tracked as backlog #292.
 
 ## Verification
 
