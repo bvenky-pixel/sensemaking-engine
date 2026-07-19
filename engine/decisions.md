@@ -9795,6 +9795,69 @@ passed (498 + 11 new).
 Not dispatched against production yet -- same standing discipline as
 the other `flyctl ssh console` workflows built this segment.
 
+## Spec-doc backlog: Understanding + Retrieval (2026-07-19)
+
+Backlog #215 and #218, the first two of an 8-item cluster ("spec docs")
+giving every remaining mature component the same versioned-spec
+treatment `learning-specification-v1.md` established.
+
+**#215** — new `engine/specs/understanding-specification-v1.md`.
+Covers both tiers as they actually exist today, not as a proposal:
+Tier 1's deterministic per-kind rendering (including the two
+special-cased kinds, Entity and EmotionalSignalItem, which have no
+single `content` string) and the Decision bare-label fix; Tier 2's
+non-blocking failure mode, its two-gate conditional-recompute design
+(candidate-pool signature hash + a hard staleness backstop), and its
+engine-level grounding enforcement. Flagged, but deliberately did not
+fix as part of writing this doc: `src/understanding/__init__.py`'s own
+docstring still calls Tier 2 "deferred," stale since Tier 2 shipped.
+
+**#218** — new `engine/specs/retrieval-specification-v1.md`. States
+plainly what Retrieval is NOT: the vision doc's own "need-aware
+selective retrieval" description, which depends on Need State
+Inference doing real filtering that doesn't exist yet. Documents the
+"label-only, not filtering" choice for `need_state` (Fork 2 from the
+Need State Inference design pass) and POM's compact top-level-only
+summary rendering, and points backlog #224 at the still-open question
+of whether label-only should become real filtering later.
+
+Verified: doc-only changes, nothing in `src/api/server.py` or
+`frontend/app/src` reads `understanding.tier1` or a statement's `kind`
+yet (confirmed by grep before touching the schema literal), so no
+behavior changed. Both docs cross-reference their own backlog's open
+questions rather than resolving them.
+
+## Spec-doc backlog: Personal Operating Model + Need State Inference (2026-07-19)
+
+Continuing the "spec docs" cluster: backlog #217 and #219.
+
+**#217** — new `engine/specs/personal-operating-model-specification-v1.md`.
+Documents the mechanical/LLM-inferred split (Belief + Relationship are
+pure aggregation; Identity/Motivation/Learning Style/Stress/Narrative/
+Theory of Mind are one LLM call), the engine-level grounding
+enforcement that downgrades any field whose evidence gets stripped by
+the word-overlap check, and per-account offline computation. Restated
+plainly, rather than glossing over it, the standing caveat that the
+Motivation/Narrative operationalizations use the standard textbook
+formulations (SDT, Narrative Identity Theory) because the founder's
+original vision documents for these eight systems were never committed
+to this repo — and pointed backlog #272 at the still-open
+uncapped-aggregation question now that POM is per-account.
+
+**#219** — new `engine/specs/need-state-inference-specification-v1.md`.
+This one required surfacing something this project doesn't usually
+leave undocumented: both of Need State Inference's own design forks
+(deterministic classifier vs. a dedicated LLM call; label-only vs.
+actually filtering Retrieval) were decided without founder confirmation
+because `AskUserQuestion` failed twice with a tool-level stream error
+at the time, not because the founder was consulted and picked a side.
+The spec states this plainly as a process note rather than presenting
+the shipped design as settled, and points backlog #225 (already tracked
+for exactly this) at both forks as still genuinely open.
+
+Verified: doc-only changes, no code touched, full test suite
+unaffected.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
