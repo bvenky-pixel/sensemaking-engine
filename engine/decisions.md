@@ -9858,6 +9858,36 @@ for exactly this) at both forks as still genuinely open.
 Verified: doc-only changes, no code touched, full test suite
 unaffected.
 
+## Spec-doc backlog: Insight Engine + Orchestrator (2026-07-19)
+
+Continuing the "spec docs" cluster: backlog #220 and #221.
+
+**#220** — new `engine/specs/insight-engine-specification-v1.md`.
+Documents the one-call/one-schema design and its engine-level grounding
+enforcement, and gives the #273 per-account fix its own clear
+before/after: originally one cross-account aggregate `send_message`
+injected into every conversation regardless of who was asking, now
+scoped per account (closing both the privacy gap and a second,
+non-privacy bug where another account's more-recent activity could
+crowd this account's own sessions out of the evidence window). Also
+documents a consumption surface easy to miss: `list_sessions`'s
+per-session `insight_theme`/`insight_detail`, which deliberately
+deviates from the boolean-only-flag precedent `has_stagnation_signal`
+set by surfacing real Insight text directly on Home's session rows.
+
+**#221** — new `engine/specs/orchestrator-specification-v1.md`,
+distinct from the abstract Orchestrator section already in
+`system-architecture-v2-specification.md` §1. Walks `run_turn`'s actual
+seven-step sequence stage by stage, states plainly which of §1's named
+responsibilities were deliberately NOT built (skip-logic, model-tier
+selection, whole-stage retry — all still just named in the spec, not
+implemented), and documents which cross-cutting parameters
+(`retrieved_context`, `mode`, `pom`, `on_stage_complete`) are threaded
+to only the one stage that actually consumes each, not broadcast to
+all four.
+
+Verified: doc-only changes, full test suite unaffected.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
