@@ -10214,6 +10214,30 @@ Cost: 55 calls, 466,410 tokens, 586s total latency; cost reports
 "unknown (partial -- some calls had no pricing entry)" -- qwen/gemini
 aren't in `pricing.py`'s table (same #294 gap already tracked).
 
+## POM: Motivation/Narrative formulation confirmed by the founder (2026-07-19, backlog #291)
+
+Since POM shipped, `src/pom/schema.py`'s own docstring has flagged an
+open question: the founder's original vision documents describing
+POM's eight systems were never committed to this repo (shared only as
+uploaded context earlier in the project's history), so
+`MotivationSystem`/`NarrativeSystem` use the standard textbook
+formulations of Self-Determination Theory and Narrative Identity Theory
+rather than a confirmed match to the founder's own specific intent.
+
+Asked the founder directly rather than guess or re-derive from memory:
+confirmed the current SDT/Narrative Identity Theory implementation
+matches their original intent for these two systems, no changes needed.
+Updated `src/pom/schema.py`'s module docstring and the two affected
+class docstrings (`MotivationSystem`, `NarrativeSystem`) from "flagged,
+not necessarily the founder's own formulation" to "confirmed by the
+founder" — same treatment as any other resolved open question, not left
+as a stale caveat now that it's settled. Updated
+`engine/specs/personal-operating-model-specification-v1.md` to match:
+its own caveat/Non-goals/Open-Questions sections all previously implied
+this was still open.
+
+Docstring/doc-only change, no behavior touched.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

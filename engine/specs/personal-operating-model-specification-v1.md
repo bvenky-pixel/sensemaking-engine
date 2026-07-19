@@ -13,16 +13,16 @@ already shipped as Layer 2 Learning (`src/learning/engine.py`) —
 `src/pom/` covers the other eight: Belief, Relationship, Identity,
 Motivation, Learning Style, Stress, Narrative, Theory of Mind.
 
-**Explicit, load-bearing caveat**: the founder's original vision
-documents describing these eight systems are not present in this
-repository — they were shared as uploaded context earlier in this
-project's history, never committed. The Motivation and Narrative
-systems below therefore use the STANDARD, textbook formulations of two
-named frameworks (Self-Determination Theory's autonomy/competence/
-relatedness — Deci & Ryan; Narrative Identity Theory's redemption/
-contamination sequences — McAdams), not necessarily the founder's own
-specific operationalization. This is flagged in the schema's own
-docstring and in `engine/decisions.md`, not silently assumed correct.
+**Formulation confirmed by the founder (2026-07-19, backlog #291)**:
+the founder's original vision documents describing these eight systems
+are not present in this repository — they were shared as uploaded
+context earlier in this project's history, never committed. The
+Motivation and Narrative systems below use the STANDARD, textbook
+formulations of two named frameworks (Self-Determination Theory's
+autonomy/competence/relatedness — Deci & Ryan; Narrative Identity
+Theory's redemption/contamination sequences — McAdams). Asked the
+founder directly whether this matches their original intent — confirmed
+yes, no changes needed.
 
 **Scope was a deliberate, overridden default.** This project's own
 default caution recommended building only Belief + Relationship first
@@ -131,9 +131,7 @@ another account's data.
 No live/in-turn computation — POM only ever reflects the last
 `workflow_dispatch` run, not this exact conversation. No numeric/float
 scoring for the LLM-inferred systems (see "coarse, closed scale"
-above). No claim that the Motivation/Narrative operationalizations
-match the founder's original, uncommitted vision documents exactly —
-see the caveat above.
+above).
 
 ## Open questions
 
@@ -148,11 +146,10 @@ see the caveat above.
    cross-account leak), whether uncapped all-history aggregation
    remains the right choice as any single account's history grows is
    still an open question — not resolved by this doc.
-3. **The Motivation/Narrative textbook-vs-founder's-own-formulation
-   gap** (see the caveat above) has never been resolved with the
-   founder directly — this spec documents the current, standard-theory
-   implementation, not a confirmed match to original intent. Tracked
-   as backlog #291.
+3. **Backlog #291 is closed**: the Motivation/Narrative
+   textbook-vs-founder's-own-formulation question was taken directly to
+   the founder — confirmed the current SDT/Narrative Identity Theory
+   implementation matches their intent, no changes needed.
 4. **No dedicated live-dispatch calibration round has been run for the
    six LLM-inferred systems' actual output quality** against real
    conversation data — only unit-level grounding/downgrade logic is
