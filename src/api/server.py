@@ -430,9 +430,15 @@ def send_message(
             Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
             for p in (db.get_learned_patterns(identity.user_id) if identity.user_id else [])
         ]
+        # Insight Engine made per-account (2026-07-19, see engine/decisions.md
+        # "Insight Engine made per-account") -- same rule as patterns just
+        # above: an anonymous sender never sees ANY account's insights,
+        # not even a stale global blend. Previously called with no
+        # argument at all, returning the same cross-account blend to
+        # every caller regardless of who (or whether anyone) was signed in.
         insights = [
             Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
-            for i in db.get_insights()
+            for i in (db.get_insights(identity.user_id) if identity.user_id else [])
         ]
         # Personal Operating Model (see src/pom/engine.py,
         # engine/decisions.md "Personal Operating Model") -- a cheap,
@@ -573,16 +579,26 @@ def get_patterns(user_id: str = Depends(require_user)) -> list[LearnedPatternOut
 
 
 @app.get("/insights", response_model=list[InsightOut])
-def get_insights() -> list[InsightOut]:
+def get_insights(user_id: str = Depends(require_user)) -> list[InsightOut]:
     """The cross-session Insight Engine's output (see src/insight/engine.py,
     engine/decisions.md "Major update"). Read-only -- serves whatever
-    scripts/run_insight_detection.py last computed offline; never
-    computes anything live. Empty until that script has been run at
-    least once, and stays empty below MIN_EVIDENCE_SESSIONS -- both
-    correct, not an error state. Unlike /patterns, this IS consumed by
-    the frontend (Home.svelte session cards), so its theme text is real,
-    already-grounded content, not raw internal cognition."""
-    return db.get_insights()
+    scripts/run_insight_detection.py last computed offline for THIS
+    account; never computes anything live. Empty until that script has
+    been run at least once for this account, and stays empty below
+    MIN_EVIDENCE_SESSIONS -- both correct, not an error state.
+
+    Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account") -- now requires login, same as
+    /patterns and /personal-operating-model, since `insights` is no
+    longer a global, unattributable model an anonymous caller (or any
+    other account) could safely see. Previously unauthenticated and
+    unscoped: every caller received the same server-wide blend of every
+    account's own semantically-clustered themes. Nothing in the
+    frontend actually calls this endpoint directly today -- Home's own
+    per-session theme text (`insight_theme`/`insight_detail` on
+    `SessionSummary`) comes from `list_sessions`'s own join instead,
+    unaffected by this endpoint's gating."""
+    return db.get_insights(user_id)
 
 
 @app.get("/personal-operating-model", response_model=Optional[PersonalOperatingModel])

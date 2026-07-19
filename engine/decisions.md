@@ -9386,3 +9386,105 @@ Verified: both YAML files checked for syntax with
 `python3 -c "import yaml; yaml.safe_load(open(...))"`; full `pytest`
 suite unaffected (pure workflow-file + docs change, no Python source
 touched).
+
+## Insight Engine made per-account (2026-07-19)
+
+Prompted by "is there anything else in insight engine that needs
+sharpening" -- checking the code directly turned up something more
+serious than the earlier Learning/POM findings this same investigative
+pass surfaced: Insight Engine never actually received the per-account
+fix #257's own title claimed ("Privacy: make Learning/Insight/
+privacy_settings data per-account"). That round only shipped Learning's
+half (see "Learning made per-account" above); Insight Engine was left
+exactly as global and unowned as before, and **#257 was marked
+completed anyway** -- corrected now, see below.
+
+Confirmed by direct inspection, not assumption: `insights`/
+`insight_sessions` had no `user_id` column at all;
+`get_session_texts_for_insights()` read the most-recently-updated
+sessions across every account on the server with no `WHERE user_id`
+filter; `replace_insights()` did a single global truncate-and-replace;
+`GET /insights` had no login requirement whatsoever (unlike `/patterns`
+and `/personal-operating-model`, both already gated); and
+`send_message` called `db.get_insights()` with no `user_id` argument at
+all, injecting the resulting cross-account blend into every live
+conversation's Retrieved Context regardless of who -- or whether
+anyone -- was signed in. This hadn't manifested in production only
+because nothing had ever populated `insights` there yet (no working
+computation path existed until now, see "Learning + POM computation
+workflows fixed to reach real production data" -- Insight Engine's own
+version of that gap is worse still: not just unreachable, but unscoped
+underneath). The moment `scripts/run_insight_detection.py` runs for
+real, this would have started leaking one account's semantically-
+clustered personal themes into other accounts' live conversations, and
+to anonymous visitors.
+
+Fixed with the identical pattern already established for
+`learned_patterns`/`personal_operating_model`:
+
+- **Schema**: `insights` gains `user_id TEXT NOT NULL, FOREIGN KEY
+  (user_id) REFERENCES users(id)`. Non-additive migration in `init_db`
+  (PRAGMA table_info detection, same as learned_patterns') -- old rows
+  dropped rather than guessing an owner, same "no way to attribute
+  data that fundamentally has none" reasoning as POM's and Learning's
+  own migrations. `insight_sessions` has no owner column of its own
+  (never needs one -- it's always looked up via `insights.id`) but is
+  dropped and recreated alongside `insights` in the same migration,
+  since its rows would otherwise point at ids that no longer mean
+  anything once `insights` regenerates its autoincrement sequence.
+- **`get_session_texts_for_insights(user_id)`**: now scoped to this
+  account's own sessions. This incidentally fixes a second, real bug
+  beyond privacy: the old unscoped query's `MAX_SESSIONS_FOR_INSIGHT`
+  cap was global, so on a server with several active accounts, another
+  account's more-recent activity could crowd this account's own
+  sessions out of the window entirely -- an account with real history
+  could see zero of its own sessions considered. The cap is now a
+  genuine per-account recency cap, as it was always meant to be.
+- **`replace_insights(user_id, insights)`**: truncate-and-replace THIS
+  account's own share only.
+- **`get_insights(user_id)`**: returns this account's own insights
+  only.
+- **`GET /insights`**: now requires login (`Depends(require_user)`),
+  same as `/patterns`/`/personal-operating-model`. Confirmed nothing in
+  the frontend actually calls this endpoint directly today -- Home's
+  own per-session theme text comes from `list_sessions`'s own
+  `insight_sessions` join instead, which was already correctly scoped
+  by construction (a session only ever joins to an insight computed
+  from that same account's own sessions) and needed no change.
+- **`send_message`**: `db.get_insights(identity.user_id) if
+  identity.user_id else []`, same "anonymous caller sees nothing"
+  rule patterns/POM already follow.
+- **`scripts/run_insight_detection.py`**: rewritten to loop
+  `db.get_all_user_ids_with_sessions()` and compute one account at a
+  time, mirroring `run_learning.py`/`run_pom_computation.py` exactly.
+- **`export_all_data`/`reset_all_data`**: `insights` now selected/
+  deleted directly by `user_id`, same as `learned_patterns`. Previously
+  `export_all_data` read `insights` indirectly via this account's own
+  `insight_sessions` evidence links (the only way to get anything
+  account-shaped out of a genuinely ownerless table) and
+  `reset_all_data` deliberately left `insights` untouched entirely --
+  both reasoned through explicitly in those functions' own docstrings
+  at the time, not an oversight. Now that `insights` has a real owner,
+  both simplify to a direct `WHERE user_id = ?` / `DELETE ... WHERE
+  user_id = ?`, and the now-unused `_rows_for_ids` helper was removed.
+
+**Correcting #257's status**: #257 is being changed from "completed"
+back to reflect what actually shipped -- Learning's per-account fix
+(2026-07-18) and now Insight Engine's (2026-07-19, this entry).
+`privacy_settings` remains the one genuinely global, cross-visitor
+model left (a single opt-in/opt-out toggle for the entire app, no
+per-account preference) -- already flagged as a known, deliberate
+carve-out when #257 was first scoped, not a new finding. Split out as
+its own tracked item rather than left implicitly bundled under a title
+that no longer accurately describes what's done vs. outstanding.
+
+Verified: added `test_insights_endpoint_requires_login`,
+`test_insights_endpoint_never_returns_another_accounts_insights`,
+`test_privacy_export_and_reset_scope_insights_to_one_account` (direct
+two-account regression test, mirroring Learning's own). Updated the two
+existing retrieval-threading tests that called `db.replace_insights`
+with the old, ownerless signature. Manually verified the migration
+against a simulated old-shape database (dropped `insight_sessions`
+before `insights` deregistered, per-account round-trip through
+`replace_insights`/`get_insights` worked correctly afterward). Full
+suite: `pytest` 487 passed (484 + 3 new).

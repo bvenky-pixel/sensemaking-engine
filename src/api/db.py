@@ -116,12 +116,18 @@ a real correctness bug, not a cosmetic gap, once real accounts existed
 to be confused with each other. `personal_operating_model` now has a
 `user_id` primary key (see this table's own creation SQL below and its
 migration in `init_db`) and every accessor takes a `user_id`.
-`privacy_settings` and `learned_patterns`/`insights` remain the
-single, global, cross-visitor models they already were (the
-`behavioral_events` docstring's own "stated single-user
-simplification") -- making Learning/Insight Engine's own output
-genuinely per-account, and giving each person their own privacy
-toggle, are real, separate projects, still out of scope.
+`privacy_settings` and `learned_patterns`/`insights` remained the
+single, global, cross-visitor models they already were at the time --
+the `behavioral_events` docstring's own "stated single-user
+simplification." **`learned_patterns` was corrected 2026-07-18** (see
+engine/decisions.md "Learning made per-account") and **`insights` was
+corrected 2026-07-19** (see engine/decisions.md "Insight Engine made
+per-account") -- both now have a real `user_id` and every accessor
+takes one, closing the gap #257 first opened and then only partly
+closed (its own title named all three; only Learning actually shipped
+that round). `privacy_settings` remains the one genuinely global,
+cross-visitor model left -- giving each person their own privacy
+toggle is still a real, separate, out-of-scope project.
 
 - `users`: one row per account. `email` is the only real field --
   magic-link auth never needs a password hash to store.
@@ -220,9 +226,11 @@ CREATE TABLE IF NOT EXISTS learned_patterns (
 
 CREATE TABLE IF NOT EXISTS insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
     theme TEXT NOT NULL,
     detail TEXT NOT NULL,
-    computed_at TEXT NOT NULL
+    computed_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS insight_sessions (
@@ -410,6 +418,39 @@ def init_db(db_path: Optional[Path] = None) -> None:
                 "pattern_type TEXT NOT NULL, detail TEXT NOT NULL, "
                 "evidence_count INTEGER NOT NULL, computed_at TEXT NOT NULL, "
                 "FOREIGN KEY (user_id) REFERENCES users(id))"
+            )
+        # Insight Engine made per-account (2026-07-19, see engine/decisions.md
+        # "Insight Engine made per-account") -- same non-additive-migration
+        # reasoning as learned_patterns just above, closing the gap #257
+        # left open (that round only actually fixed learned_patterns despite
+        # its own title naming Insight too). `insights` was a genuine global
+        # aggregate with no owner column, read across every account's
+        # sessions and injected unscoped into every live conversation's
+        # Retrieved Context -- a real cross-account leak once real,
+        # semantically-clustered personal content existed to leak. Its own
+        # child table `insight_sessions` carries no owner column of its own
+        # (it never needs one -- see get_insights' join) but its rows key
+        # off `insights.id`, which is about to be regenerated with fresh
+        # autoincrement values, so it must be dropped and recreated
+        # alongside `insights` rather than left pointing at ids that no
+        # longer mean anything.
+        insights_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(insights)").fetchall()
+        }
+        if insights_columns and "user_id" not in insights_columns:
+            conn.execute("DROP TABLE IF EXISTS insight_sessions")
+            conn.execute("DROP TABLE insights")
+            conn.execute(
+                "CREATE TABLE insights ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, "
+                "theme TEXT NOT NULL, detail TEXT NOT NULL, computed_at TEXT NOT NULL, "
+                "FOREIGN KEY (user_id) REFERENCES users(id))"
+            )
+            conn.execute(
+                "CREATE TABLE insight_sessions ("
+                "insight_id INTEGER NOT NULL, session_id TEXT NOT NULL, "
+                "FOREIGN KEY (insight_id) REFERENCES insights(id), "
+                "FOREIGN KEY (session_id) REFERENCES sessions(id))"
             )
 
 
@@ -966,19 +1007,29 @@ def get_learned_patterns(user_id: str) -> List[LearnedPatternOut]:
     return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]
 
 
-def get_session_texts_for_insights() -> List[Tuple[str, str, str]]:
-    """Read-only, used only by scripts/run_insight_detection.py. Same
+def get_session_texts_for_insights(user_id: str) -> List[Tuple[str, str, str]]:
+    """Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account") -- reads THIS account's own
+    sessions only. Before this, the unscoped query read the most-
+    recently-updated sessions across every account on the server, which
+    also meant a real bug beyond the privacy one: on a server with
+    several active accounts, another account's more-recent activity
+    could crowd this account's own sessions out of the
+    MAX_SESSIONS_FOR_INSIGHT window entirely, occasionally leaving an
+    account with real history seeing zero of its own sessions
+    considered. Scoping to `user_id` first fixes both at once -- same
     guard as src/api/server.py's get_clarity_brief endpoint -- only
     sessions whose debug_json actually has a completed `judgment` (a
     session with no completed turn has nothing to extract a
     surface_complaint/primary_problem pair from). Capped at
-    MAX_SESSIONS_FOR_INSIGHT most-recently-updated sessions, same cost/
-    latency reasoning as src/insight/schema.py's docstring."""
+    MAX_SESSIONS_FOR_INSIGHT most-recently-updated sessions -- now a
+    genuine per-account recency cap, same cost/latency reasoning as
+    src/insight/schema.py's docstring."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT id, world_state_json, debug_json FROM sessions "
-            "ORDER BY updated_at DESC LIMIT ?",
-            (MAX_SESSIONS_FOR_INSIGHT,),
+            "WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+            (user_id, MAX_SESSIONS_FOR_INSIGHT),
         ).fetchall()
     texts: List[Tuple[str, str, str]] = []
     for session_id, world_state_json, debug_json in rows:
@@ -993,19 +1044,24 @@ def get_session_texts_for_insights() -> List[Tuple[str, str, str]]:
     return texts
 
 
-def replace_insights(insights: List[Insight]) -> None:
-    """Truncate-and-replace both tables, not append -- see module
-    docstring's reasoning (mirrors replace_learned_patterns' precedent).
-    Called only by scripts/run_insight_detection.py, never from a live
-    request."""
+def replace_insights(user_id: str, insights: List[Insight]) -> None:
+    """Insight Engine made per-account (2026-07-19) -- truncate-and-
+    replace THIS account's own share only (mirrors
+    replace_learned_patterns' precedent), not a global truncate.
+    Called only by scripts/run_insight_detection.py, once per account,
+    never from a live request."""
     now = _now()
     with _connect() as conn:
-        conn.execute("DELETE FROM insight_sessions")
-        conn.execute("DELETE FROM insights")
+        conn.execute(
+            "DELETE FROM insight_sessions WHERE insight_id IN "
+            "(SELECT id FROM insights WHERE user_id = ?)",
+            (user_id,),
+        )
+        conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
         for insight in insights:
             cursor = conn.execute(
-                "INSERT INTO insights (theme, detail, computed_at) VALUES (?, ?, ?)",
-                (insight.theme, insight.detail, now),
+                "INSERT INTO insights (user_id, theme, detail, computed_at) VALUES (?, ?, ?, ?)",
+                (user_id, insight.theme, insight.detail, now),
             )
             insight_id = cursor.lastrowid
             conn.executemany(
@@ -1014,14 +1070,24 @@ def replace_insights(insights: List[Insight]) -> None:
             )
 
 
-def get_insights() -> List[InsightOut]:
+def get_insights(user_id: str) -> List[InsightOut]:
+    """Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account") -- returns THIS account's own
+    insights only; never another account's, same "POM made per-user"/
+    "Learning made per-account" precedent."""
     with _connect() as conn:
         insight_rows = conn.execute(
-            "SELECT id, theme, detail FROM insights ORDER BY id ASC"
+            "SELECT id, theme, detail FROM insights WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
         ).fetchall()
-        evidence_rows = conn.execute(
-            "SELECT insight_id, session_id FROM insight_sessions"
-        ).fetchall()
+        insight_ids = [row[0] for row in insight_rows]
+        evidence_rows = []
+        if insight_ids:
+            placeholders = ",".join("?" * len(insight_ids))
+            evidence_rows = conn.execute(
+                f"SELECT insight_id, session_id FROM insight_sessions WHERE insight_id IN ({placeholders})",
+                insight_ids,
+            ).fetchall()
     evidence_by_insight: dict = {}
     for insight_id, session_id in evidence_rows:
         evidence_by_insight.setdefault(insight_id, []).append(session_id)
@@ -1183,15 +1249,19 @@ def export_all_data(user_id: str) -> dict:
     plus every child row that references one of those sessions
     (messages/behavioral_events/insight_sessions -- same "keyed on
     session_id" pattern delete_session already uses, just for many
-    sessions at once via `_rows_for_session_ids`). `insights` are
-    included only when included via THIS account's own
-    insight_sessions rows -- an Insight is a genuine cross-account
-    theme that may also be evidenced by someone else's Journey, so the
-    row itself isn't "this account's data" the way a session is, but a
-    theme actually showing up in their own history is.
+    sessions at once via `_rows_for_session_ids`).
+
+    `insights` (2026-07-19, see engine/decisions.md "Insight Engine made
+    per-account") is now scoped directly by THIS account's own
+    `user_id`, same as `learned_patterns` below -- previously selected
+    indirectly via `insight_sessions` under the reasoning that "an
+    Insight is a genuine cross-account theme that may also be evidenced
+    by someone else's Journey," which was true only because `insights`
+    had no owner column at all; now that it does, an Insight is exactly
+    as much "this account's own data" as a session is.
 
     `learned_patterns` (2026-07-18, see engine/decisions.md "Learning
-    made per-account") is now included too, scoped to THIS account's
+    made per-account") is included too, scoped to THIS account's
     own `user_id` -- previously excluded entirely because the table had
     no per-account attribution at all; now that it does, the same
     "include what's genuinely this account's own" rule POM's row
@@ -1208,8 +1278,9 @@ def export_all_data(user_id: str) -> dict:
         messages = _rows_for_session_ids(conn, "messages", session_ids)
         behavioral_events = _rows_for_session_ids(conn, "behavioral_events", session_ids)
         insight_sessions = _rows_for_session_ids(conn, "insight_sessions", session_ids)
-        insight_ids = sorted({row["insight_id"] for row in insight_sessions})
-        insights = _rows_for_ids(conn, "insights", insight_ids)
+        insights = [dict(row) for row in conn.execute(
+            "SELECT * FROM insights WHERE user_id = ?", (user_id,)
+        )]
         learned_patterns = [dict(row) for row in conn.execute(
             "SELECT * FROM learned_patterns WHERE user_id = ?", (user_id,)
         )]
@@ -1240,18 +1311,6 @@ def export_all_data(user_id: str) -> dict:
     }
 
 
-def _rows_for_ids(conn: sqlite3.Connection, table: str, ids: List[int]) -> List[dict]:
-    """Same short-circuit-on-empty reasoning as `_rows_for_session_ids`
-    above, keyed on `id` instead of `session_id` -- used for pulling
-    `insights` rows by the ids collected from this account's own
-    `insight_sessions` rows."""
-    if not ids:
-        return []
-    placeholders = ",".join("?" * len(ids))
-    conn.row_factory = sqlite3.Row
-    return [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE id IN ({placeholders})", ids)]
-
-
 def reset_all_data(user_id: str) -> None:
     """"Forget everything" for THIS ACCOUNT -- irreversible, same as
     delete_session's own lack of an undo path, just wider.
@@ -1264,21 +1323,25 @@ def reset_all_data(user_id: str) -> None:
 
     Deletes this account's own sessions, messages, behavioral events,
     this account's own insight_sessions evidence links, this account's
-    own learned_patterns rows, and this account's own Personal
-    Operating Model row. Deliberately does NOT touch `insights` -- a
-    genuine cross-account model (an Insight may still be evidenced by
-    someone else's Journey even after this account's own evidence link
-    is removed) -- or `privacy_settings`, same as before: a person
-    clearing their journal data is not also asking to have their own
-    stated cross-session-learning preference silently reset back to the
-    default.
+    own learned_patterns rows, this account's own Personal Operating
+    Model row, and (2026-07-19, see engine/decisions.md "Insight Engine
+    made per-account") this account's own `insights` rows -- previously
+    left untouched under the reasoning that "an Insight may still be
+    evidenced by someone else's Journey even after this account's own
+    evidence link is removed," which was true only because `insights`
+    had no owner column to delete by; now that it does, "forget
+    everything" can and should actually forget it, same as
+    `learned_patterns` below. `privacy_settings` stays untouched, same
+    as before: a person clearing their journal data is not also asking
+    to have their own stated cross-session-learning preference silently
+    reset back to the default.
 
     `learned_patterns` (2026-07-18, see engine/decisions.md "Learning
-    made per-account") IS now deleted here, unlike before -- previously
-    excluded for the same reason `insights` still is (no way to
-    attribute one account's share of a shared aggregate), but now that
-    `learned_patterns` has real per-account ownership, "forget
-    everything" can and should actually forget it."""
+    made per-account") IS deleted here too -- previously excluded for
+    the same reason `insights` used to be (no way to attribute one
+    account's share of a shared aggregate), but now that both tables
+    have real per-account ownership, "forget everything" actually
+    forgets them."""
     with _connect() as conn:
         session_ids = [
             row[0] for row in conn.execute("SELECT id FROM sessions WHERE user_id = ?", (user_id,)).fetchall()
@@ -1290,4 +1353,5 @@ def reset_all_data(user_id: str) -> None:
             conn.execute(f"DELETE FROM insight_sessions WHERE session_id IN ({placeholders})", session_ids)
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))

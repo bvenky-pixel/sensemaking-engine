@@ -310,11 +310,10 @@ def test_send_message_threads_retrieved_context_into_judgment_prompt(client, mon
     on the next live turn -- not just be readable via GET /learned-patterns
     and GET /insights.
 
-    Learning made per-account (2026-07-18, see engine/decisions.md
-    "Learning made per-account"): this now requires a signed-in caller
-    for the patterns half, since an anonymous caller has no account to
-    own stored patterns (insights remain a global, cross-account model,
-    unaffected)."""
+    Learning made per-account (2026-07-18) and Insight Engine made
+    per-account (2026-07-19, see engine/decisions.md for both) -- this
+    now requires a signed-in caller for both halves, since neither
+    patterns nor insights are readable by an anonymous caller anymore."""
     seen = {}
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
@@ -334,7 +333,7 @@ def test_send_message_threads_retrieved_context_into_judgment_prompt(client, mon
     db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
-    db.replace_insights([
+    db.replace_insights(user_id, [
         Insight(theme="Career anxiety", detail="Recurring worry about job security", evidence_session_ids=[])
     ])
     session_id = client.post("/sessions").json()["id"]
@@ -1208,6 +1207,32 @@ def test_patterns_endpoint_never_returns_another_accounts_patterns(client):
     assert client.get("/patterns").json() == []
 
 
+def test_insights_endpoint_requires_login(client):
+    """Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account"): /insights now requires a
+    signed-in caller, same as /patterns and /personal-operating-model --
+    insights is no longer a global model an anonymous caller could
+    safely see."""
+    res = client.get("/insights")
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
+def test_insights_endpoint_never_returns_another_accounts_insights(client):
+    """Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account"): the direct regression test for
+    the bug this round fixed -- a brand-new signed-in account must not
+    inherit whatever themes were computed from a different account's
+    own sessions."""
+    other_user_id = db.get_or_create_user("someone-else-insights@example.com")
+    db.replace_insights(
+        other_user_id, [Insight(theme="Someone else's theme", detail="Not yours.", evidence_session_ids=[])]
+    )
+
+    _login(client, email="fresh-account-insights@example.com")
+    assert client.get("/insights").json() == []
+
+
 def test_clarity_brief_returns_404_before_any_completed_turn(client):
     session_id = client.post("/sessions").json()["id"]
     res = client.get(f"/sessions/{session_id}/clarity-brief")
@@ -1489,7 +1514,7 @@ def test_send_message_omits_retrieved_context_when_cross_session_learning_disabl
     db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
-    db.replace_insights([
+    db.replace_insights(user_id, [
         Insight(theme="Career anxiety", detail="Recurring worry about job security", evidence_session_ids=[])
     ])
     db.set_cross_session_learning_enabled(False)
@@ -1607,6 +1632,32 @@ def test_privacy_export_and_reset_scope_learned_patterns_to_one_account(client):
     assert client.post("/privacy/reset").status_code == 204
     assert db.get_learned_patterns(user_id) == []
     assert [p.detail for p in db.get_learned_patterns(other_user_id)] == ["Someone else's pattern."]
+
+
+def test_privacy_export_and_reset_scope_insights_to_one_account(client):
+    """Insight Engine made per-account (2026-07-19, see engine/decisions.md
+    "Insight Engine made per-account") -- direct regression test that
+    export includes only this account's own insights, and reset deletes
+    only this account's own rows, leaving another account's insights
+    untouched by either. Mirrors
+    test_privacy_export_and_reset_scope_learned_patterns_to_one_account."""
+    other_user_id = db.get_or_create_user("other-insights-account@example.com")
+    db.replace_insights(
+        other_user_id, [Insight(theme="Someone else's theme", detail="Someone else's insight.", evidence_session_ids=[])]
+    )
+
+    email = _login(client, email="own-insights-account@example.com")
+    user_id = db.get_or_create_user(email)
+    db.replace_insights(
+        user_id, [Insight(theme="My own theme", detail="My own insight.", evidence_session_ids=[])]
+    )
+
+    payload = client.get("/privacy/export").json()
+    assert [i["detail"] for i in payload["insights"]] == ["My own insight."]
+
+    assert client.post("/privacy/reset").status_code == 204
+    assert db.get_insights(user_id) == []
+    assert [i.detail for i in db.get_insights(other_user_id)] == ["Someone else's insight."]
 
 
 def test_privacy_reset_never_deletes_another_accounts_sessions(client, monkeypatch):

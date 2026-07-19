@@ -2,11 +2,22 @@
 Insight Engine -- offline cross-session theme detection (see
 src/insight/engine.py, engine/decisions.md "Major update").
 
-Reads every session with a completed Judgment (src/api/db.py's
-`get_session_texts_for_insights`, capped at MAX_SESSIONS_FOR_INSIGHT
-most-recently-updated), calls run_insight_detection for real semantic
-clustering, and replaces `insights`/`insight_sessions` wholesale
-(truncate-and-replace, not append -- see db.py module docstring).
+Insight Engine made per-account (2026-07-19, see engine/decisions.md
+"Insight Engine made per-account"): reads each account's own sessions
+with a completed Judgment (src/api/db.py's
+`get_session_texts_for_insights(user_id)`, capped at
+MAX_SESSIONS_FOR_INSIGHT most-recently-updated per account), one
+account at a time, calls run_insight_detection for real semantic
+clustering over THAT account's own history, and replaces THAT
+account's own share of `insights`/`insight_sessions`
+(truncate-and-replace per account, not a global truncate -- see db.py's
+own docstring). Same per-account discipline
+scripts/run_learning.py/run_pom_computation.py already established --
+every user-facing surface in this app is scoped to one account's own
+data; this offline job mirrors that rather than computing one
+cross-account aggregate (which is what it did before this round, and
+which `send_message` then injected, unscoped, into every live
+conversation regardless of who was asking).
 
 Run manually, or via a GitHub Actions workflow_dispatch. Never called
 from src/api/server.py or any other live request path -- same
@@ -48,22 +59,30 @@ def main() -> None:
         print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
         return
 
-    session_texts = db.get_session_texts_for_insights()
-    print(f"Read {len(session_texts)} session(s) with a completed Judgment.")
-
-    insights = run_insight_detection(session_texts)
-    db.replace_insights(insights)
-
-    if not insights:
-        print(
-            f"No themes met the evidence floor (min_evidence_sessions={MIN_EVIDENCE_SESSIONS}). "
-            "insights is now empty -- correct behavior when evidence is thin, not an error."
-        )
+    user_ids = db.get_all_user_ids_with_sessions()
+    if not user_ids:
+        print("No accounts with any sessions yet -- nothing to compute.")
         return
+    print(f"Detecting insights for {len(user_ids)} account(s).")
 
-    print(f"\nDetected {len(insights)} theme(s):")
-    for i in insights:
-        print(f"- [{i.theme}] {i.detail} (evidence_session_ids={i.evidence_session_ids})")
+    for user_id in user_ids:
+        session_texts = db.get_session_texts_for_insights(user_id)
+        print(f"\n=== {user_id} ===")
+        print(f"Read {len(session_texts)} session(s) with a completed Judgment.")
+
+        insights = run_insight_detection(session_texts)
+        db.replace_insights(user_id, insights)
+
+        if not insights:
+            print(
+                f"No themes met the evidence floor (min_evidence_sessions={MIN_EVIDENCE_SESSIONS}). "
+                "This account's insights are now empty -- correct behavior when evidence is thin, not an error."
+            )
+            continue
+
+        print(f"Detected {len(insights)} theme(s):")
+        for i in insights:
+            print(f"- [{i.theme}] {i.detail} (evidence_session_ids={i.evidence_session_ids})")
 
 
 if __name__ == "__main__":
