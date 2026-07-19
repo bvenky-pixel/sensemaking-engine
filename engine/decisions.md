@@ -9653,3 +9653,70 @@ actually running it against `confidantsense` is a production-touching
 action that gets its own explicit go-ahead, same standing discipline
 as `deploy.yml` and the other `flyctl ssh console` workflows built
 this segment.
+
+## privacy_settings made per-account (2026-07-19)
+
+Backlog #274, the last item of the original #257 carve-out
+(`privacy_settings`/`learned_patterns`/`insights`) -- Learning and
+Insight Engine were both closed earlier this segment; this closes the
+third and last global model. Lower severity than the other two (no
+personal content leaked -- it's a single opt-in/opt-out toggle, not
+inferred content about anyone), but still a real correctness bug: every
+signed-in account shared the exact same row, so one person disabling
+cross-session learning silently disabled it for every other account
+too, and re-enabling it would have done the same in reverse.
+
+Same non-additive migration pattern as `learned_patterns`/`insights`/
+`personal_operating_model`: `privacy_settings` goes from a true
+singleton (`id INTEGER PRIMARY KEY CHECK (id = 1)`) to `user_id TEXT
+PRIMARY KEY`. The one existing global row (if any) is dropped rather
+than guessed an owner -- same "no way to attribute data that
+fundamentally has none" reasoning as always. Unlike the other three
+migrations, this one does NOT eagerly recreate a row for anyone:
+`init_db`'s old `INSERT OR IGNORE INTO privacy_settings (id, ...)
+VALUES (1, 1)` guaranteed a row existed for the singleton from the
+first startup; the new per-account shape has no equivalent "create a
+row for every account" step, since accounts are created continuously,
+not just at startup. Instead `get_cross_session_learning_enabled(user_id)`
+defaults to `True` (same opt-out-not-opt-in default) when no row
+exists yet, and `set_cross_session_learning_enabled(user_id, enabled)`
+upserts on first write -- the same "no row until first read/written"
+pattern `get_personal_operating_model`/`replace_personal_operating_model`
+already established, just with a real default value instead of `None`
+(a preference always has a sensible default; a computed profile
+doesn't).
+
+**`send_message`'s retrieval gate simplified, not just re-scoped**:
+previously `if db.get_cross_session_learning_enabled(): ...` wrapped
+patterns/insights/pom, each of which then separately checked
+`identity.user_id else []`/`None` inside. Collapsed into one
+`if identity.user_id and db.get_cross_session_learning_enabled(identity.user_id):`
+-- an anonymous caller has no account to own either a standing profile
+or a stated preference, so the two conditions were always logically
+entangled; making that explicit removed three redundant inline
+ternaries.
+
+**The three offline scripts' opt-out check moved inside their
+per-account loops** (`run_learning.py`/`run_pom_computation.py`/
+`run_insight_detection.py`): previously one global check before the
+loop meant ANY account's opt-out (or rather, the one shared global
+flag) would skip computation for EVERY account. Now each account's own
+preference is checked at the top of that account's own iteration,
+`continue`-ing past just that one account rather than `return`-ing out
+of the whole script.
+
+`export_all_data` now includes this account's own `privacy_settings`
+row (previously not included at all, since the table wasn't
+attributable to any one account); `reset_all_data` continues to
+deliberately leave it untouched, now correctly reasoned as "this
+account's own stated preference," not a shared global one every
+account had equal, unwanted influence over.
+
+Verified: new `test_privacy_settings_are_independent_per_account`
+(direct two-account regression test -- one account's opt-out no longer
+bleeds into another's). Updated `test_send_message_omits_retrieved_context_when_cross_session_learning_disabled`
+and `test_privacy_reset_deletes_sessions_but_keeps_settings` for the
+new per-account signatures. Manually verified the migration against a
+simulated old-shape database (old global row dropped, new account
+defaults to enabled, one account's opt-out doesn't affect another's).
+Full suite: `pytest` 498 passed (497 + 1 new).

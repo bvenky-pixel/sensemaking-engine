@@ -63,21 +63,30 @@ src/insight/engine.py, engine/decisions.md "Major update"):
   already keys on `session_id` directly rather than as a JSON blob.
 
 One more table, added for Privacy, made real (see frontend/decisions.md):
-- `privacy_settings`: a true singleton ("id INTEGER PRIMARY KEY CHECK
-  (id = 1)" -- `personal_operating_model` used to share this exact
-  shape before "POM made per-user" below gave it a real `user_id` key;
-  `privacy_settings` itself stays a genuine singleton, unlike POM.
-  `init_db` guarantees a row exists from the very first startup --
-  unlike POM, there's no "not computed yet" state this can correctly be
-  in).
-  Currently one column, `cross_session_learning_enabled`: when false,
-  `send_message` stops reading `learned_patterns`/`insights`/
-  `personal_operating_model` into a live turn's Retrieved Context, and
-  `scripts/run_learning.py`/`run_insight_detection.py`/
-  `run_pom_computation.py` each no-op rather than writing new rows --
-  the same opt-out honored at both the read path (what a live
-  conversation sees) and the write path (what gets computed about this
-  person in the first place).
+- `privacy_settings`: originally a true singleton ("id INTEGER PRIMARY
+  KEY CHECK (id = 1)" -- `personal_operating_model` used to share this
+  exact shape before "POM made per-user" below gave it a real `user_id`
+  key). **Made per-account 2026-07-19** (see engine/decisions.md
+  "privacy_settings made per-account") -- `user_id TEXT PRIMARY KEY`,
+  same shape POM's own table now has; no eager row-per-account insert
+  the way the old singleton's `INSERT OR IGNORE` guaranteed one row
+  from startup -- `get_cross_session_learning_enabled(user_id)`
+  defaults to `True` (opt-out, not opt-in, same default the old
+  singleton shipped with) when no row exists yet for that account, and
+  `set_cross_session_learning_enabled` upserts on first write, same
+  "no row until first computed/set" pattern
+  `replace_personal_operating_model` already established.
+  Currently one column, `cross_session_learning_enabled`: when false
+  for THIS account, `send_message` stops reading that account's own
+  `learned_patterns`/`insights`/`personal_operating_model` into a live
+  turn's Retrieved Context, and `scripts/run_learning.py`/
+  `run_insight_detection.py`/`run_pom_computation.py` each skip THAT
+  account (continuing on to the next, not exiting outright) rather than
+  writing new rows for it -- the same opt-out honored at both the read
+  path (what a live conversation sees) and the write path (what gets
+  computed about this person in the first place), now genuinely
+  per-account on both sides rather than one global switch every
+  account shared.
 
 Three more tables, added for basic auth (2026-07-18, see
 frontend/decisions.md "Auth, the low-friction way" and engine/decisions.md):
@@ -247,8 +256,9 @@ CREATE TABLE IF NOT EXISTS personal_operating_model (
 );
 
 CREATE TABLE IF NOT EXISTS privacy_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1
+    user_id TEXT PRIMARY KEY,
+    cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -354,16 +364,34 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute("ALTER TABLE magic_links ADD COLUMN return_session_id TEXT")
         except sqlite3.OperationalError:
             pass
-        # privacy_settings is a real singleton (unlike
-        # personal_operating_model, which correctly has no row until
-        # first computed) -- get_cross_session_learning_enabled must
-        # always have a definite answer, defaulting to enabled (opt-out,
-        # not opt-in, matching every other feature in this codebase that
-        # shipped enabled by default). INSERT OR IGNORE is a no-op on
-        # every startup after the first.
-        conn.execute(
-            "INSERT OR IGNORE INTO privacy_settings (id, cross_session_learning_enabled) VALUES (1, 1)"
-        )
+        # privacy_settings made per-account (2026-07-19, see
+        # engine/decisions.md "privacy_settings made per-account") --
+        # same non-additive-migration reasoning as learned_patterns/
+        # insights above: the OLD shape ("id INTEGER PRIMARY KEY CHECK
+        # (id = 1)", one shared row for every account) cannot be
+        # expressed by the new shape's "CREATE TABLE IF NOT EXISTS
+        # privacy_settings" ("user_id TEXT PRIMARY KEY"), so a database
+        # created before this round keeps the old table forever unless
+        # migrated here. The one existing row (if any) is a preference
+        # that was never actually attributable to any specific
+        # account -- same "drop rather than guess an owner" conclusion
+        # POM's/Learning's/Insight's own migrations already reached.
+        # No eager row-per-account insert replaces it --
+        # get_cross_session_learning_enabled(user_id) below defaults to
+        # True (same opt-out, not opt-in, default the old singleton
+        # shipped with) when no row exists yet for that account, same
+        # "no row until first read/written" pattern
+        # get_personal_operating_model already established.
+        old_shape_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(privacy_settings)").fetchall()
+        }
+        if "id" in old_shape_columns:
+            conn.execute("DROP TABLE privacy_settings")
+            conn.execute(
+                "CREATE TABLE privacy_settings ("
+                "user_id TEXT PRIMARY KEY, cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1, "
+                "FOREIGN KEY (user_id) REFERENCES users(id))"
+            )
         # POM made per-user (2026-07-18, basic auth follow-up, see
         # engine/decisions.md "POM made per-user") -- `personal_operating_model`
         # was a genuine "id INTEGER PRIMARY KEY CHECK (id = 1)" global
@@ -1197,23 +1225,33 @@ def get_personal_operating_model(user_id: str) -> Optional[PersonalOperatingMode
 # used") with nothing behind it.
 
 
-def get_cross_session_learning_enabled() -> bool:
-    """Defaults to True (see init_db's own INSERT OR IGNORE) -- a
-    brand-new database always has a row, so this never needs a
-    None-means-default fallback the way get_personal_operating_model
-    does."""
+def get_cross_session_learning_enabled(user_id: str) -> bool:
+    """privacy_settings made per-account (2026-07-19, see
+    engine/decisions.md "privacy_settings made per-account") -- returns
+    THIS account's own preference; never another account's. Defaults to
+    True (opt-out, not opt-in) when no row exists yet for this account
+    -- same None-means-default pattern get_personal_operating_model
+    already established, just with a real default value instead of
+    None (a preference always has a sensible default; a computed
+    profile doesn't)."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT cross_session_learning_enabled FROM privacy_settings WHERE id = 1"
+            "SELECT cross_session_learning_enabled FROM privacy_settings WHERE user_id = ?",
+            (user_id,),
         ).fetchone()
     return bool(row[0]) if row else True
 
 
-def set_cross_session_learning_enabled(enabled: bool) -> None:
+def set_cross_session_learning_enabled(user_id: str, enabled: bool) -> None:
+    """Upsert, keyed on user_id -- same pattern
+    replace_personal_operating_model already established, since (unlike
+    the old singleton) there's no guaranteed row to UPDATE on a
+    account's first-ever write."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE privacy_settings SET cross_session_learning_enabled = ? WHERE id = 1",
-            (1 if enabled else 0,),
+            "INSERT INTO privacy_settings (user_id, cross_session_learning_enabled) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET cross_session_learning_enabled = excluded.cross_session_learning_enabled",
+            (user_id, 1 if enabled else 0),
         )
 
 
@@ -1265,10 +1303,21 @@ def export_all_data(user_id: str) -> dict:
     own `user_id` -- previously excluded entirely because the table had
     no per-account attribution at all; now that it does, the same
     "include what's genuinely this account's own" rule POM's row
-    already follows applies here too. `*_json` TEXT columns are parsed
-    back into real nested objects rather than left as escaped strings,
-    so the exported file is actually readable by a person, not just
-    re-ingestable by this codebase."""
+    already follows applies here too.
+
+    `privacy_settings` (2026-07-19, see engine/decisions.md
+    "privacy_settings made per-account") is now included too, for the
+    same reason -- previously not included at all (the table was a
+    single global row, not attributable to any one account); now it's
+    genuinely this account's own stated preference. `None` (no row
+    yet, defaulting to the standard `True`) is a real, correct value to
+    export, not an error -- same "not yet set" treatment
+    `personal_operating_model`'s own `None` case gets below.
+
+    `*_json` TEXT columns are parsed back into real nested objects
+    rather than left as escaped strings, so the exported file is
+    actually readable by a person, not just re-ingestable by this
+    codebase."""
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         sessions = [dict(row) for row in conn.execute(
@@ -1288,6 +1337,10 @@ def export_all_data(user_id: str) -> dict:
             "SELECT * FROM personal_operating_model WHERE user_id = ?", (user_id,)
         ).fetchone()
         pom_row = dict(pom_row) if pom_row else None
+        privacy_settings_row = conn.execute(
+            "SELECT * FROM privacy_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        privacy_settings_row = dict(privacy_settings_row) if privacy_settings_row else None
 
     for session in sessions:
         session["world_state"] = json.loads(session.pop("world_state_json"))
@@ -1308,6 +1361,7 @@ def export_all_data(user_id: str) -> dict:
         "insight_sessions": insight_sessions,
         "learned_patterns": learned_patterns,
         "personal_operating_model": pom_row,
+        "privacy_settings": privacy_settings_row,
     }
 
 
@@ -1334,7 +1388,10 @@ def reset_all_data(user_id: str) -> None:
     `learned_patterns` below. `privacy_settings` stays untouched, same
     as before: a person clearing their journal data is not also asking
     to have their own stated cross-session-learning preference silently
-    reset back to the default.
+    reset back to the default -- now genuinely THIS account's own row
+    being preserved (2026-07-19, see engine/decisions.md "privacy_settings
+    made per-account"), not a shared global one every account used to
+    have equal, unwanted influence over.
 
     `learned_patterns` (2026-07-18, see engine/decisions.md "Learning
     made per-account") IS deleted here too -- previously excluded for

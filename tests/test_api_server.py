@@ -1520,8 +1520,8 @@ def test_privacy_settings_default_to_cross_session_learning_enabled(client):
 def test_privacy_settings_requires_login(client):
     """Direct regression test for the gate itself (basic auth, see
     engine/decisions.md "Auth, the low-friction way") -- an anonymous
-    caller (no _login call here) must be turned away, not served the
-    single global setting."""
+    caller (no _login call here) must be turned away, not served any
+    account's setting."""
     res = client.get("/privacy/settings")
     assert res.status_code == 401
     assert res.json()["detail"] == "login_required"
@@ -1537,6 +1537,22 @@ def test_privacy_settings_can_be_disabled_and_persist(client):
     # just reflecting back whatever the request body said.
     res = client.get("/privacy/settings")
     assert res.json() == {"cross_session_learning_enabled": False}
+
+
+def test_privacy_settings_are_independent_per_account(client):
+    """privacy_settings made per-account (2026-07-19, see
+    engine/decisions.md "privacy_settings made per-account") -- direct
+    regression test for the bug this round fixed: before this, every
+    signed-in visitor shared the exact same global toggle, so disabling
+    it as one account silently disabled it for every other account
+    too."""
+    db.set_cross_session_learning_enabled(
+        db.get_or_create_user("other-privacy-account@example.com"), False
+    )
+
+    _login(client, email="own-privacy-account@example.com")
+    res = client.get("/privacy/settings")
+    assert res.json() == {"cross_session_learning_enabled": True}
 
 
 def test_send_message_omits_retrieved_context_when_cross_session_learning_disabled(client, monkeypatch):
@@ -1568,7 +1584,7 @@ def test_send_message_omits_retrieved_context_when_cross_session_learning_disabl
     db.replace_insights(user_id, [
         Insight(theme="Career anxiety", detail="Recurring worry about job security", evidence_session_ids=[])
     ])
-    db.set_cross_session_learning_enabled(False)
+    db.set_cross_session_learning_enabled(user_id, False)
     session_id = client.post("/sessions").json()["id"]
 
     client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
@@ -1601,6 +1617,7 @@ def test_privacy_export_includes_sessions_messages_and_readable_world_state(clie
     assert len(payload["messages"]) == 2  # the user turn + the assistant reply
     assert payload["learned_patterns"] == []  # never computed in this test
     assert payload["personal_operating_model"] is None  # never computed in this test
+    assert payload["privacy_settings"] is None  # never explicitly set in this test
 
 
 def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
@@ -1615,7 +1632,7 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     db.replace_learned_patterns(user_id, [
         Pattern(pattern_type="decision_reversal", detail="Often reopens closed decisions", evidence_count=3)
     ])
-    db.set_cross_session_learning_enabled(False)
+    db.set_cross_session_learning_enabled(user_id, False)
 
     res = client.post("/privacy/reset")
     assert res.status_code == 204
@@ -1630,7 +1647,7 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     # The person's own stated privacy preference survives a data reset --
     # resetting journal content isn't the same action as reverting a
     # setting they deliberately chose.
-    assert db.get_cross_session_learning_enabled() is False
+    assert db.get_cross_session_learning_enabled(user_id) is False
 
 
 def test_privacy_export_never_includes_another_accounts_sessions(client, monkeypatch):

@@ -442,44 +442,38 @@ def send_message(
     # src.api -> engine dependency direction (engine packages never
     # import from src.api).
     #
-    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
-    # gated behind cross_session_learning_enabled: when a person has
-    # opted out, this live turn only ever sees THIS session's own
-    # WorldState (already loaded above), never anything Learning/Insight
+    # Privacy, made real (2026-07-18, see frontend/decisions.md), gated
+    # behind cross_session_learning_enabled: when a person has opted
+    # out, this live turn only ever sees THIS session's own WorldState
+    # (already loaded above), never anything Learning/Insight
     # Engine/POM have inferred about them across other Journeys. The
     # in-session experience (Interpretation/Judgment/Planner/Response,
     # this session's own history) is completely unaffected either way.
-    if db.get_cross_session_learning_enabled():
-        # Learning made per-account (2026-07-18, see engine/decisions.md
-        # "Learning made per-account") -- same "anonymous caller has no
-        # stable account to own a standing profile" rule POM's own read
-        # just below already follows; an anonymous sender's turn never
-        # sees ANY account's patterns, not even a stale global blend.
+    #
+    # privacy_settings made per-account (2026-07-19, see
+    # engine/decisions.md "privacy_settings made per-account") --
+    # collapsed into one `identity.user_id and ...` condition: an
+    # anonymous caller has no stable account to own a standing profile
+    # OR a stated preference, so they get empty/None regardless (same
+    # rule patterns/insights/pom already each followed individually);
+    # a signed-in caller's own opted-out preference now actually gates
+    # THEIR OWN reads, not a single global switch every account used to
+    # share.
+    if identity.user_id and db.get_cross_session_learning_enabled(identity.user_id):
         patterns = [
             Pattern(pattern_type=p.pattern_type, detail=p.detail, evidence_count=p.evidence_count)
-            for p in (db.get_learned_patterns(identity.user_id) if identity.user_id else [])
+            for p in db.get_learned_patterns(identity.user_id)
         ]
-        # Insight Engine made per-account (2026-07-19, see engine/decisions.md
-        # "Insight Engine made per-account") -- same rule as patterns just
-        # above: an anonymous sender never sees ANY account's insights,
-        # not even a stale global blend. Previously called with no
-        # argument at all, returning the same cross-account blend to
-        # every caller regardless of who (or whether anyone) was signed in.
         insights = [
             Insight(theme=i.theme, detail=i.detail, evidence_session_ids=i.evidence_session_ids)
-            for i in (db.get_insights(identity.user_id) if identity.user_id else [])
+            for i in db.get_insights(identity.user_id)
         ]
         # Personal Operating Model (see src/pom/engine.py,
         # engine/decisions.md "Personal Operating Model") -- a cheap,
         # read-only DB read of whatever scripts/run_pom_computation.py
         # last computed offline; never computed live. None until that
-        # script has run at least once for THIS account. POM made
-        # per-user (2026-07-18, see engine/decisions.md "POM made
-        # per-user") -- an anonymous caller has no stable account to
-        # own a standing profile, so they get None here regardless of
-        # whether any account's POM has ever been computed; a signed-in
-        # caller only ever sees their own.
-        pom = db.get_personal_operating_model(identity.user_id) if identity.user_id else None
+        # script has run at least once for THIS account.
+        pom = db.get_personal_operating_model(identity.user_id)
     else:
         patterns, insights, pom = [], [], None
     # Need State Inference v1 (see src/need_state/engine.py,
@@ -668,24 +662,22 @@ def get_privacy_settings(user_id: str = Depends(require_user)) -> PrivacySetting
 
     Gated behind `require_user` (basic auth, see engine/decisions.md
     "Auth, the low-friction way") -- direct founder request: Settings
-    and Privacy need a login. NOTE this gates ACCESS only; the
-    underlying `privacy_settings` row is still the single, global
-    singleton it already was (see src/api/db.py's own docstring on
-    that table) -- it is not yet split per-account, so today every
-    signed-in visitor shares the same setting. POM made per-user
-    (2026-07-18, see engine/decisions.md "POM made per-user") is no
-    longer part of this carve-out -- only `privacy_settings` itself and
-    the cross-account `learned_patterns`/`insights` models remain
-    global. Making `privacy_settings` genuinely per-account is a real,
-    separate project, flagged here rather than silently assumed away."""
-    return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled())
+    and Privacy need a login.
+
+    privacy_settings made per-account (2026-07-19, see
+    engine/decisions.md "privacy_settings made per-account") -- this
+    now returns THIS account's own preference, not a single global
+    singleton every signed-in visitor used to share. The last of the
+    three-item carve-out (`privacy_settings`/`learned_patterns`/
+    `insights`) this docstring used to flag is closed."""
+    return PrivacySettingsOut(cross_session_learning_enabled=db.get_cross_session_learning_enabled(user_id))
 
 
 @app.post("/privacy/settings", response_model=PrivacySettingsOut)
 def set_privacy_settings(
     body: SetPrivacySettingsRequest, user_id: str = Depends(require_user)
 ) -> PrivacySettingsOut:
-    db.set_cross_session_learning_enabled(body.cross_session_learning_enabled)
+    db.set_cross_session_learning_enabled(user_id, body.cross_session_learning_enabled)
     return PrivacySettingsOut(cross_session_learning_enabled=body.cross_session_learning_enabled)
 
 

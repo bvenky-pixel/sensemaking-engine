@@ -51,19 +51,6 @@ def main() -> None:
 
     db.init_db(Path(args.db_path) if args.db_path else None)
 
-    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
-    # defense in depth alongside src/api/server.py's own read-path gate:
-    # this is the actual write path for `learned_patterns`, so honoring
-    # the opt-out here too means it holds even if this script is ever
-    # run on a schedule rather than only by hand. Still a global,
-    # cross-account setting today (see engine/decisions.md "POM made
-    # per-user"'s own note on privacy_settings remaining a separate,
-    # not-yet-started per-account project) -- not something this round
-    # touches.
-    if not db.get_cross_session_learning_enabled():
-        print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
-        return
-
     user_ids = db.get_all_user_ids_with_sessions()
     if not user_ids:
         print("No accounts with any sessions yet -- nothing to compute.")
@@ -71,6 +58,19 @@ def main() -> None:
     print(f"Computing behavioral patterns for {len(user_ids)} account(s).")
 
     for user_id in user_ids:
+        # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+        # defense in depth alongside src/api/server.py's own read-path
+        # gate: this is the actual write path for `learned_patterns`,
+        # so honoring the opt-out here too means it holds even if this
+        # script is ever run on a schedule rather than only by hand.
+        # privacy_settings made per-account (2026-07-19, see
+        # engine/decisions.md "privacy_settings made per-account") --
+        # checked per account inside the loop now, so one account's
+        # opt-out only skips THEIR OWN computation, not every account's.
+        if not db.get_cross_session_learning_enabled(user_id):
+            print(f"\n=== {user_id} ===\nCross-session learning is disabled in Privacy settings -- skipping (no-op).")
+            continue
+
         events = db.get_events_for_user(user_id)
         patterns = compute_behavioral_patterns(events)
         db.replace_learned_patterns(user_id, patterns)

@@ -46,16 +46,6 @@ def main() -> None:
 
     db.init_db(Path(args.db_path) if args.db_path else None)
 
-    # Privacy, made real (2026-07-18, see frontend/decisions.md) --
-    # defense in depth alongside src/api/server.py's own read-path gate;
-    # see run_learning.py's identical guard for the full reasoning. POM
-    # is arguably the MOST personal of the three cross-session artifacts
-    # (an inferred profile of beliefs/motivation/identity), so honoring
-    # the opt-out here is not optional.
-    if not db.get_cross_session_learning_enabled():
-        print("Cross-session learning is disabled in Privacy settings -- skipping (no-op).")
-        return
-
     user_ids = db.get_all_user_ids_with_sessions()
     if not user_ids:
         print("No accounts with any sessions yet -- nothing to compute.")
@@ -63,6 +53,20 @@ def main() -> None:
     print(f"Computing POM for {len(user_ids)} account(s).")
 
     for user_id in user_ids:
+        # Privacy, made real (2026-07-18, see frontend/decisions.md) --
+        # defense in depth alongside src/api/server.py's own read-path
+        # gate; see run_learning.py's identical guard for the full
+        # reasoning. POM is arguably the MOST personal of the three
+        # cross-session artifacts (an inferred profile of beliefs/
+        # motivation/identity), so honoring the opt-out here is not
+        # optional. privacy_settings made per-account (2026-07-19, see
+        # engine/decisions.md "privacy_settings made per-account") --
+        # checked per account inside the loop now, so one account's
+        # opt-out only skips THEIR OWN computation, not every account's.
+        if not db.get_cross_session_learning_enabled(user_id):
+            print(f"\n=== {user_id} ===\nCross-session learning is disabled in Privacy settings -- skipping (no-op).")
+            continue
+
         claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(user_id)
         print(
             f"\n=== {user_id} ==="
