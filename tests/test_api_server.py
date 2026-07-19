@@ -18,6 +18,7 @@ ever appear).
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sqlite3
 import tempfile
@@ -350,6 +351,49 @@ def test_send_message_threads_retrieved_context_into_judgment_prompt(client, mon
     content = judgment_messages[0]["content"]
     assert "Often reopens closed decisions" in content
     assert "Career anxiety" in content
+
+
+def test_send_message_persists_attempt_records_when_tracking_enabled(client, monkeypatch):
+    """Production observability (2026-07-19, backlog #230, see
+    engine/decisions.md "Production observability beyond opt-in
+    UsageTracker") -- direct regression test that a live turn actually
+    writes to llm_attempt_records when CONFIDANT_TRACK_USAGE is set, not
+    just accumulating in the per-request tracker and being discarded.
+
+    Only attempt records are asserted here, not usage records: this
+    file's own call_provider mocks (see module docstring) replace
+    src/llm/providers.py::call_provider entirely, which is where
+    tracker.record(LLMUsage(...)) itself lives -- bypassed by the mock.
+    tracker.record_outcome(AttemptRecord(...)) lives in each engine.py's
+    own code, downstream of call_provider's return value, so it fires
+    regardless of what actually produced that value."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    original = os.environ.get("CONFIDANT_TRACK_USAGE")
+    os.environ["CONFIDANT_TRACK_USAGE"] = "1"
+    try:
+        session_id = client.post("/sessions").json()["id"]
+        client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+        assert len(db.get_llm_attempt_records()) > 0
+    finally:
+        if original is not None:
+            os.environ["CONFIDANT_TRACK_USAGE"] = original
+        else:
+            os.environ.pop("CONFIDANT_TRACK_USAGE", None)
+
+
+def test_send_message_persists_nothing_when_tracking_disabled(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    os.environ.pop("CONFIDANT_TRACK_USAGE", None)
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+    assert db.get_llm_attempt_records() == []
+    assert db.get_llm_usage_records() == []
 
 
 def test_send_message_omits_retrieved_context_when_nothing_learned_yet(client, monkeypatch):

@@ -9720,3 +9720,77 @@ new per-account signatures. Manually verified the migration against a
 simulated old-shape database (old global row dropped, new account
 defaults to enabled, one account's opt-out doesn't affect another's).
 Full suite: `pytest` 498 passed (497 + 1 new).
+
+## Production observability beyond opt-in UsageTracker (2026-07-19)
+
+Backlog #230. Confirmed by direct inspection before building anything:
+`CONFIDANT_TRACK_USAGE` was off everywhere including production, and
+even if it were on, `UsageTracker` is a fresh, in-memory instance
+created per-request (`tracker = UsageTracker()` in `send_message`) --
+its `records`/`outcomes` are never read from anywhere in `server.py`
+after the turn completes, so they're simply garbage-collected. Every
+existing "usage" surface (`GET /sessions/{id}/debug`) is per-session
+only; there was no aggregate view of the pipeline's own health --
+success rate, latency, cost -- across every turn ever, without SSHing
+in or running `fetch-logs.yml` and reading raw log text by hand.
+
+**Two new tables**: `llm_usage_records`/`llm_attempt_records`, mirroring
+`LLMUsage`/`AttemptRecord`'s own fields plus `session_id` (nullable, no
+FOREIGN KEY constraint) and `created_at`. Purely additive
+(`CREATE TABLE IF NOT EXISTS`) -- no migration needed, unlike the four
+earlier per-account fixes this segment, since these are genuinely new
+tables with no prior shape to reconcile.
+
+**`db.record_llm_usage`/`record_llm_attempt`** write one row each;
+**`get_llm_usage_records`/`get_llm_attempt_records`** read back,
+optionally filtered by `since_iso`. Not scoped to any one account --
+this is operational telemetry about the system's own behavior, not
+personal data belonging to a person (see next paragraph).
+
+**Deliberately NOT gated behind the same privacy prerequisite
+`CONFIDANT_RECORD_EVENTS` needed.** Confirmed by reading
+`LLMUsage`/`AttemptRecord`'s own field lists: component, provider,
+model, token counts, latency, cost, outcome/error type -- never raw
+message content. Principle 6 (trust-and-privacy-ux-v1.md) governs
+inferred/behavioral content about a real person; there's nothing here
+for it to apply to. `CONFIDANT_TRACK_USAGE = "1"` set directly in
+`fly.toml`, no three-item sequencing chain required.
+
+**`send_message` wired to persist after each turn** (server.py): once
+`run_turn` returns, if `is_tracking_enabled()`, every record/outcome
+the turn's own `tracker` accumulated gets written via the two functions
+above. `tracker` is fresh per request, so no `.since()`/`.outcomes_since()`
+slicing needed -- everything it holds belongs to this one turn. A
+second, independent write alongside the in-memory tracker that already
+feeds that turn's own `debug_json` -- that blob is for inspecting ONE
+session after the fact; these rows are for aggregate reporting across
+every session.
+
+**New `scripts/usage_report.py`**: reads back both tables (optionally
+`--since` an ISO timestamp), prints per-component call counts, success
+rate (and a breakdown of non-success outcomes), P50/P95 latency
+(nearest-rank, no numpy dependency), and total estimated cost. **New
+`.github/workflows/usage-report.yml`**: `workflow_dispatch` only, same
+`flyctl ssh console` pattern as the other production-reaching
+workflows this segment built -- prints straight to the workflow's own
+log (no artifact needed, it's meant to be read directly).
+
+Verified: `tests/test_usage_persistence.py` (5 tests, DB round-trip:
+usage/attempt records read back correctly, `session_id` accepts NULL,
+`since_iso` filtering excludes/includes correctly). `tests/test_usage_report.py`
+(4 tests: percentile helper, empty-DB message, a seeded two-call
+scenario asserting the exact success-rate/cost-total text the report
+prints). `tests/test_api_server.py` gained
+`test_send_message_persists_attempt_records_when_tracking_enabled` and
+`test_send_message_persists_nothing_when_tracking_disabled` -- the
+former only asserts on `llm_attempt_records`, not `llm_usage_records`,
+since this file's own `call_provider` mocks replace
+`src/llm/providers.py::call_provider` entirely (where
+`tracker.record(LLMUsage(...))` itself lives), while
+`tracker.record_outcome(AttemptRecord(...))` lives in each engine.py's
+own code and fires regardless of what produced the mocked return
+value. New workflow YAML checked for syntax. Full suite: `pytest` 509
+passed (498 + 11 new).
+
+Not dispatched against production yet -- same standing discipline as
+the other `flyctl ssh console` workflows built this segment.

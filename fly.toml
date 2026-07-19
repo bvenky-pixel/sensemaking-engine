@@ -40,6 +40,22 @@ primary_region = 'lhr'
   # deliberate product/privacy decision, not a default.
   CONFIDANT_RECORD_EVENTS = "1"
 
+  # CONFIDANT_TRACK_USAGE (2026-07-19, backlog #230, see
+  # engine/decisions.md "Production observability beyond opt-in
+  # UsageTracker") -- was deliberately left unset everywhere, including
+  # here, since src/instrumentation/usage.py first shipped: no live
+  # signal existed for how the pipeline was actually performing in
+  # production (call success rate, latency, cost) beyond one session's
+  # own debug_json at a time. Unlike CONFIDANT_RECORD_EVENTS above, this
+  # did NOT need a privacy-prerequisite gate first -- LLMUsage/
+  # AttemptRecord are purely operational metadata (component, provider,
+  # model, token counts, latency, cost, outcome), never raw message
+  # content, so Principle 6 (trust-and-privacy-ux-v1.md) simply doesn't
+  # apply here. Flipped on once src/api/db.py had somewhere durable to
+  # persist these records (llm_usage_records/llm_attempt_records) --
+  # scripts/usage_report.py reads them back for an aggregate view.
+  CONFIDANT_TRACK_USAGE = "1"
+
 [build]
 
 [[mounts]]

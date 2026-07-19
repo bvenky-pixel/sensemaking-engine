@@ -65,7 +65,7 @@ from src.api.schema import (
 from src.executor.engine import build_clarity_brief, render_clarity_brief
 from src.executor.voice import to_second_person
 from src.insight.schema import Insight
-from src.instrumentation.usage import UsageTracker
+from src.instrumentation.usage import UsageTracker, is_tracking_enabled
 from src.judgment.schema import Judgment
 from src.learning.engine import Pattern
 from src.need_state.engine import infer_need_state
@@ -495,6 +495,25 @@ def send_message(
     db.append_message(session_id, "user", body.content)
     db.save_turn_result(session_id, result)
     db.save_events(session_id, result.behavioral_events)
+
+    # Production observability (2026-07-19, backlog #230, see
+    # engine/decisions.md "Production observability beyond opt-in
+    # UsageTracker") -- `tracker` is fresh per request (see its own
+    # creation above), so everything it accumulated belongs to this one
+    # turn; no need for the `.since()`/`.outcomes_since()` slicing a
+    # longer-lived tracker would need. A second, independent write from
+    # the in-memory tracker that already feeds this turn's own
+    # debug_json -- that blob is for inspecting ONE session after the
+    # fact; these rows are for aggregate reporting across every session
+    # (scripts/usage_report.py). Same CONFIDANT_TRACK_USAGE gate
+    # UsageTracker.record itself already honors, checked again here
+    # since these DB writes are unconditional otherwise (unlike
+    # tracker.record, which is already a no-op when disabled).
+    if is_tracking_enabled():
+        for usage in tracker.records:
+            db.record_llm_usage(session_id, usage)
+        for attempt in tracker.outcomes:
+            db.record_llm_attempt(session_id, attempt)
 
     response_text = result.response.response_text if result.response else None
     confidence = result.response.confidence if result.response else None

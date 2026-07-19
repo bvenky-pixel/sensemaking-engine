@@ -172,6 +172,7 @@ from typing import Iterator, List, Optional, Tuple
 from src.api.schema import InsightOut, LearnedPatternOut, MessageOut, SessionSummary
 from src.insight.schema import MAX_SESSIONS_FOR_INSIGHT, Insight
 from src.instrumentation.events import BehavioralEvent, is_events_enabled
+from src.instrumentation.usage import AttemptRecord, LLMUsage
 from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
@@ -283,6 +284,31 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS llm_usage_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    component TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    latency_ms REAL NOT NULL,
+    estimated_cost_usd REAL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS llm_attempt_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    component TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    outcome TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL
 );
 """
 
@@ -1412,3 +1438,99 @@ def reset_all_data(user_id: str) -> None:
         conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))
+
+
+def record_llm_usage(session_id: Optional[str], usage: LLMUsage) -> None:
+    """Production observability (2026-07-19, backlog #230, see
+    engine/decisions.md "Production observability beyond opt-in
+    UsageTracker") -- persists one LLMUsage record. Called from
+    src/api/server.py::send_message after a live turn completes, once
+    per record `tracker` accumulated during that turn, only when
+    `is_tracking_enabled()` (same CONFIDANT_TRACK_USAGE gate
+    UsageTracker.record itself already honors -- this is a second,
+    independent write, not a replacement for the in-memory tracker,
+    which still feeds that turn's own debug_json for per-session
+    inspection).
+
+    Purely operational metadata -- component/provider/model/token
+    counts/latency/cost, never raw message content -- so this doesn't
+    need the same privacy-prerequisite gate CONFIDANT_RECORD_EVENTS
+    required (see is_events_enabled's own docstring): there is nothing
+    here for Principle 6 (trust-and-privacy-ux-v1.md) to apply to."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO llm_usage_records "
+            "(session_id, component, provider, model, prompt_tokens, completion_tokens, "
+            "total_tokens, latency_ms, estimated_cost_usd, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, usage.component, usage.provider, usage.model,
+                usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+                usage.latency_ms, usage.estimated_cost_usd, _now(),
+            ),
+        )
+
+
+def record_llm_attempt(session_id: Optional[str], attempt: AttemptRecord) -> None:
+    """Same round as record_llm_usage above -- persists one
+    AttemptRecord (a provider attempt's structured-output outcome:
+    success, provider_call_error, invalid_json, or
+    schema_validation_failed), the data `scripts/usage_report.py` needs
+    to compute an actual success rate per component, not just
+    token/cost/latency for the attempts that happened to return
+    something."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO llm_attempt_records "
+            "(session_id, component, provider, model, outcome, detail, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, attempt.component, attempt.provider, attempt.model, attempt.outcome, attempt.detail, _now()),
+        )
+
+
+def get_llm_usage_records(since_iso: Optional[str] = None) -> List[LLMUsage]:
+    """Read side for scripts/usage_report.py -- every persisted usage
+    record, optionally filtered to `created_at >= since_iso`. Not
+    scoped to one account: this is operational telemetry about the
+    system's own health/cost, not personal data belonging to any one
+    person (see record_llm_usage's own docstring)."""
+    with _connect() as conn:
+        if since_iso:
+            rows = conn.execute(
+                "SELECT component, provider, model, prompt_tokens, completion_tokens, "
+                "total_tokens, latency_ms, estimated_cost_usd FROM llm_usage_records "
+                "WHERE created_at >= ? ORDER BY id ASC",
+                (since_iso,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT component, provider, model, prompt_tokens, completion_tokens, "
+                "total_tokens, latency_ms, estimated_cost_usd FROM llm_usage_records ORDER BY id ASC"
+            ).fetchall()
+    return [
+        LLMUsage(
+            component=r[0], provider=r[1], model=r[2], prompt_tokens=r[3], completion_tokens=r[4],
+            total_tokens=r[5], latency_ms=r[6], estimated_cost_usd=r[7],
+        )
+        for r in rows
+    ]
+
+
+def get_llm_attempt_records(since_iso: Optional[str] = None) -> List[AttemptRecord]:
+    """Read side for scripts/usage_report.py -- mirrors
+    get_llm_usage_records above, for AttemptRecord instead."""
+    with _connect() as conn:
+        if since_iso:
+            rows = conn.execute(
+                "SELECT component, provider, model, outcome, detail FROM llm_attempt_records "
+                "WHERE created_at >= ? ORDER BY id ASC",
+                (since_iso,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT component, provider, model, outcome, detail FROM llm_attempt_records ORDER BY id ASC"
+            ).fetchall()
+    return [
+        AttemptRecord(component=r[0], provider=r[1], model=r[2], outcome=r[3], detail=r[4])
+        for r in rows
+    ]
