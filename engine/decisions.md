@@ -9888,6 +9888,39 @@ all four.
 
 Verified: doc-only changes, full test suite unaffected.
 
+## Spec-doc backlog: Instrumentation + Response v2/v3 (2026-07-19)
+
+Finishing the "spec docs" cluster: backlog #227 and #216, the last two
+of the 8-item set (#215-221, #227).
+
+**#227** — new `engine/specs/instrumentation-specification-v1.md`.
+Covers all four pieces sharing the `src/instrumentation/` package
+(`usage.py`'s `UsageTracker`/`LLMUsage`/`AttemptRecord`, `events.py`'s
+diff-based behavioral event detection and the correctness bug that
+design avoided, the two unrelated cost tables in `pricing.py`/
+`frontier_pricing.py` that are easy to conflate, and the #230
+persistence layer). Points backlog #251 at the still-open overlap with
+`src/evaluation/`'s own separate metrics machinery.
+
+**#216** — new `engine/specs/response-generator-specification-v2.md`,
+a versioned update to the existing `response-generator-specification-v1.md`
+rather than a replacement — v1 is pre-implementation and philosophical
+and was never updated after Response v2 Priority 1 (three prompt-only
+pacing/acknowledgment/closing-register fixes) or Response v3 (compact
+structure, then real choice buttons, then per-option reasoning, across
+three same-day rounds driven by direct user pushback on round 1's
+initial guess). Also corrected one detail from this session's own
+carried-over recollection while researching: the "user vs. you" voice
+fix was never a Response Generator change at all — root-caused instead
+to `src/executor/engine.py::build_clarity_brief` copying internal,
+deliberately-third-person cognitive artifacts into user-facing fields;
+documented accurately here rather than repeating the earlier
+misattribution.
+
+Verified: doc-only changes, full test suite unaffected. This completes
+the 8-item spec-doc cluster (#215, #216, #217, #218, #219, #220, #221,
+#227).
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
