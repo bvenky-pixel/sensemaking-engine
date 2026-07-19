@@ -9794,3 +9794,69 @@ passed (498 + 11 new).
 
 Not dispatched against production yet -- same standing discipline as
 the other `flyctl ssh console` workflows built this segment.
+
+## Systemic policy for all-providers-fail schema validation (2026-07-19)
+
+Backlog #232. This wasn't a new finding -- the "Comprehensive
+reliability instrumentation" round (see that entry above) already
+surfaced it directly: Judgment, Planner, and Response share one loop
+shape (`provider_call_error`, `invalid_json`, and
+`schema_validation_failed` all retry across every configured
+provider), but Interpretation had a genuinely different shape -- it
+only retried across providers for connection-level failures;
+a JSON-decode or schema-validation failure on the FIRST provider that
+returned raw content raised immediately, with no fallback attempt to
+the next provider. That round explicitly left it alone as out of
+scope ("not something this task had any reason to change"). This
+round's job was to actually decide: is that asymmetry deliberate, or
+should it be unified?
+
+**Decision: unify it.** Read `src/interpretation/schema.py`'s own
+"frozen v1.0" framing carefully first -- it governs the *schema*
+(don't add fields without updating the spec first), not the *engine's
+retry loop*. Nothing on record ties Interpretation's narrower fallback
+behavior to any real architectural reason; it reads as an artifact of
+being the first engine written, before the shared retry-on-every-
+failure-type shape was established for the other three. There's no
+tradeoff being given up by unifying: retrying with a different
+provider against the exact same schema is precisely what
+Judgment/Planner/Response already do successfully, and doing the same
+for Interpretation only removes a failure mode (an honest
+`failed_stage: interpretation` for a turn that a second configured
+provider might well have completed).
+
+Rewrote `run_interpretation`'s loop to match `run_judgment`'s shape
+exactly: parsing and schema validation now happen INSIDE the
+provider-chain loop, with `continue` on every failure type (not just
+`ProviderCallError`) and `break` only on success; a `for/else` raises
+`InterpretationError` (still carrying the last raw output for
+debugging) only once the loop exhausts every provider without ever
+succeeding. No prompt, schema, or grounding-filter logic touched --
+purely a control-flow change to the retry loop itself, same "no new
+branch, no behavior change to what happens once a valid Interpretation
+exists" discipline the instrumentation-wiring round already held
+itself to.
+
+**Honesty about impact**: `resolve_provider_chain()` (see
+`tests/test_llm_providers.py::test_resolve_provider_chain_is_single_provider`,
+a deliberately-asserted invariant) returns exactly one provider today
+for every one of the four engines -- there is currently no second
+provider registered anywhere in this codebase to actually fall back
+to. This fix has zero observable effect on production behavior right
+now; it closes the asymmetry and is ready the moment a second provider
+is ever registered, same "ahead-of-need infrastructure" category as
+`resolve_provider_chain`'s own list-not-a-string return type.
+
+Verified: `tests/test_reliability_instrumentation.py`'s module and two
+per-outcome test docstrings updated (no longer claim Interpretation
+"does NOT retry across providers" -- that was true and is not
+anymore). Two new tests:
+`test_interpretation_retries_across_providers_on_invalid_json` (the
+direct regression test -- monkeypatches `resolve_provider_chain` to a
+real two-element chain since the live one never returns more than one,
+first provider returns invalid JSON, second succeeds, asserts the
+turn actually completes and both outcomes are recorded in order) and
+`test_interpretation_raises_only_after_every_provider_fails_schema_validation`
+(confirms the new `for/else` doesn't accidentally swallow a genuine
+total failure when every provider fails). Full suite: `pytest` 511
+passed (509 + 2 new).

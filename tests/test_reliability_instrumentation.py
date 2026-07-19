@@ -8,14 +8,21 @@ engine/decisions.md). All deterministic: call_provider is mocked at each
 engine module's own import path, no real HTTP or LLM calls, same pattern
 already used in tests/test_evaluation_harness.py.
 
-Interpretation has a genuinely different control flow from the other
-three (it breaks the provider loop on the first successful raw response
-and does NOT retry across providers for JSON/schema failures -- see its
-own module docstring) -- covered with its own full set of four tests.
-Judgment is covered fully as the representative of the shared
-Judgment/Planner/Response loop shape; Planner and Response get one
-success + one failure test each, since their instrumentation wiring is
-otherwise identical to Judgment's.
+Interpretation's provider-fallback loop was unified with the other
+three (2026-07-19, backlog #232, see engine/decisions.md "Systemic
+policy for all-providers-fail schema validation") -- it used to break
+out of the loop on the first successful raw response and NOT retry
+across providers for JSON/schema failures; now every failure type
+retries across every remaining configured provider, same shape as
+Judgment/Planner/Response. Covered with its own full set of five tests
+(the four original single-provider-chain outcome tests, plus one
+multi-provider fallback test that's the direct regression test for this
+fix -- `resolve_provider_chain()` itself only ever returns one provider
+today, so that one test monkeypatches it to a two-element chain to
+actually exercise the new behavior). Judgment is covered fully as the
+representative of the shared Judgment/Planner/Response loop shape;
+Planner and Response get one success + one failure test each, since
+their instrumentation wiring is otherwise identical to Judgment's.
 """
 
 from __future__ import annotations
@@ -307,10 +314,11 @@ def test_interpretation_records_provider_call_error_outcome_for_every_provider(m
 
 
 def test_interpretation_records_invalid_json_outcome_once(monkeypatch):
-    """Interpretation does NOT retry across providers for a JSON/schema
-    failure -- only the ONE provider that returned raw content gets an
-    outcome here, unlike Judgment/Planner/Response which retry every
-    provider for every failure type."""
+    """Single-provider-chain scenario (the only chain
+    resolve_provider_chain() actually returns today) -- one provider,
+    one outcome. See test_interpretation_retries_across_providers_on_invalid_json
+    below for the actual multi-provider fallback behavior this outcome
+    feeds into."""
     from src.interpretation.engine import InterpretationError, run_interpretation
 
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
@@ -338,3 +346,65 @@ def test_interpretation_records_schema_validation_failed_outcome_once(monkeypatc
     assert len(tracker.outcomes) == 1
     assert tracker.outcomes[0].provider == "openrouter"
     assert tracker.outcomes[0].outcome == "schema_validation_failed"
+
+
+def test_interpretation_retries_across_providers_on_invalid_json(monkeypatch):
+    """Direct regression test for backlog #232 (see engine/decisions.md
+    "Systemic policy for all-providers-fail schema validation") --
+    Interpretation's loop now retries on invalid_json/schema_validation_failed
+    the same way Judgment/Planner/Response already do, not just on
+    provider_call_error. resolve_provider_chain() itself only ever
+    returns one provider today (see tests/test_llm_providers.py's own
+    test_resolve_provider_chain_is_single_provider), so this monkeypatches
+    it directly to a two-element chain to actually exercise the new
+    behavior -- this is genuinely ahead-of-need infrastructure until a
+    second provider is ever registered."""
+    from src.interpretation.engine import run_interpretation
+
+    minimal_interp = {
+        "urgency": "low", "impact_domains": ["professional"], "emotional_signals": [],
+        "surface_complaint": "Wants to move teams.", "core_question": "Why is the move stalled?",
+        "core_question_confidence": 0.4, "observed_facts": [], "claims": [], "goals": [],
+        "decision_options": [], "has_assumption": False,
+        "assumption_check": "No framing-embedded assumption detected.", "assumptions": [],
+        "inferences": [], "unknowns": [], "biases": [], "entities": [], "clarity_score": 0.5,
+        "requires_clarification": False, "has_decision_event": False,
+        "decision_event_option": "", "decision_event_type": "",
+    }
+
+    def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None):
+        if provider_name == "provider-a":
+            return "not valid json {{"
+        return json.dumps(minimal_interp)
+
+    monkeypatch.setattr("src.interpretation.engine.resolve_provider_chain", lambda: ["provider-a", "provider-b"])
+    monkeypatch.setattr("src.interpretation.engine.call_provider", _call)
+    tracker = UsageTracker()
+
+    result = run_interpretation("I want to move teams.", tracker=tracker)
+
+    assert result.surface_complaint == "Wants to move teams."
+    assert len(tracker.outcomes) == 2
+    assert tracker.outcomes[0].provider == "provider-a"
+    assert tracker.outcomes[0].outcome == "invalid_json"
+    assert tracker.outcomes[1].provider == "provider-b"
+    assert tracker.outcomes[1].outcome == "success"
+
+
+def test_interpretation_raises_only_after_every_provider_fails_schema_validation(monkeypatch):
+    """The other half of the same regression: if EVERY provider in the
+    chain fails (not just the first), it must still raise
+    InterpretationError -- the for/else in run_interpretation's new loop
+    shape must not accidentally swallow a total failure."""
+    from src.interpretation.engine import InterpretationError, run_interpretation
+
+    monkeypatch.setattr("src.interpretation.engine.resolve_provider_chain", lambda: ["provider-a", "provider-b"])
+    monkeypatch.setattr("src.interpretation.engine.call_provider", _always_returns_schema_invalid())
+    tracker = UsageTracker()
+
+    with pytest.raises(InterpretationError):
+        run_interpretation("I want to move teams.", tracker=tracker)
+
+    assert len(tracker.outcomes) == 2
+    assert all(o.outcome == "schema_validation_failed" for o in tracker.outcomes)
+    assert [o.provider for o in tracker.outcomes] == ["provider-a", "provider-b"]

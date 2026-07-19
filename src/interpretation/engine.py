@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import ValidationError
 
@@ -216,21 +216,35 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
     token/cost/latency into. Defaults to the shared default_tracker if not
     given -- recording itself is still a no-op unless CONFIDANT_TRACK_USAGE
     is set, so this has no effect on normal runs either way.
+
+    All-providers-fail policy unified with Judgment/Planner/Response
+    (2026-07-19, backlog #232, see engine/decisions.md "Systemic policy
+    for all-providers-fail schema validation"): every failure type
+    (provider_call_error, invalid_json, schema_validation_failed) now
+    retries across every remaining configured provider before raising.
+    Previously this loop broke out and moved parsing/validation OUTSIDE
+    it entirely, so a JSON-decode or schema-validation failure on the
+    FIRST provider that returned raw content raised immediately, with
+    no fallback attempt to the next provider -- a real asymmetry
+    against the other three engines, first surfaced (but deliberately
+    left unchanged, as out of scope) while wiring reliability
+    instrumentation -- see that entry in engine/decisions.md for the
+    original finding. This function's own last raw_output on a total
+    failure is still preserved via InterpretationError.raw_output for
+    debugging, same as before.
     """
     system_prompt, messages = build_messages(user_text)
     schema = Interpretation.model_json_schema()
     tracker = tracker or default_tracker
 
-    raw: Optional[str] = None
-    failures = []
-    provider_name: Optional[str] = None
+    failures: List[str] = []
+    last_raw: Optional[str] = None
     for provider_name in resolve_provider_chain():
         try:
             raw = call_provider(
                 provider_name, system_prompt, messages, schema, TEMPERATURE,
                 component="Interpretation", tracker=tracker,
             )
-            break
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")
             tracker.record_outcome(AttemptRecord(
@@ -239,35 +253,42 @@ def run_interpretation(user_text: str, tracker: Optional[UsageTracker] = None) -
             ))
             continue
 
-    if raw is None:
+        # Small models sometimes wrap JSON in fences despite instructions not to.
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        last_raw = raw
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            failures.append(f"{provider_name}: model output was not valid JSON: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Interpretation", provider=provider_name,
+                outcome="invalid_json", detail=str(exc),
+            ))
+            continue
+
+        try:
+            interp = Interpretation(**data)
+        except ValidationError as exc:
+            failures.append(f"{provider_name}: model output failed schema validation: {exc}")
+            tracker.record_outcome(AttemptRecord(
+                component="Interpretation", provider=provider_name,
+                outcome="schema_validation_failed", detail=str(exc),
+            ))
+            continue
+
+        tracker.record_outcome(AttemptRecord(
+            component="Interpretation", provider=provider_name, outcome="success",
+        ))
+        break
+    else:
+        # for/else: this only runs if the loop exhausted every provider
+        # without ever hitting the `break` above -- i.e. every single
+        # one failed, whether at the connection, JSON-decode, or
+        # schema-validation step.
         raise InterpretationError(
-            "All configured LLM providers failed: " + "; ".join(failures)
+            "All configured LLM providers failed: " + "; ".join(failures), raw_output=last_raw,
         )
-
-    # Small models sometimes wrap JSON in fences despite instructions not to.
-    raw = raw.replace("```json", "").replace("```", "").strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        tracker.record_outcome(AttemptRecord(
-            component="Interpretation", provider=provider_name,
-            outcome="invalid_json", detail=str(exc),
-        ))
-        raise InterpretationError(f"Model output was not valid JSON: {exc}", raw_output=raw) from exc
-
-    try:
-        interp = Interpretation(**data)
-    except ValidationError as exc:
-        tracker.record_outcome(AttemptRecord(
-            component="Interpretation", provider=provider_name,
-            outcome="schema_validation_failed", detail=str(exc),
-        ))
-        raise InterpretationError(f"Model output failed schema validation: {exc}", raw_output=raw) from exc
-
-    tracker.record_outcome(AttemptRecord(
-        component="Interpretation", provider=provider_name, outcome="success",
-    ))
 
     interp.biases = [
         b for b in interp.biases if _is_evidence_grounded(b.evidence, user_text)
