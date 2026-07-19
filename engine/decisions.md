@@ -10367,6 +10367,84 @@ this round per the standing instruction to batch validation until the
 backlog is closed or a task is genuinely blocked without it -- these
 targeted tests pass cleanly on their own.
 
+## POM: light affirm/correct affordance on the You screen (2026-07-19, backlog #209)
+
+The only prior design for this beyond the one-line backlog title was
+the same Open Questions note in `engine/specs/personal-operating-model-
+specification-v1.md` #207/#208 both cite: "a light affirm/correct
+affordance on the frontend's You surface." "The You surface" is
+Settings' existing "You" section (`PersonalOperatingModel.svelte`'s own
+header comment already calls it that) -- there is no dedicated "You"
+tab yet (backlog #263, still unbuilt), and nothing about #209 depends
+on that shipping first.
+
+One genuine design fork, confirmed with the founder directly before
+building: once someone reacts to a rendered POM statement, does the
+feedback (a) get fed back in as evidence text for the next LLM
+computation to weigh (mirroring #207's reflection treatment), (b) act
+as a hard pin/override that survives future recomputation, or (c) get
+stored and displayed back with no computation effect at all yet?
+Chosen: **(a) evidence text**, same "surface everything already known,
+let the one existing inference call weigh it" treatment #207's
+reflections get -- no new engine-level protection/pinning logic
+needed, and no conflict with POM's existing "full recompute replaces
+the whole row" architecture (`replace_personal_operating_model`).
+
+**Schema** (`src/api/db.py`): new `pom_field_feedback` table (`user_id`,
+`system`, `statement`, `feedback` -- `'affirm'`/`'correct'` --
+`correction_text`, `created_at`). Pure addition (`CREATE TABLE IF NOT
+EXISTS`, no `ALTER TABLE` migration needed). `save_pom_feedback`/
+`get_pom_feedback_for_pom` mirror `save_journey_reflection`/
+`get_reflections_for_pom`; the latter renders each row as a full
+plain-language sentence (`"User confirmed this is accurate about
+themselves (identity): ..."` / `"User said this was inaccurate about
+themselves (stress) and clarified: ..."`, falling back to restating the
+original statement when no correction text was given), appended
+directly (no extra label prefix) into `get_aggregated_knowledge_for_pom`'s
+`aggregated_content`, right after the #207 reflection lines.
+`export_all_data`/`reset_all_data` both updated -- feedback is content,
+same treatment `journey_reflections` gets, not a preference like
+`privacy_settings`.
+
+**API** (`src/api/schema.py`, `src/api/server.py`): new
+`SubmitPomFeedbackRequest` (`system`, `statement` -- both rejected
+blank, same "fail loud" validator #207 uses -- `feedback: Literal["affirm",
+"correct"]`, optional `correction_text`, blank-to-`None` normalized so a
+bare thumbs-down with an empty text box still submits cleanly). New
+`POST /pom/feedback` (204), gated behind `require_user` only -- unlike
+#207's reflection endpoint, there's no separate opt-in toggle to
+re-check server-side: the affordance only ever appears on POM content
+this account can already see through the equally-`require_user`-gated
+`GET /personal-operating-model`, so reacting to it needs no extra gate.
+
+**Frontend**: new `PomFeedback.svelte`, mounted once per rendered POM
+statement across all eight sub-systems in `PersonalOperatingModel.svelte`
+(belief/relationship list items, identity, each populated Motivation
+dimension -- `system` tagged `motivation.<dim>` so a reaction to
+competence specifically is distinguishable from autonomy/relatedness --
+learning_style, stress, narrative, each theory_of_mind entry). Two
+plain-text reactions ("Sounds right" / "Not quite", matching this
+codebase's existing `.link-button` text-control convention rather than
+icon glyphs); tapping "Not quite" reveals an optional textarea (same
+"optional, write as much or as little" framing as #207's reflection
+box) before submitting. Deliberately no read-back of prior feedback on
+load -- this only ever POSTs, confirmed as the "light" reading of the
+affordance the founder chose over a persisted/displayed-back status.
+A failed submission shows a quiet, retry-friendly error and leaves the
+reactions in place rather than trapping the flow.
+
+Verified (targeted, not a full-suite re-run, per the standing
+instruction to batch full validation until the backlog is closed):
+`tests/test_pom_aggregation.py` (aggregation wiring for both affirm and
+correct-with-clarification lines), `tests/test_api_server.py` (login
+gate, both feedback kinds persisting correctly, blank-statement and
+invalid-feedback-value rejection) all pass. `PomFeedback.test.js`
+(idle/affirm/correct/cancel/failure-retry states in isolation) +
+`PersonalOperatingModel.test.js` (affordance renders once per populated
+statement) all pass, plus a clean `npm run build`. Live browser
+verification deferred to the end-of-backlog validation pass, same
+explicit standing instruction #207/#208 both honored.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

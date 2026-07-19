@@ -1768,6 +1768,72 @@ def test_submit_journey_reflection_404s_for_a_session_owned_by_someone_else(clie
     assert res.status_code == 404
 
 
+def test_submit_pom_feedback_requires_login(client):
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "x", "feedback": "affirm"})
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
+def test_submit_pom_feedback_affirm_succeeds_and_persists(client):
+    """No separate opt-in toggle to check, unlike the reflection endpoint --
+    the affordance only ever appears on POM content this account can
+    already see through the login-gated GET, so require_user alone is
+    the whole gate."""
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "identity", "statement": "Values independence at work.", "feedback": "affirm",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User confirmed this is accurate about themselves (identity): Values independence at work."
+    ]
+
+
+def test_submit_pom_feedback_correct_with_text_persists_the_clarification(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "stress", "statement": "You seem stretched thin.",
+        "feedback": "correct", "correction_text": "Actually things have calmed down a lot.",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User said this was inaccurate about themselves (stress) and clarified: "
+        "Actually things have calmed down a lot."
+    ]
+
+
+def test_submit_pom_feedback_correct_without_text_falls_back_to_the_original_statement(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "stress", "statement": "You seem stretched thin.", "feedback": "correct",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User said this was inaccurate about themselves (stress): You seem stretched thin."
+    ]
+
+
+def test_submit_pom_feedback_rejects_blank_statement(client):
+    _login(client)
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "   ", "feedback": "affirm"})
+    assert res.status_code == 422
+
+
+def test_submit_pom_feedback_rejects_an_invalid_feedback_value(client):
+    _login(client)
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "x", "feedback": "meh"})
+    assert res.status_code == 422
+
+
 def test_privacy_export_never_includes_another_accounts_sessions(client, monkeypatch):
     """Direct regression test for the export/reset global-scope bug
     fixed this round (2026-07-18, see engine/decisions.md "POM made

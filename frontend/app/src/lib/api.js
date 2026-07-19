@@ -270,6 +270,29 @@ export async function getPersonalOperatingModel() {
   return _json(res);
 }
 
+// Light affirm/correct affordance on POM's "You" section (2026-07-19,
+// backlog #209) -- one reaction to one rendered POM statement. 204 No
+// Content on success, same "can't reuse _json" shape as
+// submitJourneyReflection above.
+export async function submitPomFeedback(system, statement, feedback, correctionText) {
+  const res = await fetch('/pom/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system, statement, feedback, correction_text: correctionText || null,
+    }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      // body wasn't JSON -- keep the generic detail above.
+    }
+    throw new ApiError(res.status, detail);
+  }
+}
+
 // Learning surfaced to users (2026-07-18, see frontend/decisions.md
 // "Learning surfaced to users") -- backs Settings' own behavioral-
 // patterns card. Requires login, same as /personal-operating-model

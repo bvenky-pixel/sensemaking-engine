@@ -8,6 +8,7 @@ import * as api from '../lib/api.js';
 // component test's own boundary.
 vi.mock('../lib/api.js', () => ({
   getPersonalOperatingModel: vi.fn(),
+  submitPomFeedback: vi.fn(),
 }));
 
 const EMPTY_POM = {
@@ -101,6 +102,18 @@ describe('PersonalOperatingModel', () => {
     expect(queryByText(/moderate/i)).toBeNull();
     expect(queryByText(/unclear/i)).toBeNull();
     expect(queryByText(/redemptive/i)).toBeNull();
+  });
+
+  it('renders the affirm/correct affordance next to every populated statement', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue(POPULATED_POM);
+    const { getByText, getAllByText } = render(PersonalOperatingModel);
+
+    await waitFor(() => getByText("What you've told me you believe"));
+    // One "Sounds right"/"Not quite" pair per rendered statement (belief,
+    // relationship, identity, autonomy, relatedness, learning_style,
+    // stress, narrative, theory_of_mind = 9 statements in POPULATED_POM).
+    expect(getAllByText('Sounds right').length).toBe(9);
+    expect(getAllByText('Not quite').length).toBe(9);
   });
 
   it('omits a system entirely when it has nothing grounded, even if others are populated', async () => {

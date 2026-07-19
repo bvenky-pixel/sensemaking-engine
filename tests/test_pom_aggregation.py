@@ -99,6 +99,21 @@ def test_get_aggregated_knowledge_for_pom_includes_journey_reflections(tmp_path,
     assert "Reflection: This conversation made me realize I've been avoiding this." in aggregated_content
 
 
+def test_get_aggregated_knowledge_for_pom_includes_pom_field_feedback(tmp_path, monkeypatch):
+    """Light affirm/correct affordance (2026-07-19, backlog #209) -- both
+    an affirmation and a correction get folded into aggregated_content
+    as their own plain-language evidence lines."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db(tmp_path / "test.db")
+    db.save_pom_feedback("user-1", "identity", "Values independence at work.", "affirm")
+    db.save_pom_feedback("user-1", "stress", "You seem stretched thin.", "correct", "Things have calmed down.")
+
+    _, _, _, aggregated_content = db.get_aggregated_knowledge_for_pom("user-1")
+
+    assert "User confirmed this is accurate about themselves (identity): Values independence at work." in aggregated_content
+    assert "User said this was inaccurate about themselves (stress) and clarified: Things have calmed down." in aggregated_content
+
+
 def test_get_aggregated_knowledge_for_pom_excludes_other_accounts_sessions(tmp_path, monkeypatch):
     """POM made per-user (2026-07-18, see engine/decisions.md "POM made
     per-user"): the direct regression test for the bug this round

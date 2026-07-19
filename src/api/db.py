@@ -98,6 +98,18 @@ One more table, added for Privacy, made real (see frontend/decisions.md):
   `get_aggregated_knowledge_for_pom`'s own aggregated_content as its own
   labeled line.
 
+One more table, added for the light affirm/correct affordance on POM's
+"You" section (2026-07-19, backlog #209, see engine/decisions.md):
+`pom_field_feedback` (`user_id`, `system`, `statement`, `feedback` --
+`'affirm'`/`'correct'` -- `correction_text`, `created_at`). No opt-in
+toggle of its own: the affordance only ever appears on POM content
+already gated behind login, same as the GET /personal-operating-model
+endpoint it lives alongside. Read by `get_pom_feedback_for_pom`, folded
+into `get_aggregated_knowledge_for_pom`'s aggregated_content as its own
+labeled lines -- same "feed it as evidence text, let the next inference
+weigh it" treatment `journey_reflections` gets, confirmed with the
+founder over a hard-pin/override alternative (see decisions.md).
+
 Three more tables, added for basic auth (2026-07-18, see
 frontend/decisions.md "Auth, the low-friction way" and engine/decisions.md):
 this is the "revisit if/when multi-user support exists" moment the
@@ -280,6 +292,17 @@ CREATE TABLE IF NOT EXISTS journey_reflections (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS pom_field_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    system TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    feedback TEXT NOT NULL CHECK (feedback IN ('affirm', 'correct')),
+    correction_text TEXT,
+    created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -1240,6 +1263,13 @@ def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str]
     # self-report, not an extracted Claim/Assumption).
     lines += [f"Reflection: {r}" for r in get_reflections_for_pom(user_id)]
 
+    # Light affirm/correct affordance (2026-07-19, backlog #209) --
+    # this account's own reactions to previously-rendered POM
+    # statements, already rendered as full evidence sentences by
+    # get_pom_feedback_for_pom, appended verbatim (no extra label
+    # prefix needed, unlike the lines above).
+    lines += get_pom_feedback_for_pom(user_id)
+
     aggregated_content = "\n".join(lines)
     return claims, assumptions, entities, aggregated_content
 
@@ -1377,6 +1407,51 @@ def get_reflections_for_pom(user_id: str) -> List[str]:
     return [row[0] for row in rows]
 
 
+def save_pom_feedback(
+    user_id: str, system: str, statement: str, feedback: str, correction_text: Optional[str] = None,
+) -> None:
+    """Light affirm/correct affordance on POM's "You" section (2026-07-19,
+    backlog #209) -- one reaction to one rendered POM statement. Never
+    gated here on cross_session_learning_enabled: the caller (src/api/
+    server.py) only ever renders this affordance on already-fetched POM
+    content, so if that content is showing, feedback about it is fair to
+    accept, same "plain append, no re-gating" treatment as
+    save_journey_reflection."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO pom_field_feedback (user_id, system, statement, feedback, correction_text, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, system, statement, feedback, correction_text, _now()),
+        )
+
+
+def get_pom_feedback_for_pom(user_id: str) -> List[str]:
+    """Read side for get_aggregated_knowledge_for_pom below -- every
+    piece of affirm/correct feedback THIS account has ever given about
+    its own POM, oldest first, rendered as plain-language evidence lines
+    for the next LLM inference to weigh (2026-07-19, backlog #209,
+    confirmed with the founder over a hard-pin/override alternative --
+    see engine/decisions.md). An affirmation restates the original
+    statement as confirmed; a correction surfaces the person's own
+    clarifying text when they gave one, or just flags the original
+    statement as inaccurate when they didn't."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT system, statement, feedback, correction_text FROM pom_field_feedback "
+            "WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+    lines = []
+    for system, statement, feedback, correction_text in rows:
+        if feedback == "affirm":
+            lines.append(f"User confirmed this is accurate about themselves ({system}): {statement}")
+        elif correction_text:
+            lines.append(f"User said this was inaccurate about themselves ({system}) and clarified: {correction_text}")
+        else:
+            lines.append(f"User said this was inaccurate about themselves ({system}): {statement}")
+    return lines
+
+
 def _rows_for_session_ids(conn: sqlite3.Connection, table: str, session_ids: List[str]) -> List[dict]:
     """Small shared helper for export_all_data/reset_all_data below --
     both need "every row in this child table that belongs to one of
@@ -1466,6 +1541,9 @@ def export_all_data(user_id: str) -> dict:
         journey_reflections = [dict(row) for row in conn.execute(
             "SELECT * FROM journey_reflections WHERE user_id = ?", (user_id,)
         )]
+        pom_field_feedback = [dict(row) for row in conn.execute(
+            "SELECT * FROM pom_field_feedback WHERE user_id = ?", (user_id,)
+        )]
 
     for session in sessions:
         session["world_state"] = json.loads(session.pop("world_state_json"))
@@ -1488,6 +1566,7 @@ def export_all_data(user_id: str) -> dict:
         "personal_operating_model": pom_row,
         "privacy_settings": privacy_settings_row,
         "journey_reflections": journey_reflections,
+        "pom_field_feedback": pom_field_feedback,
     }
 
 
@@ -1543,6 +1622,10 @@ def reset_all_data(user_id: str) -> None:
         # category as sessions/messages, not a preference like
         # privacy_settings above -- "forget everything" deletes them.
         conn.execute("DELETE FROM journey_reflections WHERE user_id = ?", (user_id,))
+        # Light affirm/correct affordance (2026-07-19, backlog #209) --
+        # same content-not-preference treatment as journey_reflections
+        # above.
+        conn.execute("DELETE FROM pom_field_feedback WHERE user_id = ?", (user_id,))
 
 
 def record_llm_usage(session_id: Optional[str], usage: LLMUsage) -> None:

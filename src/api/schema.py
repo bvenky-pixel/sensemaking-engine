@@ -15,7 +15,7 @@ actually exposes to a real client -- `SendMessageResponse` mirrors what
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -249,6 +249,32 @@ class SubmitJourneyReflectionRequest(BaseModel):
         if not value.strip():
             raise ValueError("content must not be empty or whitespace-only")
         return value
+
+
+class SubmitPomFeedbackRequest(BaseModel):
+    """POST /pom/feedback body -- backlog #209. `system`/`statement` are
+    the section label and rendered text the person reacted to (e.g.
+    system="stress", statement="You've been under a lot of pressure
+    lately."); `correction_text` is optional even when feedback is
+    "correct" -- a bare thumbs-down with no explanation is still a
+    valid, "light" reaction."""
+
+    system: str
+    statement: str
+    feedback: Literal["affirm", "correct"]
+    correction_text: Optional[str] = None
+
+    @field_validator("system", "statement", mode="after")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return value
+
+    @field_validator("correction_text", mode="after")
+    @classmethod
+    def _blank_to_none(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value and value.strip() else None
 
 
 class RequestMagicLinkRequest(BaseModel):
