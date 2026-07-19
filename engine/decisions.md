@@ -10307,6 +10307,66 @@ submission-failure flows), clean `npm run build`. Live browser
 verification deferred to the end-of-backlog validation pass per
 explicit instruction this round, not skipped outright.
 
+## POM: draw Motivation/competence from existing behavioral_events (2026-07-19, backlog #208)
+
+The only prior design for this beyond the one-line backlog title was the
+Open Questions note in `engine/specs/personal-operating-model-specification-v1.md`:
+"drawing Motivation/competence from existing `behavioral_events` rather
+than solely from the LLM inference." One genuine design fork, confirmed
+with the founder directly before building: once there's enough
+behavioral evidence, does the mechanical signal (a) **override** the
+LLM's `competence` value outright, (b) fill in only when the LLM
+inference is `"unclear"`, or (c) get fed in as another evidence line for
+the LLM to weigh (mirroring #207's reflection treatment)? Chosen:
+**(a) override** -- same "mechanical, already-trusted data wins"
+treatment `compute_belief_system`/`compute_relationship_system` already
+get, extended to this one Motivation dimension specifically (not
+autonomy/relatedness -- neither has an equivalent behavioral-event
+proxy).
+
+**Engine** (`src/pom/engine.py`): new `compute_behavioral_competence(events,
+min_evidence=MIN_BEHAVIORAL_EVIDENCE)`, pure/mechanical, no LLM call.
+Pools Goal completion and Decision resolution together (both speak to
+the same "did they see it through" construct competence is meant to
+capture): `goal_status_changed -> "completed"` and
+`decision_status_changed -> "resolved"` count as success;
+`-> "abandoned"` and `-> "deferred"/"expired"` count as struggle;
+still-in-progress statuses (`active`/`paused`/`open`) count as neither
+and are excluded. `MIN_BEHAVIORAL_EVIDENCE = 3` is a first-cut,
+NOT-empirically-calibrated floor, deliberately duplicated (not
+imported) from `src/learning/engine.py`'s own `MIN_EVIDENCE` constant,
+same "small constants/utilities duplicated across engine packages"
+convention this module already follows. Below the floor, returns `None`
+-- meaning "leave the LLM's own read in place," the same silence-below-
+floor discipline `compute_behavioral_patterns` already established.
+Above the floor, buckets the success ratio into `ConfidenceLevel`
+(`>= 2/3` -&gt; `"high"`, `<= 1/3` -&gt; `"low"`, else `"moderate"`) --
+also a first-cut threshold, not calibrated. `compute_personal_operating_model`
+now takes `events: List[BehavioralEvent]` (this account's own
+`behavioral_events`, via the existing `db.get_events_for_user`) as a
+required parameter and, when the mechanical read isn't `None`,
+overrides both `motivation.competence` and `motivation.competence_evidence`
+(replacing the LLM's own evidence strings with plain-language mechanical
+ones, e.g. "2 of 3 goals were completed rather than abandoned.") after
+`run_inferred_pom` returns -- every other Motivation/POM field is left
+untouched.
+
+**Callers**: `scripts/run_pom_computation.py` and
+`scripts/run_pom_walkthrough.py` both updated to fetch
+`db.get_events_for_user(user_id)` and pass it through -- no other
+caller exists (POM only ever computes offline, never live, per its own
+module docstring).
+
+Verified: `tests/test_pom_engine.py` covers the floor (insufficient
+evidence returns `None`, including all-in-progress-status events),
+high/low/moderate bucketing, pooled goal+decision evidence, and the
+end-to-end override (mocked LLM output stays for autonomy/relatedness
+while competence and its evidence get replaced) plus the inverse (LLM
+competence stands untouched when `events=[]`). Full suite not re-run
+this round per the standing instruction to batch validation until the
+backlog is closed or a task is genuinely blocked without it -- these
+targeted tests pass cleanly on their own.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

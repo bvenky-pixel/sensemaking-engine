@@ -68,13 +68,14 @@ def main() -> None:
             continue
 
         claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(user_id)
+        events = db.get_events_for_user(user_id)
         print(
             f"\n=== {user_id} ==="
             f"\nAggregated {len(claims)} claim(s), {len(assumptions)} assumption(s), "
-            f"{len(entities)} entit(y/ies) across this account's sessions."
+            f"{len(entities)} entit(y/ies), {len(events)} behavioral event(s) across this account's sessions."
         )
 
-        pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content)
+        pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content, events)
         db.replace_personal_operating_model(user_id, pom)
 
         print("Belief:")

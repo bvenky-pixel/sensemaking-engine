@@ -16,13 +16,23 @@ import json
 
 import pytest
 
+from src.instrumentation.events import BehavioralEvent
 from src.pom.engine import (
     POMEngineError,
+    compute_behavioral_competence,
     compute_belief_system,
+    compute_personal_operating_model,
     compute_relationship_system,
     run_inferred_pom,
 )
 from src.state.world_state import Entity, EntityAttribute
+
+
+def _event(event_type, new_status, turn=1):
+    return BehavioralEvent(
+        event_type=event_type, session_id="s1", turn=turn, detail="something",
+        old_status="active", new_status=new_status, timestamp="2026-07-19T00:00:00Z",
+    )
 
 
 def _always_returns(payload):
@@ -67,6 +77,113 @@ def test_compute_relationship_system_renders_entity_with_attributes():
     assert "Manager" in result.relationships[0]
     assert "role is manager" in result.relationships[0]
     assert "has final say on transfers" in result.relationships[0]
+
+
+# --- Behavioral competence (mechanical override, backlog #208) ---
+
+def test_compute_behavioral_competence_returns_none_below_evidence_floor():
+    events = [_event("goal_status_changed", "completed"), _event("goal_status_changed", "abandoned")]
+    assert compute_behavioral_competence(events) is None
+
+
+def test_compute_behavioral_competence_returns_none_for_no_events():
+    assert compute_behavioral_competence([]) is None
+
+
+def test_compute_behavioral_competence_high_when_mostly_followed_through():
+    events = [
+        _event("goal_status_changed", "completed"),
+        _event("goal_status_changed", "completed"),
+        _event("decision_status_changed", "resolved"),
+    ]
+    level, evidence = compute_behavioral_competence(events)
+    assert level == "high"
+    assert any("goals" in e and "completed" in e for e in evidence)
+    assert any("decisions" in e and "resolved" in e for e in evidence)
+
+
+def test_compute_behavioral_competence_low_when_mostly_stalled():
+    events = [
+        _event("goal_status_changed", "abandoned"),
+        _event("decision_status_changed", "deferred"),
+        _event("decision_status_changed", "expired"),
+    ]
+    level, evidence = compute_behavioral_competence(events)
+    assert level == "low"
+
+
+def test_compute_behavioral_competence_moderate_for_a_mixed_split():
+    events = [
+        _event("goal_status_changed", "completed"),
+        _event("goal_status_changed", "abandoned"),
+        _event("decision_status_changed", "resolved"),
+        _event("decision_status_changed", "deferred"),
+    ]
+    level, _ = compute_behavioral_competence(events)
+    assert level == "moderate"
+
+
+def test_compute_behavioral_competence_ignores_in_progress_statuses():
+    """active/paused/open/deferred-in-progress statuses aren't a
+    follow-through signal either way -- only completed/abandoned/
+    resolved/deferred(terminal)/expired count."""
+    events = [
+        _event("goal_status_changed", "active"),
+        _event("goal_status_changed", "paused"),
+        _event("decision_status_changed", "open"),
+    ]
+    assert compute_behavioral_competence(events) is None
+
+
+def test_compute_personal_operating_model_overrides_competence_when_evidence_meets_floor(monkeypatch):
+    payload = {
+        "identity": {"self_concept": "", "evidence": []},
+        "motivation": {
+            "autonomy": "unclear", "autonomy_evidence": [],
+            "competence": "unclear", "competence_evidence": [],
+            "relatedness": "unclear", "relatedness_evidence": [],
+        },
+        "learning_style": {"style": "", "evidence": []},
+        "stress": {"level": "unclear", "evidence": []},
+        "narrative": {"arc": "unclear", "summary": "", "evidence": []},
+        "theory_of_mind": {"entries": []},
+    }
+    monkeypatch.setattr("src.pom.engine.call_provider", _always_returns(payload))
+
+    events = [
+        _event("goal_status_changed", "completed"),
+        _event("goal_status_changed", "completed"),
+        _event("decision_status_changed", "resolved"),
+    ]
+    pom = compute_personal_operating_model([], [], [], "Fact: something real happened.", events)
+
+    assert pom.motivation.competence == "high"
+    assert pom.motivation.competence_evidence != []
+    # untouched LLM-inferred dimensions stay as the model returned them
+    assert pom.motivation.autonomy == "unclear"
+
+
+def test_compute_personal_operating_model_leaves_llm_competence_when_evidence_is_thin(monkeypatch):
+    payload = {
+        "identity": {"self_concept": "", "evidence": []},
+        "motivation": {
+            "autonomy": "unclear", "autonomy_evidence": [],
+            "competence": "high", "competence_evidence": ["something real happened and they nailed it"],
+            "relatedness": "unclear", "relatedness_evidence": [],
+        },
+        "learning_style": {"style": "", "evidence": []},
+        "stress": {"level": "unclear", "evidence": []},
+        "narrative": {"arc": "unclear", "summary": "", "evidence": []},
+        "theory_of_mind": {"entries": []},
+    }
+    monkeypatch.setattr("src.pom.engine.call_provider", _always_returns(payload))
+
+    pom = compute_personal_operating_model(
+        [], [], [], "Fact: something real happened and they nailed it.", events=[],
+    )
+
+    assert pom.motivation.competence == "high"
+    assert pom.motivation.competence_evidence == ["something real happened and they nailed it"]
 
 
 # --- LLM-inferred systems ---
