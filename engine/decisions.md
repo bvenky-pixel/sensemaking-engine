@@ -10445,6 +10445,95 @@ statement) all pass, plus a clean `npm run build`. Live browser
 verification deferred to the end-of-backlog validation pass, same
 explicit standing instruction #207/#208 both honored.
 
+## POM: Insight-triggered conversational callback (2026-07-19, backlog #210)
+
+The only prior design for this beyond the one-line backlog title was
+the same Open Questions clause #207/#208/#209 all cite: "Insight-
+triggered conversational callbacks." Three genuine design forks,
+confirmed with the founder directly before building:
+
+1. **Scope** -- Home.svelte already shows a passive, static per-Journey
+   label ("This has come up before, too. {insight_detail}", shipped
+   2026-07-11, no LLM involved). Confirmed this does NOT already
+   satisfy #210: chosen scope is genuinely new behavior where
+   Response's own generated text, mid-conversation, can reference a
+   past Insight -- not just documenting the existing list-view label.
+2. **Trigger/mechanism** -- chosen: a guaranteed, Python-gated prompt
+   clause fired only on `turn_count == 1` (the first turn of a
+   brand-new Journey), mirroring the POM-seeding precedent's "resolve
+   the decision entirely in Python, hand the model only the outcome"
+   discipline -- not left to the model's own discretion via the
+   existing Judgment -> supporting_evidence path (which was already
+   true before this round and doesn't guarantee anything gets said),
+   and not fired periodically throughout a Journey (an Insight is a
+   whole recurring life theme, not a per-dimension probe -- repeating
+   it would read as fixating).
+3. **Which Insight, if several exist** -- chosen: genuine relevance
+   matching to the current conversation, OVERRIDING the simpler
+   "most-recently-computed" default this round's own research
+   recommended. Implemented as a mechanical word-overlap score (see
+   below), not real semantic/embedding search -- same "grounded
+   word-overlap over invented ML" discipline as `src/pom/engine.py`'s
+   own `_is_evidence_grounded`, deliberately narrower than the general
+   relevance-filtering system Retrieval/Need State Inference both
+   explicitly declined to build elsewhere in this codebase (this is a
+   single-purpose selection for one clause, not a new general
+   mechanism).
+
+**Engine** (`src/insight/engine.py`): new `select_relevant_insight(insights,
+state)` -- the one function in this module that runs LIVE, inside a
+turn (everything else here stays offline-only, per the module's own
+scope docstring). Scores each Insight's `theme`+`detail` against a
+plain-text rendering of THIS turn's own WorldState content (facts,
+claims, goals, decisions, entity names -- `_render_state_content`,
+duplicated rendering per this codebase's per-package convention) by
+shared-word overlap, returns the single highest-scoring Insight, or
+`None` when nothing has any real overlap -- a callback with zero
+genuine connection to the conversation would read as a non sequitur,
+worse than no callback. Ties broken by list order (already
+`computed_at`-ordered via `db.get_insights`), never re-sorted.
+
+**Threading** (mirrors `pom`'s own existing threading exactly):
+`src/api/server.py::send_message` already builds `insights` for
+Retrieval -- now also passes it to `run_turn`. `run_turn` (`src/
+orchestrator/engine.py`) threads it ONLY to `run_response_generator`,
+same as `pom`. `run_response_generator` (`src/response/engine.py`)
+calls `select_relevant_insight(insights, state)` -- but ONLY when
+`state.turn_count == 1`, skipping the word-overlap scan entirely on
+every later turn rather than doing pointless work -- and passes the
+resolved `Optional[Insight]` into `response_mode_focus_note`.
+
+**Prompt clause** (`src/orchestrator/modes.py`): new `_insight_callback_note`
+(gated on `turn_count == 1` AND a non-`None` insight) and
+`_INSIGHT_CALLBACK_CLAUSE`, explicitly a "light, secondary
+acknowledgment... do not force it if it would read as a non sequitur."
+Deliberately **mode-agnostic** -- unlike the POM-seeding clauses (which
+only apply to Vent/Strategize/Commit/Explore and explicitly skip
+Realign), this callback appends to EVERY mode's note, including
+Realign, since it's orthogonal to any mode's own per-dimension seeding
+logic. `response_mode_focus_note` restructured (still returns `""` for
+a Journey with no mode, same backward-compat guarantee) so the callback
+clause appends after Realign's own `{concept}` resolution and after any
+POM-seeding clause -- the two guaranteed-injection mechanisms can never
+actually coincide in practice (`turn_count == 1` and `turn_count % 3 ==
+0` are mutually exclusive), verified directly in tests rather than
+assumed.
+
+Verified (targeted, not a full-suite re-run, per the standing
+instruction to batch full validation until the backlog is closed):
+`tests/test_insight.py` (relevance scoring: no insights, no state
+content, zero overlap, highest-score selection, tie-breaking by list
+order), `tests/test_modes.py` (gate on turn_count == 1, mode-agnostic
+append including realign, non-overlap with POM-seeding), `tests/
+test_response_engine.py` (new file -- end-to-end threading from
+`run_response_generator` through to the actual prompt text sent to
+`call_provider`), `tests/test_orchestrator.py` (insights threads to
+Response only, defaults to None for every existing caller) all pass.
+No frontend changes -- the callback surfaces purely through Response's
+own generated text, no new UI surface needed. Live browser/dispatch
+verification deferred to the end-of-backlog validation pass, same
+standing instruction #207/#208/#209 all honored.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

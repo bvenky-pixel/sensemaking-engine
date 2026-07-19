@@ -6,10 +6,12 @@ as the other schema-level tests.
 
 from __future__ import annotations
 
+from src.insight.schema import Insight
 from src.orchestrator.modes import (
     MODE_COPY,
     PLANNER_MODE_FOCUS,
     RESPONSE_MODE_FOCUS,
+    _insight_callback_note,
     _pom_dimension_is_thin,
     _POM_SEED_CLAUSES,
     _realign_concept_for_turn,
@@ -23,6 +25,8 @@ from src.pom.schema import (
     PersonalOperatingModel,
     StressSystem,
 )
+
+_INSIGHT = Insight(theme="Avoiding hard conversations", detail="Tends to delay direct feedback with managers.")
 
 _POM_SEEDED_MODES = ["vent", "strategize", "commit", "explore"]
 
@@ -361,3 +365,71 @@ def test_planner_focus_note_for_adaptive_frames_choice_as_per_turn_not_whole_jou
     five modes: Adaptive's choice must be allowed to change turn to
     turn, not lock in for the whole Journey the way the other five do."""
     assert "per-turn" in PLANNER_MODE_FOCUS["adaptive"].lower() or "per turn" in PLANNER_MODE_FOCUS["adaptive"].lower()
+
+
+# --- Insight-triggered conversational callback (2026-07-19, backlog #210) ---
+
+def test_insight_callback_note_empty_when_no_insight():
+    assert _insight_callback_note(1, None) == ""
+
+
+def test_insight_callback_note_empty_past_the_first_turn():
+    """Only ever fires on turn_count == 1 (the first turn of a brand-new
+    Journey) -- a real Insight present on any later turn must not
+    resurface the callback."""
+    assert _insight_callback_note(2, _INSIGHT) == ""
+    assert _insight_callback_note(0, _INSIGHT) == ""
+
+
+def test_insight_callback_note_fires_on_turn_one_with_a_real_insight():
+    note = _insight_callback_note(1, _INSIGHT)
+    assert _INSIGHT.theme in note
+    assert _INSIGHT.detail in note
+
+
+def test_response_mode_focus_note_appends_insight_callback_for_every_concrete_mode():
+    """Mode-agnostic (2026-07-19, backlog #210) -- unlike POM-seeding,
+    the callback must append for EVERY mode, including realign, which
+    POM-seeding deliberately skips."""
+    for mode in _ALL_MODES:
+        note = response_mode_focus_note(mode, 1, None, _INSIGHT)
+        assert _INSIGHT.theme in note
+        assert _INSIGHT.detail in note
+        # The mode's own baseline focus is still present underneath it.
+        assert RESPONSE_MODE_FOCUS[mode].split("{concept}")[0] in note or mode == "realign"
+
+
+def test_response_mode_focus_note_realign_still_resolves_concept_alongside_callback():
+    """Realign's own {concept} placeholder must still be filled in even
+    when the Insight callback also appends this turn."""
+    note = response_mode_focus_note("realign", 1, None, _INSIGHT)
+    assert "{concept}" not in note
+    assert _realign_concept_for_turn(1) in note
+    assert _INSIGHT.theme in note
+
+
+def test_response_mode_focus_note_omits_insight_callback_when_no_insight_selected():
+    for mode in _ALL_MODES:
+        note = response_mode_focus_note(mode, 1, None, None)
+        assert "Insight-triggered" not in note
+
+
+def test_response_mode_focus_note_omits_insight_callback_past_turn_one():
+    note = response_mode_focus_note("vent", 4, None, _INSIGHT)
+    assert "Insight-triggered" not in note
+
+
+def test_pom_seeding_and_insight_callback_gates_never_actually_overlap():
+    """The two guaranteed-injection mechanisms are structurally
+    independent gates (POM-seeding needs turn_count % 3 == 0; the
+    Insight callback needs turn_count == 1) that can never both be true
+    for the same turn_count (1 % 3 != 0) -- so on turn 3, only
+    POM-seeding's clause appears even with a real Insight available..."""
+    note = response_mode_focus_note("vent", 3, None, _INSIGHT)
+    assert _POM_SEED_CLAUSES["vent"] in note
+    assert "Insight-triggered" not in note
+    # ...and on turn 1, only the Insight callback appears, never a
+    # POM-seeding clause (which needs turn_count % 3 == 0).
+    note = response_mode_focus_note("vent", 1, None, _INSIGHT)
+    assert _POM_SEED_CLAUSES["vent"] not in note
+    assert _INSIGHT.theme in note

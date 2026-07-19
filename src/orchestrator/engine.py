@@ -42,8 +42,9 @@ reports what happened, never judging what any stage's output means.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
+from src.insight.schema import Insight
 from src.instrumentation.events import diff_behavioral_events
 from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.engine import InterpretationError, run_interpretation
@@ -67,6 +68,7 @@ def run_turn(
     mode: Optional[str] = None,
     retrieved_context: str = "",
     pom: Optional[PersonalOperatingModel] = None,
+    insights: Optional[List[Insight]] = None,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -136,6 +138,12 @@ def run_turn(
     to decide whether that mode's POM-seeding clause should fire this
     turn; every other stage is unaffected. Default None is a true no-op
     for every existing caller.
+
+    insights: this account's own computed Insights (2026-07-19, backlog
+    #210, see engine/decisions.md "POM: Insight-triggered conversational
+    callback") -- Orchestrator threads it ONLY to run_response_generator,
+    same as `pom` above; every other stage is unaffected. Default None
+    is a true no-op for every existing caller.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -236,7 +244,7 @@ def run_turn(
 
     try:
         response = run_response_generator(
-            state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom,
+            state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom, insights=insights,
         )
     except ResponseGeneratorError as exc:
         return TurnResult(

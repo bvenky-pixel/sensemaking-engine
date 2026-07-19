@@ -17,8 +17,9 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from src.insight.engine import InsightEngineError, run_insight_detection
+from src.insight.engine import InsightEngineError, run_insight_detection, select_relevant_insight
 from src.insight.schema import MIN_EVIDENCE_SESSIONS, Insight, InsightBatch
+from src.state.world_state import Claim, Fact, WorldState
 
 
 def _always_returns(payload):
@@ -117,3 +118,41 @@ def test_raises_when_every_provider_fails(monkeypatch):
     ]
     with pytest.raises(InsightEngineError):
         run_insight_detection(session_texts)
+
+
+# --- select_relevant_insight (2026-07-19, backlog #210) ---
+
+def test_select_relevant_insight_returns_none_for_no_insights():
+    state = WorldState(facts=[Fact(content="User is considering a job offer.")])
+    assert select_relevant_insight([], state) is None
+
+
+def test_select_relevant_insight_returns_none_when_state_has_no_content():
+    insight = Insight(theme="Avoidance", detail="Tends to delay hard conversations.")
+    assert select_relevant_insight([insight], WorldState()) is None
+
+
+def test_select_relevant_insight_returns_none_when_nothing_overlaps():
+    """A callback referencing something with zero real connection to
+    this conversation would read as a non sequitur -- worse than saying
+    nothing."""
+    insight = Insight(theme="Avoidance", detail="Tends to delay hard conversations with managers.")
+    state = WorldState(facts=[Fact(content="User just adopted a new puppy.")])
+    assert select_relevant_insight([insight], state) is None
+
+
+def test_select_relevant_insight_picks_the_highest_overlap_score():
+    relevant = Insight(theme="Avoiding hard conversations", detail="Delays direct feedback with managers.")
+    unrelated = Insight(theme="Sleep schedule", detail="Struggles to keep a consistent bedtime.")
+    state = WorldState(
+        facts=[Fact(content="User is nervous about giving their manager direct feedback.")],
+        claims=[Claim(content="User believes avoiding hard conversations makes things worse.")],
+    )
+    assert select_relevant_insight([unrelated, relevant], state) == relevant
+
+
+def test_select_relevant_insight_breaks_ties_by_list_order():
+    first = Insight(theme="Career direction", detail="Weighs job offers for a long time.")
+    second = Insight(theme="Career choices", detail="Weighs job offers for a long time.")
+    state = WorldState(facts=[Fact(content="User is weighing a new job offer.")])
+    assert select_relevant_insight([first, second], state) == first

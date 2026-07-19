@@ -138,12 +138,28 @@ seeding at all.
 Deliberately a light structural nudge, never a mandate: each clause is
 strictly secondary to the mode's own primary job and grounded in what
 was actually said, never inventing content to manufacture a data point.
+
+Insight-triggered conversational callback (2026-07-19, backlog #210,
+see engine/decisions.md "POM: Insight-triggered conversational
+callback"): a different shape from the POM-seeding clauses above --
+mode-agnostic (fires the same way regardless of which of the six modes
+is active, including realign, which POM-seeding deliberately skips) and
+gated on `turn_count == 1` (the first turn of a brand-new Journey) AND
+on a real, already-resolved Insight rather than a per-mode dimension
+check. The relevance decision itself is made entirely OUTSIDE this
+module (src.insight.engine.select_relevant_insight, called from
+src/response/engine.py before response_mode_focus_note), same "resolve
+the decision entirely in Python, hand the model only the outcome"
+discipline as Realign's rotation and POM-seeding's thinness check --
+this module never evaluates relevance itself, only whether to append
+the already-resolved Insight's clause.
 """
 
 from __future__ import annotations
 
 from typing import Dict, Literal, Optional
 
+from src.insight.schema import Insight
 from src.pom.schema import PersonalOperatingModel
 
 CounselingMode = Literal["vent", "strategize", "commit", "explore", "realign", "adaptive"]
@@ -541,6 +557,38 @@ def _realign_concept_for_turn(turn_count: int) -> str:
     return _REALIGN_CONCEPTS[turn_count % len(_REALIGN_CONCEPTS)]
 
 
+# Insight-triggered conversational callback (2026-07-19, backlog #210) --
+# a light, secondary acknowledgment, never the turn's main content;
+# explicitly allowed to be skipped by the model if it would feel forced,
+# same "never a mandate" discipline as the POM-seeding clauses above.
+_INSIGHT_CALLBACK_CLAUSE = (
+    "Insight-triggered conversational callback (2026-07-19, see "
+    "engine/decisions.md \"POM: Insight-triggered conversational "
+    "callback\"): this account has a recurring cross-session theme -- "
+    "{theme}: {detail} -- that appears genuinely connected to what this "
+    "brand-new Journey has already touched on this turn. Naturally, "
+    "briefly acknowledge that connection somewhere in your response "
+    "(e.g. something in the register of \"This sounds connected to "
+    "something we've noticed before...\") -- do not force it if it "
+    "would read as a non sequitur, and never let it crowd out this "
+    "turn's own primary response; this is a light, secondary "
+    "acknowledgment, not the turn's main content."
+)
+
+
+def _insight_callback_note(turn_count: int, insight: Optional[Insight]) -> str:
+    """Returns the Insight-callback clause for THIS turn, or "" when it
+    shouldn't fire. Only ever on turn_count == 1 (the first turn of a
+    brand-new Journey, see WorldState.turn_count) and only when
+    `insight` -- already resolved by
+    src.insight.engine.select_relevant_insight against this turn's own
+    content -- is not None; this function never decides relevance
+    itself, only whether to surface the already-resolved choice."""
+    if turn_count != 1 or insight is None:
+        return ""
+    return _INSIGHT_CALLBACK_CLAUSE.format(theme=insight.theme, detail=insight.detail)
+
+
 def planner_mode_focus_note(mode: Optional[str]) -> str:
     """Returns Planner's prompt-injection paragraph for a given mode, or
     "" when no mode was chosen -- a Journey started before this feature
@@ -553,7 +601,10 @@ def planner_mode_focus_note(mode: Optional[str]) -> str:
 
 
 def response_mode_focus_note(
-    mode: Optional[str], turn_count: int = 0, pom: Optional[PersonalOperatingModel] = None
+    mode: Optional[str],
+    turn_count: int = 0,
+    pom: Optional[PersonalOperatingModel] = None,
+    insight: Optional[Insight] = None,
 ) -> str:
     """Same contract as planner_mode_focus_note above, for Response's
     own, separately-worded focus text.
@@ -561,15 +612,16 @@ def response_mode_focus_note(
     turn_count (2026-07-18, see engine/decisions.md "Realign rotation
     precomputed in Python"): WorldState.turn_count for THIS turn -- used
     by Realign's own deterministic concept rotation
-    (_realign_concept_for_turn above) and by the POM-seeding cadence
-    check below (_should_seed_pom); every other mode's note ignores it
-    entirely, same as before it existed. Realign's own entry contains a
-    literal `{concept}` format placeholder filled in here rather than
-    left for the model to resolve itself -- a live re-verification found
-    the model-computes-the-modulo design still converged onto one
-    concept most turns once a different model became Planner's primary,
-    so the selection is now made in Python, not left to the model's own
-    arithmetic/instruction-following.
+    (_realign_concept_for_turn above), by the POM-seeding cadence check
+    below (_should_seed_pom), and by the Insight-callback gate
+    (_insight_callback_note, only turn_count == 1); every other mode's
+    note ignores it entirely, same as before it existed. Realign's own
+    entry contains a literal `{concept}` format placeholder filled in
+    here rather than left for the model to resolve itself -- a live
+    re-verification found the model-computes-the-modulo design still
+    converged onto one concept most turns once a different model became
+    Planner's primary, so the selection is now made in Python, not left
+    to the model's own arithmetic/instruction-following.
 
     pom (2026-07-18, see engine/decisions.md "POM early seeding:
     thinnest-system-aware targeting"): this account's own current
@@ -578,12 +630,24 @@ def response_mode_focus_note(
     Vent/Strategize/Commit/Explore's POM-seeding clause should fire this
     turn (see _should_seed_pom); ignored by every other mode, and by
     these same four modes once their mapped dimension is no longer
-    thin."""
-    if not mode:
-        return ""
-    note = RESPONSE_MODE_FOCUS.get(mode, "")
-    if mode == "realign" and note:
-        return note.format(concept=_realign_concept_for_turn(turn_count))
-    if note and _should_seed_pom(mode, turn_count, pom):
-        note = note + "\n\n" + _POM_SEED_CLAUSES[mode]
+    thin.
+
+    insight (2026-07-19, backlog #210, see engine/decisions.md "POM:
+    Insight-triggered conversational callback"): the single Insight
+    already selected as relevant to THIS turn
+    (src.insight.engine.select_relevant_insight), or None if no Insight
+    exists or none scored as relevant -- unlike POM-seeding, this clause
+    is mode-agnostic and appends to EVERY mode's note, including
+    realign, whenever turn_count == 1 and insight is not None; see
+    _insight_callback_note."""
+    note = ""
+    if mode:
+        note = RESPONSE_MODE_FOCUS.get(mode, "")
+        if mode == "realign" and note:
+            note = note.format(concept=_realign_concept_for_turn(turn_count))
+        elif note and _should_seed_pom(mode, turn_count, pom):
+            note = note + "\n\n" + _POM_SEED_CLAUSES[mode]
+    callback = _insight_callback_note(turn_count, insight)
+    if callback:
+        note = f"{note}\n\n{callback}" if note else callback
     return note
