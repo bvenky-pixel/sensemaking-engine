@@ -10634,6 +10634,174 @@ the confirmation instead of leaving them reading as still-open.
 `tests/test_need_state.py` + `tests/test_retrieval.py` (27 tests)
 re-run clean -- no behavior to break, since only prose changed.
 
+## Judgment v3 design pass (2026-07-19, backlog #228)
+
+Reviewed `engine/specs/judgement-v3-design` (a discussion draft, never
+frozen, never implemented in full) at the founder's explicit direction
+("do a full v3 design pass now," chosen over "keep cherry-picking as
+evidence justifies" and "formally close/reject v3"). Of the draft's
+seven named responsibilities, two were already substantially covered
+by existing v2 fields (Salience Detection -> `secondary_issues`;
+Goal Progress Assessment -> `stagnation_notes`, which already
+superseded the draft's own `trajectory` idea in an earlier round) and
+NOT touched further -- no new evidence has emerged since either
+supersession that argues for revisiting them. The other four had no v2
+equivalent and shipped as real fields:
+
+1. **Situation Assessment** -> `situation_assessment: str = ""` -- a
+   higher-level characterization of the KIND of situation this is,
+   distinct from `primary_problem` (the specific blocker) and
+   `current_focus` (what the user is doing about it).
+2. **Contradiction Assessment** (materiality) -> `contradiction_significance:
+   str = ""` -- assesses what a recorded contradiction actually implies,
+   distinct from `contradictions` itself (which only records the
+   tension).
+3. **Risk Assessment** (materiality) -> `risk_significance: str = ""` --
+   assesses whether named risks materially constrain the primary goal,
+   distinct from `risk_scan` (justifies the check) and `risks`
+   (specific factors).
+4. **Decision Readiness** -> `decision_readiness: str = ""` -- whether
+   the user appears to be actively weighing open decision option(s),
+   never a recommendation of which to pick (stays a future Planner's
+   job per the draft's own Explicit Non-Responsibilities).
+
+The draft's two remaining genuinely-open questions were also closed
+this round, each "no": explicit issue ranking beyond the existing
+primary/secondary split (no motivating evidence), and a separate
+assessment-confidence field distinct from Interpretation's own
+confidence fields (Judgment's existing `confidence` already answers the
+same question -- "how complete is the evidentiary basis" -- in
+different words).
+
+All four new fields are plain, defaulted (`= ""`) strings with NO
+boolean-gate/auto-repair -- same "no gate without evidence of a
+transcription-compliance failure" discipline as `secondary_issues`/
+`stagnation_notes` when they were first added. Defaulting them (rather
+than making them required, matching the ORIGINAL v2 core fields'
+convention) was deliberate: it meant zero of the ~7 test files across
+the codebase that construct `Judgment(...)` objects directly needed any
+change, following the same precedent `secondary_issues`/`stagnation_notes`/
+`near_duplicates` themselves set when they were incrementally added.
+
+Updated: `src/judgment/schema.py` (new fields + docstring), `src/judgment/
+prompt.py` (FIELD DEFINITIONS entries + OBSERVATIONS VS ASSESSMENTS
+"second layer" note), `engine/specs/judgment-specification-v2.md` (Output
+block, Field Definitions, new "Open Questions — resolved" section), and
+`engine/specs/judgement-v3-design`'s own status header (now "PARTIALLY
+ADOPTED," not a live backlog of untouched proposals).
+
+Verified: new `tests/test_judgment_v3_fields.py` (7 tests: defaults,
+populated round-trip, prompt-presence, anti-restatement wording, the
+"never recommend an option" constraint, second-layer framing) plus the
+full existing Judgment/orchestrator/response/understanding suite (264
+tests) re-run clean with zero fixture changes needed, confirming the
+defaulted-field design choice.
+
+Live-dispatch quality verification (do these four fields actually
+produce non-redundant text against a real model, the way `stagnation_notes`/
+`secondary_issues` needed live testing to validate) is deliberately NOT
+done this round -- offered as a follow-up, not assumed.
+
+## Judgment write-back: confirmed as case-by-case policy (2026-07-19, backlog #247)
+
+Two independently-justified ad-hoc exceptions to "Judgment never writes
+to WorldState" have accumulated over time: `apply_judgment_resolutions`
+(2026-07-10, decision lifecycle round 3) and `apply_knowledge_corrections`
+(2026-07-12, Fact/Claim correction and near-duplicate consolidation).
+Neither was ever reconciled into one general write-back policy --
+`src/orchestrator/engine.py` even still had a comment calling
+`apply_judgment_resolutions` "the one deliberate exception" despite a
+second one sitting immediately below it in the same function.
+
+Put directly to the founder: confirm case-by-case exceptions as the
+ongoing policy, or generalize into one explicit, reusable write-back
+mechanism the two (and any future) cases route through. **CONFIRMED:
+case-by-case exceptions.** Each future write-back need gets its own
+narrowly-justified carve-out, following the same precedent -- no
+invented general abstraction ahead of a second/third concrete need
+that would actually share meaningful structure with the first two.
+
+Fixed the stale "the one deliberate exception" comment in
+`src/orchestrator/engine.py` to describe both exceptions and reference
+this confirmation. Updated `engine/specs/judgment-specification-v2.md`'s
+Design Principles section (now names both exceptions, states the
+confirmed policy explicitly) and added a Field Definitions entry for
+the second exception (Knowledge Corrections), which the spec had never
+documented at all despite existing in `src/judgment/schema.py` since
+2026-07-12. No behavior changed -- both exceptions already worked
+exactly this way; this round settles that they're allowed to keep doing
+so, and fixes the docs that had drifted from that reality.
+
+## Interpretation: contradictions/risks stay declined (2026-07-19, backlog #239)
+
+Interpretation was explicitly declined a `contradictions`/`risks` field
+in 2026-07-11 (`engine/specs/interpretation-v2-proposal.md`'s own status
+header): Judgment already owns "detect a conflict"/"detect a risk" over
+the full WorldState, and tracing the pipeline confirmed Judgment never
+reads raw Interpretation output at all -- an Interpretation-only version
+would be inert debug output with nothing downstream to consume it.
+
+Put directly to the founder: does that reasoning still hold, or is there
+a new reason to build it? **CONFIRMED: keep it declined.** No new
+WorldState tier or downstream consumer has emerged since 2026-07-11 --
+if anything, this round's own Judgment v3 pass (`contradiction_significance`/
+`risk_significance`, see above) extends Judgment's ownership of exactly
+this responsibility further, reinforcing rather than undermining the
+original reasoning. Updated `engine/specs/interpretation-v2-proposal.md`'s
+status header to record the confirmation. No code change -- these
+fields remain un-implemented by deliberate, now-doubly-confirmed choice.
+
+## Interpretation: third-party emotion exclusion confirmed despite POM's Theory of Mind (2026-07-19, backlog #240)
+
+Interpretation excludes third-party emotion inference (`emotional_signals`
+scoped to the user's own emotions only), decided 2026-07-09
+(`engine/specs/interpretation-spec-v0.9.md`) with an explicit reintroduce-
+when condition: "when multi-agent/attribution reasoning is actually
+being built." That condition has technically been met since --
+`src/pom/schema.py`'s `TheoryOfMindSystem` ships exactly that (per-entity
+third-party perspective/emotion inference, grounded against aggregated
+WorldState content) -- but nobody had reconciled the two before this
+round.
+
+Put directly to the founder given this new fact: does Interpretation's
+own per-turn exclusion still hold? **CONFIRMED: keep the exclusion.**
+POM's Theory of Mind covers the cross-session, durable-profile need (one
+LLM call over aggregated content across every session); Interpretation
+is a stateless PER-TURN extractor with no live in-conversation consumer
+for a third-party signal today -- adding it now would risk the same
+"inert field, nothing reads it yet" problem as backlog #239's
+contradictions/risks fields. Updated `src/interpretation/schema.py`'s
+`EmotionalSignal` docstring and `engine/specs/interpretation-spec-v0.9.md`
+to record the confirmation and the reasoning for why POM's shipped
+feature doesn't change Interpretation's own scope. No code change.
+
+## Interpretation: stateless-vs-state-aware treated as resolved by precedent (2026-07-19, backlog #241)
+
+Interpretation was designed stateless per turn from v1.1 onward
+(`build_messages(user_text)` takes only the raw message, no WorldState
+view) -- a deliberate choice, not an oversight. `engine/specs/
+interpretation-v2-proposal.md`'s own "Priority 3 (state-aware
+architecture)" item nominally stayed "open" in that document's language.
+But the one time this concretely mattered in practice (2026-07-10,
+decision lifecycle round 3 -- Interpretation's `decision_events`
+confirmed insufficient for a STRUCTURAL reason: it never sees
+WorldState, so it can't anchor to an existing option's exact text), the
+founder's real call was already made: relocate state-dependent matching
+downstream (to Judgment, which reads full WorldState verbatim; later
+also Tier 2) rather than restructure Interpretation's own pipeline
+shape.
+
+This round proposed closing Priority 3 on that same precedent -- treated
+as already answered, not re-opened from scratch -- rather than putting a
+fresh design question to the founder with no new information since
+2026-07-10 to inform it. Proceeded on that basis without objection.
+Updated `engine/specs/interpretation-v2-proposal.md`'s status header to
+record this closure and the reasoning, flagged plainly (same discipline
+as any other resolution this project records) so it's easy to revisit
+if the other direction was actually wanted. No code change --
+Interpretation was already built this way; this round only settles that
+it's staying that way.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive

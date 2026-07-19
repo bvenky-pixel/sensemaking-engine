@@ -83,6 +83,21 @@ If a field has no honest answer to #7, it is deleted or marked for removal.
    One field added beyond v0.8: `source` distinguishes "the user named this emotion directly" from "the model read this from tone/context without it being named" — these are genuinely different epistemic situations (mirrors the observed_fact-vs-inference distinction already used elsewhere in this schema) and collapsing them into one `confidence` number was throwing away real information.
 
    **Removed from this draft: `subject` (who is experiencing the emotion).** Originally added to future-proof for reasoning about a third party's emotional state, but applying the document's own governing test honestly: nobody consumes it today — there's no relationship modeling, attribution reasoning, or multi-agent state anywhere in this pipeline for it to plug into. That makes it speculative, and "every field must justify its existence" doesn't get suspended for fields I add myself. Reintroduce when multi-agent/attribution reasoning is actually being built (v1.2/v2 territory), not before.
+
+   **Re-examined and CONFIRMED (2026-07-19, backlog #240, see
+   engine/decisions.md "Interpretation: third-party emotion exclusion
+   confirmed despite POM's Theory of Mind"): the "when multi-agent/
+   attribution reasoning is actually being built" condition above has
+   technically been met since -- `src/pom/schema.py`'s `TheoryOfMindSystem`
+   ships exactly that (third-party perspective/emotion inference, per
+   entity, grounded against WorldState). Put directly to the founder
+   given this new fact: exclusion CONFIRMED anyway, because POM's version
+   covers the cross-session, durable-profile need (a single LLM call over
+   aggregated content across every session) while Interpretation is a
+   stateless PER-TURN extractor with no live in-conversation consumer for
+   a third-party signal -- adding it here now would be the same "inert
+   field, nothing reads it yet" risk as backlog #239's contradictions/
+   risks fields. Revisit only if a real per-turn consumer emerges.**
 4. **Allowed values:** `emotion` stays free text (a short emotion word/phrase) rather than a closed enum — emotional vocabulary is genuinely open-ended in a way domains aren't, and forcing it into a fixed list would lose real signal. `source` is a hard `Literal`.
 5. **Worked examples (new — this was the actual gap in v0.8):**
    - User: "I am stressed out and don't know what to do." →

@@ -191,23 +191,26 @@ def run_turn(
     _notify("judgment")
 
     # Judgment itself never writes to WorldState (it only ever reads it,
-    # per its own design principles) -- this is the one deliberate
-    # exception: turning Judgment's decision_resolutions assessment into
-    # an actual WorldState.decisions status update, so this turn's
-    # Planner/Response (and every later turn) see the corrected status
-    # instead of it staying silently stuck at "open". See
-    # engine/decisions.md "decision lifecycle, round 3".
+    # per its own design principles) -- this and apply_knowledge_corrections
+    # just below are the two deliberate, narrowly-scoped write-back
+    # exceptions (2026-07-19, see engine/decisions.md "Judgment write-back:
+    # confirmed as case-by-case policy", backlog #247 -- the founder
+    # confirmed case-by-case exceptions, not a general write-back
+    # mechanism, as the ongoing policy). This one turns Judgment's
+    # decision_resolutions assessment into an actual WorldState.decisions
+    # status update, so this turn's Planner/Response (and every later
+    # turn) see the corrected status instead of it staying silently stuck
+    # at "open". See engine/decisions.md "decision lifecycle, round 3".
     pre_resolution_state = state
     state = apply_judgment_resolutions(state, judgment)
     behavioral_events += diff_behavioral_events(
         pre_resolution_state, state, session_id=session_id, turn=state.turn_count
     )
 
-    # Same "Judgment never writes to WorldState except through this one
-    # exception" pattern as apply_judgment_resolutions just above, for
-    # the two knowledge tiers (Fact/Claim) that never had a correction
-    # pathway at all -- see engine/decisions.md "Fact/Claim correction
-    # and near-duplicate consolidation".
+    # The second of the two write-back exceptions (see comment above),
+    # for the two knowledge tiers (Fact/Claim) that never had a
+    # correction pathway at all -- see engine/decisions.md "Fact/Claim
+    # correction and near-duplicate consolidation".
     pre_correction_state = state
     state = apply_knowledge_corrections(state, judgment)
     behavioral_events += diff_behavioral_events(

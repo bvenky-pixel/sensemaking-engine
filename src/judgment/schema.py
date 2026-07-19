@@ -27,6 +27,31 @@ in src/judgment/engine.py's `recommend_phase_transition`, explicitly
 scoped as legacy compatibility only (see engine/decisions.md): the spec
 doesn't mention phase, and its long-term owner is the future Planner, not
 Judgment.
+
+Judgment v3 design pass (2026-07-19, backlog #228, see engine/decisions.md
+"Judgment v3 design pass"): `engine/specs/judgement-v3-design` (a
+discussion draft, never frozen, most of it never implemented) was
+reviewed at the founder's explicit direction. Four of its seven named
+responsibilities were still genuinely unaddressed by v2 as of this round
+-- `situation_assessment`, `contradiction_significance`,
+`risk_significance`, and `decision_readiness` below, each covering
+exactly one -- added the same way every other Judgment field has been:
+grounded, no boolean-gate (no evidence yet of a detects-but-fails-to-
+transcribe failure for any of these, same reasoning as secondary_issues/
+stagnation_notes), and defaulted to "" so no existing test fixture across
+the codebase needed updating. Three of the draft's other items were
+deliberately NOT built, each for a specific reason: Salience Detection's
+"explicit ranking" (already-shipped primary_problem/secondary_issues
+split covers "central vs. secondary"; "background information" needs no
+field by definition; ranking beyond list order has no motivating
+evidence). Uncertainty Assessment's "separate assessment confidence"
+(the draft's own Open Questions section left this genuinely undecided;
+`confidence` below already answers "how complete is the evidentiary
+basis," the same question in different words). Goal Progress Assessment
+as a full active/stagnant/uncertain enum (superseded by `stagnation_notes`
+already, same as `trajectory` -- see that field's own 2026-07-11
+supersession decision immediately below; re-litigating it now with no new
+evidence would repeat the mistake that decision was made to avoid).
 """
 
 from __future__ import annotations
@@ -101,6 +126,15 @@ class Judgment(BaseModel):
     primary_goal: str
     current_focus: str
 
+    # v2.0 (added 2026-07-19, see engine/decisions.md "Judgment v3 design
+    # pass", backlog #228): Judgment v3 draft's "Situation Assessment"
+    # responsibility -- a higher-level FRAME for the whole situation, not
+    # a third way of saying primary_problem (the specific blocking issue)
+    # or current_focus (what the user is doing about it). Optional/
+    # defaulted, no boolean-gate -- brand new field, no evidence yet of a
+    # transcription-compliance failure to gate against.
+    situation_assessment: str = ""
+
     key_blockers: List[str] = Field(default_factory=list)
 
     # v1.5 (added 2026-07-10, see engine/decisions.md "Judgment salience --
@@ -118,6 +152,17 @@ class Judgment(BaseModel):
     open_unknowns: List[str] = Field(default_factory=list)
     active_decisions: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
+
+    # v2.0 (added 2026-07-19, see engine/decisions.md "Judgment v3 design
+    # pass", backlog #228): Judgment v3 draft's "Contradiction Assessment"
+    # responsibility, distinct from `contradictions` above -- that field
+    # RECORDS a tension (Interpretation's own role, in the draft's own
+    # framing, though built here since Interpretation has no contradictions
+    # field -- see #239); this field ASSESSES what the tension actually
+    # IMPLIES, one sentence, never a restatement of the contradiction
+    # itself. Empty whenever contradictions is empty, or a real
+    # contradiction exists but no honest implication can be drawn yet.
+    contradiction_significance: str = ""
 
     # v1.7 (added 2026-07-12, see engine/decisions.md "Fact/Claim
     # correction and near-duplicate consolidation"): the structured,
@@ -197,6 +242,16 @@ class Judgment(BaseModel):
     decision_resolution_status: Literal["", "resolved", "deferred"]
     decision_resolutions: List[DecisionResolution] = Field(default_factory=list)
 
+    # v2.0 (added 2026-07-19, see engine/decisions.md "Judgment v3 design
+    # pass", backlog #228): Judgment v3 draft's "Decision Readiness"
+    # responsibility -- whether the user appears to actually be weighing
+    # the open option(s) in active_decisions, or whether the decision
+    # looks blocked/stalled, never a recommendation of which option to
+    # pick (that stays a future Planner's job). Empty whenever
+    # active_decisions is empty, or nothing beyond "a decision is open"
+    # is discernible yet.
+    decision_readiness: str = ""
+
     # v1.3 (see engine/decisions.md): `risk_scan` alone (added 2026-07-09)
     # proved unreliable across a 30-test real-pipeline run -- the model
     # correctly identified a risk-worthy signal in its own free-text
@@ -213,6 +268,16 @@ class Judgment(BaseModel):
     risk_scan: str
     risks: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
+
+    # v2.0 (added 2026-07-19, see engine/decisions.md "Judgment v3 design
+    # pass", backlog #228): Judgment v3 draft's "Risk Assessment"
+    # materiality responsibility -- distinct from risk_scan (which
+    # justifies the has_risk_signal check) and risks (specific factors).
+    # One sentence on whether/how the named risk(s) materially constrain
+    # the primary goal or decision -- not every risk worth naming in
+    # `risks` also rises to this bar. Empty whenever has_risk_signal is
+    # false, or risks exist but none is materially constraining.
+    risk_significance: str = ""
 
     # v1.6 (added 2026-07-11, see engine/decisions.md "Judgment
     # trajectory/stagnation assessment"): Judgment's own SYNTHESIS of the

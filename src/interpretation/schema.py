@@ -88,6 +88,13 @@ class EmotionalSignal(BaseModel):
     failing its own "what breaks if this disappears" test -- nothing
     consumes it, no multi-agent reasoning exists yet. Scope is the user's
     own emotions only. Reintroduce `subject` only when that changes.
+    Re-examined and CONFIRMED (2026-07-19, backlog #240, see
+    engine/decisions.md): POM's TheoryOfMindSystem now does third-party
+    perspective/emotion inference cross-session, but that doesn't change
+    this field's own scope -- Interpretation is a stateless PER-TURN
+    extractor with no live in-conversation consumer for a third-party
+    signal, so adding one here now would be inert. Revisit only if a
+    real per-turn consumer emerges.
     """
     emotion: str
     intensity: float = Field(ge=0.0, le=1.0)

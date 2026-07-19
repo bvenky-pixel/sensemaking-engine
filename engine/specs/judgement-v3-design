@@ -1,6 +1,20 @@
 # Judgment v3 — Design Proposal
 
-**Status:** DISCUSSION DRAFT (NOT FROZEN, NOT IMPLEMENTED)
+**Status:** DISCUSSION DRAFT, PARTIALLY ADOPTED (2026-07-19, backlog
+#228, see engine/decisions.md "Judgment v3 design pass" and
+engine/specs/judgment-specification-v2.md's own "Open Questions —
+resolved" section). Reviewed at the founder's explicit direction: four
+of the seven responsibilities below (Situation Assessment, Contradiction
+Assessment, Risk Assessment materiality, Decision Readiness) shipped as
+real Judgment v2 fields (`situation_assessment`, `contradiction_significance`,
+`risk_significance`, `decision_readiness`). Salience Detection and Goal
+Progress Assessment were judged already substantially covered by
+existing fields (Secondary Issues; Stagnation Notes) and NOT built
+further. Uncertainty Assessment's separate-confidence question and the
+trajectory Open Question were both closed as "no" -- see the spec's own
+Open Questions section for the reasoning on each. This document remains
+historical context for why those fields exist, not a live backlog of
+untouched proposals.
 
 This document proposes the future direction of Confidant's Judgment layer following:
 

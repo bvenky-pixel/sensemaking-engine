@@ -77,6 +77,18 @@ FIELD DEFINITIONS
   right now. If WorldState gives no distinct activity beyond the problem
   itself, current_focus may be brief, but it must not be a full
   restatement of primary_problem.
+- situation_assessment: a single-sentence, higher-level characterization
+  of the KIND of situation this is -- the overarching frame, not a third
+  way of saying primary_problem (the specific blocking issue) or
+  current_focus (what the user is doing about it right now). Empty
+  string if WorldState doesn't yet support a real characterization (e.g.
+  very early in a conversation, same threshold as primary_problem).
+      Facts: ["User wants to move to the Product team.", "Founder is
+      averse to change.", "This has come up for three months."] ->
+      primary_problem: "Founder's resistance is blocking the user's move
+      to Product." situation_assessment: "A stalled internal career
+      transition." (the frame the specific blocker sits inside -- do not
+      just repeat primary_problem in different words)
 - key_blockers: constraints actually preventing progress, each grounded
   in a specific Fact/Claim/Unknown. Not speculative obstacles.
 - secondary_issues: real issues you noticed in WorldState but did NOT
@@ -115,6 +127,19 @@ FIELD DEFINITIONS
   A conflict sitting in plain sight in supporting_evidence-worthy content
   is the single most commonly missed case -- do not skip this check just
   because nothing seemed contradictory at first read.
+- contradiction_significance: whenever contradictions above is
+  non-empty, one sentence assessing what that tension actually IMPLIES --
+  not a restatement of the contradiction itself (that's contradictions'
+  own job). Empty string whenever contradictions is empty, or a real
+  contradiction is recorded but no honest implication can be drawn yet --
+  do not invent a forced implication just to fill this field.
+      contradictions: ["Manager says user is doing great, but user was
+      passed over for the promotion..."] -> contradiction_significance:
+      "Career advancement appears blocked despite positive performance
+      signals."
+  BAD: contradiction_significance: "There's a tension between positive
+  feedback and being passed over" (that's just contradictions' own
+  content restated, not an assessment of what it implies).
 - has_knowledge_correction: MANDATORY. Answer this FIRST, before writing
   knowledge_correction_target, knowledge_correction_kind,
   knowledge_correction_corrected_content, or knowledge_corrections.
@@ -243,6 +268,15 @@ FIELD DEFINITIONS
   decision_resolutions=[] (with has_decision_resolution=false) is
   correct whenever nothing in WorldState speaks to an open decision's
   fate changing this turn.
+- decision_readiness: whenever active_decisions above is non-empty, a
+  brief assessment of whether the user appears to actually be weighing
+  the open option(s) (e.g. "Actively comparing both offers"), whether
+  real uncertainty is blocking that evaluation (e.g. "Blocked pending
+  clarity on relocation cost"), or whether the decision otherwise looks
+  stalled -- NEVER a recommendation of which option to choose, that
+  belongs to a future Planner, not Judgment. Empty string whenever
+  active_decisions is empty, or nothing beyond "a decision is open" is
+  discernible yet.
 - has_risk_signal: MANDATORY. Answer this FIRST, before writing
   risk_scan or risks: does any Fact, Claim, or Unknown imply a plausible
   negative consequence for the primary goal that hasn't been stated
@@ -294,6 +328,16 @@ FIELD DEFINITIONS
   statement like this can't rule out something more significant than
   routine dissatisfaction. This is a legitimate risk grounded in the
   Claim's own content, not an invented one.
+- risk_significance: whenever has_risk_signal is true, one sentence
+  assessing whether/how the risk(s) named in `risks` MATERIALLY constrain
+  the primary_goal or an active decision -- not a repeat of any
+  individual risk's own wording. Empty string whenever has_risk_signal is
+  false, or risks exist but none rises to a level that materially
+  changes what's actually at stake (a mild, non-binding risk can be named
+  in `risks` without also being flagged here).
+      risks: ["Quitting without a lined-up offer risks a period of no
+      income..."] -> risk_significance: "Financial uncertainty appears to
+      be a significant constraint on decision making."
 - opportunities: factors, grounded in WorldState content, likely to
   accelerate progress toward the primary goal. Same bar as risks: every
   opportunity must name the specific WorldState content it is derived
@@ -336,8 +380,12 @@ open_unknowns and active_decisions are closer to observations (a
 filtered summary of what's in WorldState). primary_problem, contradictions,
 near_duplicates, knowledge_corrections, risks, opportunities, and confidence
 are assessments -- the first layer of reasoning built on those observations.
-Both kinds of field still must be grounded in WorldState; assessments
-simply require you to synthesize across multiple pieces of it.
+situation_assessment, contradiction_significance, risk_significance, and
+decision_readiness are a SECOND layer built on top of those first-layer
+assessments -- not new observations of WorldState, but judgments about
+what the first layer's own findings actually mean or imply. Both kinds of
+field still must be grounded in WorldState; assessments simply require
+you to synthesize across multiple pieces of it.
 
 JUDGMENT MUST NOT
 - Coach
