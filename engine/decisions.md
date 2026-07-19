@@ -9979,6 +9979,50 @@ longer exists as a live reference point. Docstring-only change --
 `tests/test_understanding.py` (19 tests) still green, no behavior
 touched.
 
+## Understanding: #289 calibration assessed, remains blocked on real data (2026-07-19)
+
+Backlog #289 ("calibrate Tier 1/Tier 2 uncalibrated thresholds against
+real data"): checked every evidence source this codebase actually has
+before touching any constant, same discipline as every other
+calibration decision in this file.
+
+**What exists**: `experiments/confidant-validation/tier1-validation-report.md`
+(the [LIVE]/[CAPTURED]/[SYNTHETIC] validation round) is the only prior
+attempt at exactly this kind of analysis for Understanding. All three
+of its evidence sources predate Tier 2 entirely -- Tier 2 didn't exist
+when that report was written, so nothing in it speaks to
+`TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`/`MIN_GROUNDING_ITEMS`.
+The [LIVE] 10-turn walkthrough's raw per-turn WorldState snapshots were
+never preserved in this repo -- only the report's own summarized
+findings survive (confirmed by grep: the run id `29189585671` appears
+nowhere else). The [SYNTHETIC] 100-turn stress harness that produced
+Area 5's growth data was an ad hoc scratchpad script, explicitly noted
+as "not part of the shipped codebase," and no longer exists to rerun.
+`tests/test_understanding.py` covers correctness, not real-world
+threshold tuning -- crafted fixtures can't stand in for actual usage
+patterns any more than a unit test could calibrate Learning's own
+`MIN_EVIDENCE`.
+
+**Asked the founder directly** whether to dispatch the existing,
+already-built `backup-database.yml` workflow (read-only, no LLM cost)
+to pull real production session data for this specific check --
+declined; existing data only. With production access off the table and
+no other multi-turn dataset in this repo postdating Tier 2, there is no
+real data left to calibrate against.
+
+**Resolution**: constants left unchanged. Guessing new values with no
+evidence behind them would be exactly the mistake this project has
+refused to make everywhere else (Learning's own `MIN_EVIDENCE`
+discipline, Retrieval's rejected relevance-matching alternative, POM's
+coarse confidence scale instead of an invented float). This is the same
+"genuinely blocked on real usage volume, not a code task" category as
+backlog #213, still pending for the identical reason. #289 stays
+pending; #290 (a live-dispatch calibration round specifically for Tier
+2 synthesis quality) is the more promising near-term path once the
+founder is ready to authorize a live dispatch, since it would generate
+exactly the kind of fresh, real multi-turn data this assessment found
+missing.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
