@@ -155,11 +155,15 @@ grounding claims without engine-level verification.
 3. **Tier 2 v2** (declarative-uncertainty and values-level synthesis
    beyond what the current candidate-pool design produces) is its own
    explicitly out-of-scope increment — see backlog #248.
-4. **No dedicated live-dispatch calibration round for Tier 2 synthesis
-   quality** — distinct from #248 (scoping Tier 2 v2's feature set),
-   this is about validating whether v1's actual LLM-produced statements
-   read as genuinely useful syntheses against real conversation data,
-   not just structurally valid ones. Tracked as backlog #290.
+4. **Live-dispatch calibration (backlog #290) has now run three times**
+   against `scripts/run_tier2_calibration.py`'s four scripted scenarios
+   — see engine/decisions.md's three "Tier 2 ... live calibration run"
+   entries. The third run (self-check gate added to law 3 of
+   `tier2_prompt.py`) scored 3/3, fixing the over-synthesis problem
+   (fabricating a connection between two genuinely unrelated
+   candidates) that both prior runs left open. Still only 4 scripted
+   scenarios, not real production conversation volume — worth
+   continued attention once real usage exists, not a closed question.
 
 ## Verification
 
@@ -171,5 +175,9 @@ gaps that were later fixed) and the Decision bare-label rendering bug
 covered by `tests/test_understanding.py`'s Tier 2 test classes
 (candidate selection by kind, grounding-signature stability,
 recompute-trigger conditions, and grounding enforcement dropping
-under-grounded statements) — no dedicated live-dispatch calibration
-round has been run specifically for Tier 2's synthesis quality yet.
+under-grounded statements). Three live-dispatch calibration rounds have
+now run against `scripts/run_tier2_calibration.py` (see
+`engine/decisions.md`) — the third, after adding a mandatory self-check
+to the synthesis prompt, scored 3/3 and fixed the over-synthesis
+problem (fabricating a plausible-sounding but unstated connection) both
+prior rounds left open, without suppressing genuine synthesis.

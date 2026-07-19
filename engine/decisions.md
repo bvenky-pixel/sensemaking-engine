@@ -10053,6 +10053,79 @@ Prompt-only change, no schema/engine touched. Verified:
 full suite (511 passed) unaffected. Not yet measured against a real
 model -- see the following entry for the dispatch.
 
+## Tier 2 third live calibration run -- self-check gate: fixed the over-synthesis problem (backlog #290)
+
+Dispatched against `claude/sensemaking-engine-60xbki` (run 29678560737,
+commit `4c767e5`), `openrouter_model` input left blank -- ran under the
+real per-component pinned defaults (`src/llm/providers.py`'s
+`_SHARED_REASONING_CHAIN`: `qwen/qwen3-32b` primary, falling back to
+`google/gemini-2.5-flash-lite`), matching what production actually
+serves for the Tier2 component, rather than forcing a single override
+model the way the first two runs did. Scored **3/3** on the scored
+scenarios:
+
+```
+[HIT ] synthesis_decision_and_assumption: expected_nonempty=True, actual=True
+[HIT ] synthesis_goal_and_blocking_fact: expected_nonempty=True, actual=True
+[HIT ] negative_control_unrelated: expected_nonempty=False, actual=False
+[observation] same_decision_two_options: tier2_nonempty=True
+```
+
+**The deeper over-synthesis problem from both prior runs is fixed.**
+`negative_control_unrelated` was the one scenario that failed on BOTH
+prior live runs, always via the exact same fabricated pottery-classes/
+house-savings connection. This run: turn 1 ("trying to save up for a
+house") produced `tier2 statements (0)`, and turn 2 ("pottery classes
+on Tuesdays") ALSO produced `tier2 statements (0)` -- the model
+correctly recognized these as two real, unconnected candidates and
+stayed silent on both turns, not just the first-turn paraphrase case
+the second run's abstention example had already fixed. This is the
+first time across all three runs this scenario has fully passed.
+
+**No overcorrection into silence.** Both genuine synthesis scenarios
+still produced real, correctly-grounded connections: "Your House-vs-MBA
+decision may be constrained less by preference than by an unexamined
+affordability assumption" (grounded in the actual fact/claim/assumption
+candidates) and "Your goal to move into the Product team may be
+influenced by recent leadership changes, as the manager's promotion has
+introduced uncertainty about the new reporting structure" (grounded in
+the actual fact/fact/fact/inference candidates offered) -- the
+self-check gate suppressed fabricated connections without suppressing
+real ones.
+
+**Mechanism still sound.** Every caching check across all four
+scenarios again showed `signature unchanged=True, computed_at_turn
+unchanged=True` -- candidate selection, grounding-signature hashing,
+and skip-on-no-change gating all held under this run's real pipeline
+data too, on a different model family than the first two runs.
+
+**`same_decision_two_options` (observation-only, not scored)**:
+produced "Your belief that there's a correct decision about requesting
+a raise... may be intensifying your uncertainty, as you're actively
+evaluating factors but remain unclear about which factors are most
+decisive" -- a defensible synthesis of the decision plus an assumption
+plus an inference, not simply a restatement of the two Decision options
+as before; this specific paraphrase-across-same-underlying-choice
+failure mode was not observed this run either.
+
+Cost: 35 calls, 210,564 tokens; `estimated_cost_usd` reports unknown
+(qwen/qwen3-32b and gemini-2.5-flash-lite aren't in
+`src/instrumentation/pricing.py`'s table yet -- an honest "don't know,"
+not a guess, per that module's own discipline; also now a concrete input
+to backlog #294).
+
+**Assessment**: this closes the specific, evidence-backed compliance gap
+that both prior runs left open. The self-check framing ("does either
+candidate's own text explicitly reference the other's topic?") appears
+to generalize better than the abstention worked example did -- it fixed
+BOTH the "too early to synthesize" case (already fixed by round 2) and
+the "plausible-sounding but fabricated" case (not fixed by round 2) in
+one change. Not a large sample (4 scenarios, 6 turns) and not yet tested
+against a wider variety of unrelated-candidate pairs beyond this one
+scripted pair -- worth keeping an eye on with real production data once
+it exists (see #289/#290's own still-open calibration-volume question),
+but no further prompt iteration is warranted from this evidence alone.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
