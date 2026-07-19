@@ -37,6 +37,7 @@ from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_t
 from src.interpretation.debug import analyze_interpretation
 from src.orchestrator.engine import run_turn
 from src.state.world_state import WorldState
+from src.understanding.tier2_engine import select_tier2_candidates
 
 # Career-decision scenario, deliberately built to exercise: an accumulating
 # goal, an unknown a later turn plausibly resolves, an entity who gets a
@@ -80,6 +81,7 @@ def main() -> int:
         print(f"\n{'=' * 70}\nTURN {i}: {message}\n{'=' * 70}")
         turn_start = tracker.count()
         outcome_start = tracker.outcome_count()
+        tier2_computed_before = state.understanding.tier2_computed_at_turn
 
         # Orchestrator coordinates the fixed pipeline and reports exactly
         # how far this turn got -- see src/orchestrator/engine.py.
@@ -108,6 +110,28 @@ def main() -> int:
         if state.understanding.tier1:
             for stmt in state.understanding.tier1:
                 print(f"    [{stmt.kind}] {stmt.text!r} (id={stmt.id})")
+        else:
+            print("    (none yet)")
+
+        # Understanding layer, Tier 2 (2026-07-19, backlog #289) --
+        # printed here, unlike Tier 1 above, because Tier 2 is
+        # CONDITIONAL: most turns skip the LLM call entirely (see
+        # src/understanding/tier2_engine.py::should_recompute_tier2), so
+        # a live multi-turn run is the only way to see real candidate-pool
+        # growth and real recompute cadence, not just Tier 1's per-turn
+        # rendering. `candidate_pool_size` is computed here directly
+        # (select_tier2_candidates), independent of whether a recompute
+        # actually happened this turn, so the pool's own growth is
+        # visible even on turns that skip the LLM call.
+        candidates = select_tier2_candidates(state)
+        tier2_recomputed = state.understanding.tier2_computed_at_turn != tier2_computed_before
+        print("\n--- UNDERSTANDING (Tier 2) ---")
+        print(f"    candidate_pool_size={len(candidates)}")
+        print(f"    tier2_recomputed_this_turn={tier2_recomputed}")
+        print(f"    tier2_computed_at_turn={state.understanding.tier2_computed_at_turn}")
+        if state.understanding.tier2:
+            for stmt in state.understanding.tier2:
+                print(f"    [synthesis] {stmt.text!r} grounded_in={stmt.grounding_item_ids}")
         else:
             print("    (none yet)")
 

@@ -10126,6 +10126,27 @@ scripted pair -- worth keeping an eye on with real production data once
 it exists (see #289/#290's own still-open calibration-volume question),
 but no further prompt iteration is warranted from this evidence alone.
 
+## Instrument worldstate-walkthrough for Tier 2 candidate-pool data (2026-07-19, backlog #289)
+
+`scripts/run_worldstate_walkthrough.py` never printed Tier 2 state --
+only Tier 1 -- so its existing 11-turn live-dispatch transcript, the
+only long (>2 turn) real pipeline run this codebase has, gave zero
+visibility into `TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`
+behavior. `scripts/run_tier2_calibration.py`'s own scenarios (used for
+#290) are deliberately short (1-2 turns each) to stay cheap -- useful
+for synthesis QUALITY, structurally unable to inform TURN-COUNT-based
+thresholds, which only 289's own concern actually needs.
+
+Added a per-turn Tier 2 print block (candidate_pool_size via
+`select_tier2_candidates`, `tier2_recomputed_this_turn`,
+`tier2_computed_at_turn`, and any surviving synthesis statements),
+mirroring the calibration script's own per-turn Tier 2 print shape.
+`candidate_pool_size` is computed directly, independent of whether a
+recompute actually fired this turn, so pool growth is visible even on
+turns that skip the LLM call (the common case). No behavior change --
+printing only. Verified: full suite (511 passed) and a structural
+smoke test (no API key set, runs to completion, 0/11 as expected).
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
