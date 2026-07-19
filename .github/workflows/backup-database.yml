@@ -1,0 +1,62 @@
+name: Database backup
+
+# Manual only, deliberately, for now (2026-07-19, backlog #231, see
+# engine/decisions.md "Backup strategy for the production SQLite
+# volume") -- runs scripts/backup_database.py directly against the
+# production Fly.io machine (confidantsense) via `flyctl ssh console`,
+# same pattern as backfill-knowledge-item-ids.yml/
+# learning-computation.yml/pom-computation.yml. Read-only against the
+# live database (see backup_database.py's own docstring: opened
+# `mode=ro`, nothing on the volume is written or cleaned up
+# afterward) -- captures the dump's stdout straight into a GitHub
+# Actions artifact, no separate upload/cleanup step needed.
+#
+# Whether to also run this on a recurring `schedule:` is a separate,
+# deliberate decision -- not added here by default. A `schedule:`
+# trigger starts firing automatically the moment it's merged, which is
+# a materially different, ongoing commitment than a button someone
+# presses -- see engine/decisions.md for the full reasoning.
+#
+# Restoring from one of these dumps is NOT automated by a workflow --
+# see backup_database.py's own docstring and engine/decisions.md for
+# the manual restore runbook. Overwriting a live database is exactly
+# the kind of destructive action this project keeps hand-operated
+# rather than one click away.
+#
+# Requires a FLY_API_TOKEN repo secret (Settings -> Secrets and
+# variables -> Actions), same as the other flyctl-based workflows.
+on:
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Wake the machine
+        # fly.toml sets auto_stop_machines/min_machines_running=0 -- the
+        # app scales to zero when idle. `flyctl ssh console` connects
+        # directly over Fly's private network and does NOT go through
+        # the HTTP proxy's auto_start_machines wake-up, so a stopped
+        # machine must be started explicitly first.
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          MACHINE_ID=$(flyctl machine list --app confidantsense --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          echo "machine_id=$MACHINE_ID" >> "$GITHUB_ENV"
+          flyctl machine start "$MACHINE_ID" --app confidantsense
+          flyctl machine wait "$MACHINE_ID" --app confidantsense --state started --wait-timeout 60s
+
+      - name: Dump production database
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl ssh console --app confidantsense --command "python scripts/backup_database.py" > confidant_backup_$(date -u +%Y%m%dT%H%M%SZ).sql
+
+      - name: Upload backup as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: confidant-database-backup
+          path: confidant_backup_*.sql
+          retention-days: 90

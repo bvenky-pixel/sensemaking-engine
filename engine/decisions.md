@@ -9551,3 +9551,105 @@ limiter does, isolating which one is actually being tested). The
 `client` fixture now calls `rate_limit.reset_all()` so one test's hits
 never bleed into the next's. Full suite: `pytest` 494 passed (487 + 7
 new).
+
+## Backup strategy for the production SQLite volume (2026-07-19)
+
+Backlog #231, picked as the second most critical reliability item
+(after #229's rate limiting) -- everything this app has ever stored
+lives in one SQLite file on one Fly.io volume (`confidant_data`,
+mounted at `/data`, see `fly.toml`'s own comment), with no backup of
+any kind. A bad `flyctl volumes` command, disk corruption, or a botched
+migration would have wiped every account's entire history permanently,
+with no recovery path at all -- the single highest-severity risk on
+the whole backlog, worse than anything already fixed this segment
+(those were leaks; this was irreversible total loss).
+
+**New `scripts/backup_database.py`** -- dumps `CONFIDANT_DB_PATH` to
+stdout as portable SQL text via Python's stdlib
+`sqlite3.Connection.iterdump()`. Deliberately NOT the `sqlite3` CLI
+binary (`sqlite3 db.db .dump`) -- confirmed by reading `Dockerfile`:
+the production image's base is `python:3.11-slim`, which ships
+Python's own `sqlite3` module but not the separate command-line tool,
+so a script depending on the CLI binary would fail inside the
+container it's actually meant to run in. Pure stdlib means nothing
+needs adding to the image.
+
+Two correctness details that matter for a backup script specifically,
+not just "does it run":
+- **Read-only**: opened via `file:{path}?mode=ro` URI, so this can
+  never accidentally create or write to the database it's backing up
+  -- verified directly (`test_backup_never_modifies_the_source_database`),
+  not just assumed from the connection string.
+- **Consistency**: wrapped in one explicit `BEGIN DEFERRED` transaction
+  before `iterdump()` runs (which itself queries `sqlite_master` then
+  each table in turn) and rolled back after -- without this, a write
+  landing between two of those queries on a live, concurrently-used
+  database could produce a dump where e.g. a message references a
+  session the dump hasn't reached yet. A single transaction gives
+  SQLite's own consistent-snapshot guarantee across the whole dump.
+
+**New `.github/workflows/backup-database.yml`** -- `workflow_dispatch`
+only, same `flyctl ssh console` pattern as
+`backfill-knowledge-item-ids.yml`/`learning-computation.yml`/
+`pom-computation.yml`: wakes the machine, runs
+`python scripts/backup_database.py` inside the live container (its
+stdout captured straight into a timestamped `.sql` file on the
+runner), uploads that file as a GitHub Actions artifact
+(`retention-days: 90`). Nothing is written to the volume and nothing
+needs cleaning up afterward, unlike the backfill workflow's own script.
+
+**Deliberately NOT scheduled automatically yet.** A `schedule:` cron
+trigger starts firing on its own the moment it's merged -- a
+materially different, ongoing commitment than a workflow someone
+presses a button on, and this project's standing discipline treats
+production-touching automation as something that gets its own
+explicit go-ahead, not a default. Whether to add a recurring schedule
+(and at what cadence/retention) is a separate decision for the founder
+to make.
+
+**Restore is a documented manual runbook, not automation**:
+1. Download the `confidant-database-backup` artifact from the relevant
+   workflow run, unzip to get the `.sql` file.
+2. On a machine with `flyctl` and `FLY_API_TOKEN` available: `flyctl
+   ssh sftp shell --app confidantsense`, then `put` the `.sql` file
+   onto the volume (e.g. as `/data/restore.sql`).
+3. `flyctl ssh console --app confidantsense --command "python3 -c
+   \"import sqlite3; c = sqlite3.connect('/data/confidant_mvp_restored.db');
+   c.executescript(open('/data/restore.sql').read()); c.commit()\""`
+   -- rebuilds into a NEW file first, never straight over the live one.
+4. Verify the restored file looks right (spot-check a few rows via the
+   same `flyctl ssh console` + `python3 -c "import sqlite3; ..."`
+   pattern).
+5. Only once verified: stop the app, move
+   `/data/confidant_mvp_restored.db` over `/data/confidant_mvp.db`
+   (`flyctl ssh console --command "mv ..."`), restart.
+Deliberately hand-operated, not a one-click workflow -- restoring
+overwrites a live, real database, exactly the kind of destructive
+action this project's standing discipline keeps a human directly at
+the keyboard for rather than pre-building a button that could itself
+cause data loss if triggered by mistake.
+
+**Also worth naming**: Fly.io itself may already take its own
+periodic volume-level snapshots as a platform feature -- worth
+checking (`flyctl volumes list --app confidantsense` reports snapshot
+retention) as a belt-and-suspenders addition, not a replacement for
+this. Platform snapshots share Fly's own failure domain (an
+account-level Fly incident, or a mistaken `flyctl volumes destroy`,
+could take out both the volume and its snapshots together); this
+GitHub-Actions-artifact backup is deliberately a second, independent
+channel outside Fly's infrastructure entirely, which is the property
+that actually matters here.
+
+Verified: new `tests/test_backup_database.py` (3 tests) -- a seeded
+database's users/sessions/messages round-trip correctly through
+dump-then-restore-into-memory, the source file is provably unmodified
+byte-for-byte after a run, and an empty (freshly-`init_db`'d) database
+dumps and restores cleanly with zero rows. Manually verified the same
+round-trip against a real seeded temp database before writing the
+automated tests. New workflow YAML checked for syntax. Full suite:
+`pytest` 497 passed (494 + 3 new). **Not dispatched against the real
+production machine** -- building the workflow is a code change;
+actually running it against `confidantsense` is a production-touching
+action that gets its own explicit go-ahead, same standing discipline
+as `deploy.yml` and the other `flyctl ssh console` workflows built
+this segment.
