@@ -10867,3 +10867,152 @@ turn actually completes and both outcomes are recorded in order) and
 (confirms the new `for/else` doesn't accidentally swallow a genuine
 total failure when every provider fails). Full suite: `pytest` 511
 passed (509 + 2 new).
+
+## Learning/POM/Insight Engine: manual-only cadence confirmed (2026-07-19, backlog #268)
+
+Backlog #268 named a real gap in appearance only: Learning, POM, and
+Insight Engine all compute offline, and none of the three has a
+recurring schedule -- each only ever runs via `workflow_dispatch`. This
+reads, on first glance, like an oversight (production data just sits
+uncomputed until someone remembers to click a button), but this
+project already has a direct precedent for exactly this shape:
+`backup-database.yml` is deliberately `workflow_dispatch`-only, not
+scheduled, for reasons already on record. Framed the question to the
+founder the same way, rather than assuming a cron job is obviously
+missing.
+
+**CONFIRMED by the founder: keep manual-only, no cron added.** No code
+change -- all three scripts (`run_learning.py`, `run_pom_computation.py`,
+`run_insight_detection.py`) and their workflows stay exactly as built.
+Recorded as a deliberate, confirmed standing choice rather than an
+open gap in `engine/specs/learning-specification-v1.md` and
+`engine/specs/insight-engine-specification-v1.md`'s own Open Questions
+sections (POM's own spec doesn't currently reference #268, so left
+untouched there).
+
+## Learning/POM: surface computed_at staleness signal (2026-07-19, backlog #269/#271)
+
+Both `learned_patterns` and `personal_operating_model` have stored a
+real `computed_at TEXT NOT NULL` column since each table was first
+created (written on every offline run by `replace_learned_patterns`/
+`replace_personal_operating_model` respectively), but neither read
+accessor (`get_learned_patterns`, `get_personal_operating_model`) ever
+selected or returned it -- a plain, symmetric gap across both
+pipelines, not a design choice requiring a founder decision. Both
+`GET /patterns` and `GET /personal-operating-model` currently hand a
+person their own behavioral history / standing profile with zero
+indication of how fresh it is, which matters precisely because both
+are offline-computed and can go stale for a long stretch between
+`workflow_dispatch` runs (see backlog #268 immediately above -- no cron
+recomputes either automatically).
+
+**Learning side**: `LearnedPatternOut` (`src/api/schema.py`) gained a
+`computed_at: str` field (no default -- constructed in exactly one
+place, `db.get_learned_patterns`, which always has a real value from
+the SQL row); `get_learned_patterns` now selects
+`pattern_type, detail, evidence_count, computed_at` instead of
+omitting the last column. `BehavioralPatterns.svelte` shows one shared
+"Last updated <date>" line under the pattern list, sourced from the
+first pattern's `computed_at` -- every pattern on one card comes from
+the same computation run, so no need to repeat the timestamp per row.
+
+**POM side** needed a different mechanical approach, because
+`GET /personal-operating-model`'s own docstring already documents a
+deliberate precedent: POM is returned as the raw internal
+`PersonalOperatingModel` type, not a separate "Out" mirror type the way
+Learning/Insight have, since it's stored/read back as one whole JSON
+blob rather than assembled column-by-column -- a mirror type would
+just copy identical fields with no decoupling benefit. Adding
+`computed_at` to the JSON blob itself would be wrong (the blob is
+`src/pom/engine.py`'s own output, which has no notion of when it's
+persisted -- same reason `learned_patterns`' rows don't carry it
+either until `replace_*` writes it). Added `computed_at: str = ""` to
+`PersonalOperatingModel` (`src/pom/schema.py`) with an empty-string
+default -- same "default new fields so no existing construction site
+needs updating" precedent already used this session for Judgment v3's
+four new fields -- and `get_personal_operating_model`
+(`src/api/db.py`) now selects `pom_json, computed_at` and attaches the
+real column value after parsing:
+`pom.model_copy(update={"computed_at": row[1]})`, overwriting whatever
+default the stored JSON blob itself carries. `PersonalOperatingModel.svelte`
+shows the same "Last updated" line, guarded on `pom.computed_at` being
+non-empty (defends against a stale test fixture or an as-yet-uncomputed
+default; in production this is always real once POM exists at all,
+since `replace_personal_operating_model` always writes a real
+timestamp).
+
+Verified: new/updated tests in `tests/test_api_server.py`
+(`test_patterns_endpoint_reflects_last_computed_batch` and
+`test_get_personal_operating_model_returns_last_computed_pom` both now
+assert `computed_at` is present), two new Vitest cases (one per
+component) asserting the "Last updated" line renders, plus a POM-side
+test confirming the line is omitted when `computed_at` is empty. Full
+`pytest` (560 passed) and `vitest` (104 passed) both clean.
+
+## Fix stale LearnedPatternOut/get_patterns docstrings (2026-07-19, backlog #270)
+
+`LearnedPatternOut` (`src/api/schema.py`) and `GET /patterns`
+(`src/api/server.py::get_patterns`) both independently claimed Learning
+was "not yet rendered"/"not yet consumed by the frontend" -- true when
+originally written, but stale since backlog #214 shipped
+`BehavioralPatterns.svelte` without either docstring ever being
+updated to match. `InsightOut`'s own docstring also drew a contrast
+against `LearnedPatternOut` ("unlike LearnedPatternOut, this IS
+rendered") that became inaccurate the same way. All three fixed to
+state plainly that both are now rendered in the frontend, with
+`InsightOut`'s contrast replaced by "same as LearnedPatternOut now is."
+No behavior change -- prose only.
+
+## POM: recency cap added to aggregation (2026-07-19, backlog #272)
+
+`get_aggregated_knowledge_for_pom` (`src/api/db.py`) read every
+session owned by an account with no `LIMIT`/`ORDER BY` at all --
+deliberately uncapped, on the reasoning (recorded in the function's own
+docstring at the time) that POM is a standing, all-history profile
+that benefits from every session, unlike Insight Engine's own
+recency-capped `get_session_texts_for_insights`
+(`MAX_SESSIONS_FOR_INSIGHT = 30`). Backlog #272 asked whether that
+reasoning still held now that POM is per-account (closing the
+cross-account leak #257/#273 fixed) rather than a single global
+aggregation -- a real design fork, not an implementation detail, so
+taken to the founder rather than assumed.
+
+**CONFIRMED by the founder: add a recency cap, overriding this
+project's own "keep uncapped" recommendation.** Added
+`MAX_SESSIONS_FOR_POM = 30` to `src/pom/schema.py` (deliberately
+duplicated from, not imported from, Insight Engine's own
+`MAX_SESSIONS_FOR_INSIGHT` -- same "small constants duplicated across
+engine packages" convention `src/pom/engine.py::MIN_BEHAVIORAL_EVIDENCE`
+already follows relative to Learning's `MIN_EVIDENCE`; POM and Insight
+Engine may want to tune this independently later, and nothing couples
+them today). `get_aggregated_knowledge_for_pom`'s query now reads
+`... WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?`, mirroring
+`get_session_texts_for_insights`' own shape and cost/latency reasoning.
+`scripts/run_pom_computation.py`'s module docstring updated to no
+longer describe the aggregation as uncapped.
+
+Verified: new test
+`test_get_aggregated_knowledge_for_pom_caps_at_most_recently_updated_sessions`
+in `tests/test_pom_aggregation.py` -- `MAX_SESSIONS_FOR_POM + 1`
+sessions created, the single oldest-`updated_at` one given content
+that must NOT appear in the aggregated claims; asserts both the count
+(`len(claims) == MAX_SESSIONS_FOR_POM`) and the specific exclusion.
+Full `pytest` suite (560 passed) clean.
+
+## You tab: per-parameter empty-state nudges declined, omission stays (2026-07-19, backlog #275)
+
+Backlog #275 asked whether POM/Learning's per-parameter empty states
+(e.g. a POM sub-system with nothing grounded yet, a pattern below
+`MIN_EVIDENCE`) should gain an evidence-gathering nudge -- some text
+suggesting what kind of conversation would surface that specific
+parameter -- rather than staying pure omission. This directly revisits
+`frontend/decisions.md`'s existing, dated "omit rather than show a
+hollow signal" principle (2026-07-18, POM surfaced to users): a system
+this codebase already committed to in writing, so reopening it needed
+the founder's own call, not a unilateral judgment call either way.
+
+**CONFIRMED by the founder: keep omitting, no nudge added.** No code
+change -- `PersonalOperatingModel.svelte` and `BehavioralPatterns.svelte`
+both already omit any parameter/pattern with nothing grounded, with no
+per-parameter suggestion text. The "omit rather than show a hollow
+signal" principle in `frontend/decisions.md` stands unrevised.

@@ -142,10 +142,14 @@ above).
    the frontend's You surface, and Insight-triggered conversational
    callbacks. None of these are required for POM v1 to function; they
    were deferred as distinct, separately-scoped increments.
-2. **Backlog #272**: now that POM is per-account (closing the original
-   cross-account leak), whether uncapped all-history aggregation
-   remains the right choice as any single account's history grows is
-   still an open question — not resolved by this doc.
+2. **Backlog #272 — RESOLVED 2026-07-19** (see engine/decisions.md
+   "POM: recency cap added to aggregation"): the founder was asked
+   directly whether uncapped all-history aggregation remained the right
+   choice now that POM is per-account, and explicitly chose to cap it
+   instead — `get_aggregated_knowledge_for_pom` now reads
+   `MAX_SESSIONS_FOR_POM` (30, `src/pom/schema.py`) most-recently-updated
+   sessions, mirroring Insight Engine's own `MAX_SESSIONS_FOR_INSIGHT`
+   cap, overriding this doc's earlier "all-history model" framing.
 3. **Backlog #291 is closed**: the Motivation/Narrative
    textbook-vs-founder's-own-formulation question was taken directly to
    the founder — confirmed the current SDT/Narrative Identity Theory
@@ -154,6 +158,17 @@ above).
    six LLM-inferred systems' actual output quality** against real
    conversation data — only unit-level grounding/downgrade logic is
    covered by tests today. Tracked as backlog #292.
+5. **Backlog #271 — RESOLVED 2026-07-19** (see engine/decisions.md
+   "Learning/POM: surface computed_at staleness signal"): `GET
+   /personal-operating-model` now includes `computed_at` --
+   `personal_operating_model` has stored this column since the table was
+   first created, but `get_personal_operating_model` never selected or
+   returned it until now. Attached onto `PersonalOperatingModel` after
+   parsing the stored JSON blob (`.model_copy(update={"computed_at":
+   ...})`), not one more column added to the mechanical/LLM-inferred
+   systems above -- `PersonalOperatingModel.computed_at` defaults to `""`
+   since src/pom/engine.py itself has no notion of when it's persisted.
+   `PersonalOperatingModel.svelte` shows a "Last updated" line from it.
 
 ## Verification
 

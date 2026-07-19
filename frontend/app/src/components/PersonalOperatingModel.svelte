@@ -93,6 +93,15 @@
         hasNarrative ||
         pom.theory_of_mind.entries.length > 0)
   );
+
+  // computed_at staleness signal (2026-07-19, backlog #271, mirrors
+  // BehavioralPatterns.svelte's own #269 -- see engine/decisions.md
+  // "Learning/POM: surface computed_at staleness signal").
+  function formatComputedAt(isoString) {
+    return new Date(isoString).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  }
 </script>
 
 <section class="card setting-section">
@@ -198,6 +207,9 @@
           </div>
         {/if}
       </div>
+      {#if pom.computed_at}
+        <p class="computed-at">Last updated {formatComputedAt(pom.computed_at)}</p>
+      {/if}
     {/if}
   {/if}
 </section>

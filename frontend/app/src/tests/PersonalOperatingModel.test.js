@@ -27,6 +27,7 @@ const EMPTY_POM = {
 };
 
 const POPULATED_POM = {
+  computed_at: '2026-07-19T00:00:00',
   belief: { beliefs: ['Believes hard work should be rewarded with recognition.'] },
   relationship: { relationships: ['Manager -- role is manager; has final say on transfers.'] },
   identity: { self_concept: 'Sees themselves as someone who values independence at work.', evidence: ['said so directly'] },
@@ -102,6 +103,21 @@ describe('PersonalOperatingModel', () => {
     expect(queryByText(/moderate/i)).toBeNull();
     expect(queryByText(/unclear/i)).toBeNull();
     expect(queryByText(/redemptive/i)).toBeNull();
+  });
+
+  it('shows when this was last computed (backlog #271, computed_at staleness signal)', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue(POPULATED_POM);
+    const { findByText } = render(PersonalOperatingModel);
+
+    expect(await findByText(/Last updated/)).toBeTruthy();
+  });
+
+  it('omits the last-updated line when computed_at is empty (e.g. a stale fixture)', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue({ ...POPULATED_POM, computed_at: '' });
+    const { queryByText, getByText } = render(PersonalOperatingModel);
+
+    await waitFor(() => getByText("What you've told me you believe"));
+    expect(queryByText(/Last updated/)).toBeNull();
   });
 
   it('renders the affirm/correct affordance next to every populated statement', async () => {

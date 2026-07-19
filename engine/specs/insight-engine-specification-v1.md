@@ -111,10 +111,13 @@ exists).
 **Backlog #249** ("Insight Engine: calibrate its uncalibrated
 thresholds") tracks `MIN_EVIDENCE_SESSIONS`/`MAX_SESSIONS_FOR_INSIGHT`
 — both explicit first guesses, never validated against real production
-theme-detection quality. **Backlog #268** ("Learning/POM/Insight: no
-recurring computation cadence") applies here too — Insight Engine has
-no scheduled recompute; it only ever runs when someone manually
-dispatches the workflow.
+theme-detection quality. **Backlog #268 — CONFIRMED 2026-07-19** ("no
+recurring computation cadence", see engine/decisions.md "Learning/POM/
+Insight Engine: manual-only cadence confirmed") applies here too:
+Insight Engine has no scheduled recompute, only `workflow_dispatch` --
+the founder was asked directly and confirmed this stays a deliberate
+choice, not an oversight, same "workflow_dispatch-only, no cron"
+precedent `backup-database.yml` already established.
 
 ## Verification
 

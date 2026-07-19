@@ -14,6 +14,7 @@ aggregation step itself.
 from __future__ import annotations
 
 from src.api import db
+from src.pom.schema import MAX_SESSIONS_FOR_POM
 from src.state.world_state import (
     Claim,
     Decision,
@@ -131,3 +132,34 @@ def test_get_aggregated_knowledge_for_pom_excludes_other_accounts_sessions(tmp_p
 
     assert claims_1 == ["Belief from user-1."]
     assert claims_2 == ["Belief from user-2."]
+
+
+def test_get_aggregated_knowledge_for_pom_caps_at_most_recently_updated_sessions(tmp_path, monkeypatch):
+    """Recency cap (2026-07-19, backlog #272, see engine/decisions.md
+    "POM: recency cap added to aggregation") -- the founder's own
+    explicit choice, overriding this codebase's original "POM is an
+    all-history model, uncapped" reasoning. One session beyond
+    MAX_SESSIONS_FOR_POM, given the OLDEST updated_at of the bunch, must
+    be excluded -- direct regression test for the cap actually limiting
+    which sessions get aggregated, same "cap actually bites" coverage
+    get_session_texts_for_insights' own MAX_SESSIONS_FOR_INSIGHT cap
+    established."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db(tmp_path / "test.db")
+
+    # One extra session, given the earliest updated_at of the group so
+    # it's the one the cap should exclude.
+    for i in range(MAX_SESSIONS_FOR_POM + 1):
+        session_id = db.create_session(user_id="user-1")
+        claim_text = "Oldest session, should be capped out." if i == 0 else f"Claim from session {i}."
+        state = WorldState(claims=[Claim(content=claim_text)])
+        with db._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET world_state_json = ?, updated_at = ? WHERE id = ?",
+                (state.model_dump_json(), f"2020-01-{i + 1:02d}T00:00:00", session_id),
+            )
+
+    claims, _, _, _ = db.get_aggregated_knowledge_for_pom("user-1")
+
+    assert len(claims) == MAX_SESSIONS_FOR_POM
+    assert "Oldest session, should be capped out." not in claims

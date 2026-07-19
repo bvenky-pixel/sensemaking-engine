@@ -3,10 +3,12 @@ Personal Operating Model -- offline computation (see src/pom/engine.py,
 engine/decisions.md "Personal Operating Model").
 
 POM made per-user (2026-07-18, see engine/decisions.md "POM made
-per-user"): reads every account's own sessions' WorldState
-(src/api/db.py::get_aggregated_knowledge_for_pom(user_id), uncapped --
-POM is a single-person, all-history profile, not a recency-capped
-sample), one account at a time, computes the two mechanical systems
+per-user"): reads each account's own sessions' WorldState
+(src/api/db.py::get_aggregated_knowledge_for_pom(user_id), capped at
+MAX_SESSIONS_FOR_POM most-recently-updated sessions since 2026-07-19,
+backlog #272, see engine/decisions.md "POM: recency cap added to
+aggregation" -- previously uncapped), one account at a time, computes
+the two mechanical systems
 plus one LLM call for the other six per account, and replaces that
 account's own `personal_operating_model` row (upsert, keyed on
 user_id -- see db.py's own schema). Every user-facing surface in this

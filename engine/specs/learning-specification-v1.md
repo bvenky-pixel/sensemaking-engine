@@ -97,6 +97,26 @@ real production data has actually accumulated after deploy — a
 same-day calibration attempt would have nothing real to calibrate
 against yet.
 
+4. **Backlog #268 — CONFIRMED 2026-07-19** ("no recurring computation
+   cadence", see engine/decisions.md "Learning/POM/Insight Engine:
+   manual-only cadence confirmed"): Learning stays `workflow_dispatch`-
+   only, same as Insight Engine and POM — the founder confirmed this is
+   a deliberate standing choice, not a gap, mirroring
+   `backup-database.yml`'s own precedent.
+5. **Backlog #269 — RESOLVED 2026-07-19** (see engine/decisions.md
+   "Learning/POM: surface computed_at staleness signal"): `GET
+   /patterns` now includes each pattern's `computed_at` --
+   `learned_patterns` has stored this column since the table was first
+   created, but `get_learned_patterns` never selected/returned it until
+   now. `BehavioralPatterns.svelte` shows a "Last updated" line sourced
+   from it (one computation run per account, so one shared line for the
+   whole card, not per-pattern).
+6. **Backlog #270 — RESOLVED 2026-07-19**: `LearnedPatternOut`'s and
+   `GET /patterns`' own docstrings both claimed this was "not yet
+   rendered in the frontend" — stale since #214 actually shipped
+   `BehavioralPatterns.svelte`. Both docstrings (`src/api/schema.py`,
+   `src/api/server.py`) now say so correctly.
+
 ## Verification
 
 `tests/test_learning.py` (5 tests) covers `compute_behavioral_patterns`

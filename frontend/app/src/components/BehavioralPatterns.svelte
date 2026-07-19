@@ -40,6 +40,17 @@
     patterns = await getBehavioralPatterns();
     loaded = true;
   });
+
+  // computed_at staleness signal (2026-07-19, backlog #269, see
+  // engine/decisions.md "Learning/POM: surface computed_at staleness
+  // signal") -- every pattern on one card comes from the same offline
+  // scripts/run_learning.py run, so one shared "last updated" line
+  // (from the first pattern) is enough; no need to repeat it per row.
+  function formatComputedAt(isoString) {
+    return new Date(isoString).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  }
 </script>
 
 <section class="card setting-section">
@@ -61,6 +72,9 @@
           </li>
         {/each}
       </ul>
+      {#if patterns[0].computed_at}
+        <p class="computed-at">Last updated {formatComputedAt(patterns[0].computed_at)}</p>
+      {/if}
     {/if}
   {/if}
 </section>
@@ -114,5 +128,11 @@
     color: var(--ink-muted);
     font-size: 13px;
     margin-top: 2px;
+  }
+
+  .computed-at {
+    color: var(--ink-muted);
+    font-size: 13px;
+    margin: var(--space-2) 0 0;
   }
 </style>

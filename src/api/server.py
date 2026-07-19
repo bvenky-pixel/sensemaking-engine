@@ -646,10 +646,11 @@ def get_patterns(user_id: str = Depends(require_user)) -> list[LearnedPatternOut
     "Learning made per-account") -- now requires login, same as
     /personal-operating-model, since `learned_patterns` is no longer a
     global, unattributable model an anonymous caller could safely see:
-    it's this account's own behavioral history. Not yet consumed by the
-    frontend: the exact "something noticed across Journeys" surfacing
-    form is its own, separate, not-yet-done design pass (see
-    frontend/specs/interaction-model-v4.md)."""
+    it's this account's own behavioral history. IS consumed by the
+    frontend (Settings' "Patterns" card, backlog #214, see
+    frontend/app/src/components/BehavioralPatterns.svelte) -- this
+    docstring previously (and inaccurately, see backlog #270) claimed
+    otherwise, a claim #214 made stale without ever updating this."""
     return db.get_learned_patterns(user_id)
 
 

@@ -198,25 +198,33 @@ class UnderstandingResponse(BaseModel):
 class LearnedPatternOut(BaseModel):
     """One row from GET /patterns (see engine/specs/architecture-roadmap-v1.md
     Phase 1, src/learning/engine.py::Pattern) -- Learning's own,
-    offline-computed, evidence-counted output. Deliberately NOT rendered
-    anywhere in the frontend yet: interaction-model-v4.md requires
-    "something noticed across Journeys" to read as a felt moment, never
-    a dashboard list, and its exact form is its own, not-yet-done design
-    pass (see frontend/decisions.md). This schema exists so the data
-    contract is ready whenever that design lands."""
+    offline-computed, evidence-counted output. IS rendered in the
+    frontend (Settings' "Patterns" card, backlog #214, see
+    frontend/app/src/components/BehavioralPatterns.svelte) -- the
+    docstring here previously (and inaccurately, see backlog #270)
+    called this "not yet rendered," a claim #214 made stale without the
+    docstring ever being updated to match.
+
+    `computed_at` (added 2026-07-19, backlog #269, see engine/decisions.md
+    "Learning/POM: surface computed_at staleness signal"): the offline
+    computation's own timestamp, already stored in `learned_patterns`
+    since this table was first created but never selected/returned
+    until now -- lets the frontend show when this was last computed
+    rather than presenting it as always-current."""
 
     pattern_type: str
     detail: str
     evidence_count: int
+    computed_at: str
 
 
 class InsightOut(BaseModel):
     """One row from GET /insights (see src/insight/engine.py::Insight,
     engine/decisions.md "Major update") -- the Insight Engine's own,
-    offline-computed, cross-session output. Unlike LearnedPatternOut,
-    this IS rendered in the frontend (Home.svelte, per an explicit
-    product decision to show real theme text on each evidencing
-    session's card) -- see src/api/db.py::list_sessions."""
+    offline-computed, cross-session output. Also rendered in the
+    frontend, same as LearnedPatternOut now is (Home.svelte, per an
+    explicit product decision to show real theme text on each
+    evidencing session's card) -- see src/api/db.py::list_sessions."""
 
     theme: str
     detail: str

@@ -198,7 +198,7 @@ from src.instrumentation.usage import AttemptRecord, LLMUsage
 from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
-from src.pom.schema import PersonalOperatingModel
+from src.pom.schema import MAX_SESSIONS_FOR_POM, PersonalOperatingModel
 from src.state.world_state import Entity, WorldState
 
 # Deployment (see .github/workflows/deploy.yml, fly.toml) mounts a
@@ -1106,14 +1106,23 @@ def get_learned_patterns(user_id: str) -> List[LearnedPatternOut]:
     "Learning made per-account") -- returns None-equivalent empty list
     until scripts/run_learning.py has computed THIS account's own
     patterns at least once; never another account's, same "POM made
-    per-user" precedent."""
+    per-user" precedent.
+
+    `computed_at` (added 2026-07-19, backlog #269): `learned_patterns`
+    has stored this on every row since the table was first created (see
+    replace_learned_patterns above), but it was never selected/returned
+    until now -- lets the frontend show when Learning was last computed
+    rather than presenting it as always-current."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT pattern_type, detail, evidence_count FROM learned_patterns "
+            "SELECT pattern_type, detail, evidence_count, computed_at FROM learned_patterns "
             "WHERE user_id = ? ORDER BY id ASC",
             (user_id,),
         ).fetchall()
-    return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]
+    return [
+        LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2], computed_at=r[3])
+        for r in rows
+    ]
 
 
 def get_session_texts_for_insights(user_id: str) -> List[Tuple[str, str, str]]:
@@ -1209,10 +1218,7 @@ def get_insights(user_id: str) -> List[InsightOut]:
 def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str], List[Entity], str]:
     """
     POM made per-user (2026-07-18, see engine/decisions.md "POM made
-    per-user") -- reads every session OWNED BY THIS ACCOUNT (uncapped
-    within that scope, same as get_all_sessions_raw's own "POM is an
-    all-history model, not a recency-capped sample" reasoning, just no
-    longer all-history across every account). An anonymous-owned
+    per-user") -- reads sessions OWNED BY THIS ACCOUNT. An anonymous-owned
     session (never claimed via login) is correctly excluded -- POM only
     ever reflects a real, standing account's own claimed history, never
     a browser that hasn't signed up. Aggregates into what
@@ -1223,13 +1229,28 @@ def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str]
     decisions, entities, emotional signals) for the one LLM call that
     infers the other six systems.
 
+    Capped at MAX_SESSIONS_FOR_POM most-recently-updated sessions
+    (added 2026-07-19, backlog #272, see engine/decisions.md "POM:
+    recency cap added to aggregation") -- this used to be genuinely
+    uncapped within the per-account scope (POM treated as an
+    all-history model, same reasoning get_all_sessions_raw's docstring
+    above still records for its own, different, migration-only use
+    case), on the theory that a standing profile benefits from every
+    session. The founder explicitly chose to cap it instead, now that
+    POM is per-account, mirroring get_session_texts_for_insights' own
+    MAX_SESSIONS_FOR_INSIGHT-style cap and its cost/latency reasoning --
+    an account with a very long history no longer sends unbounded
+    session text through the one POM LLM call.
+
     Read-only, used only by scripts/run_pom_computation.py -- this
     module has no opinion on POM itself, same separation as
     get_session_texts_for_insights above.
     """
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT world_state_json FROM sessions WHERE user_id = ?", (user_id,)
+            "SELECT world_state_json FROM sessions WHERE user_id = ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (user_id, MAX_SESSIONS_FOR_POM),
         ).fetchall()
 
     claims: List[str] = []
@@ -1306,14 +1327,28 @@ def get_personal_operating_model(user_id: str) -> Optional[PersonalOperatingMode
     """Returns None until scripts/run_pom_computation.py has computed
     THIS account's own POM at least once -- a brand-new account
     correctly has no POM yet, not an error state, and never inherits
-    another account's (see engine/decisions.md "POM made per-user")."""
+    another account's (see engine/decisions.md "POM made per-user").
+
+    `computed_at` (added 2026-07-19, backlog #271): `personal_operating_model`
+    has stored this since the table was first created (see
+    replace_personal_operating_model above), but it was never attached
+    to the returned model until now. Unlike `learned_patterns`,
+    PersonalOperatingModel is stored/read back as one whole JSON blob
+    (see GET /personal-operating-model's own docstring in
+    src/api/server.py for why it has no separate "Out" mirror type), so
+    the real column value can't just be one more field in the SELECT --
+    it's attached after parsing, overwriting whatever
+    `PersonalOperatingModel.computed_at` default (`""`) the stored JSON
+    itself carries."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT pom_json FROM personal_operating_model WHERE user_id = ?", (user_id,)
+            "SELECT pom_json, computed_at FROM personal_operating_model WHERE user_id = ?",
+            (user_id,),
         ).fetchone()
     if row is None:
         return None
-    return PersonalOperatingModel.model_validate_json(row[0])
+    pom = PersonalOperatingModel.model_validate_json(row[0])
+    return pom.model_copy(update={"computed_at": row[1]})
 
 
 # Privacy, made real (2026-07-18, see frontend/decisions.md): the first

@@ -28,8 +28,8 @@ describe('BehavioralPatterns', () => {
 
   it('renders every computed pattern with its detail and evidence count, unlike POM never hiding the count behind a category', async () => {
     api.getBehavioralPatterns.mockResolvedValue([
-      { pattern_type: 'decision_status_changed', detail: "3 of your decisions have moved to 'deferred' status.", evidence_count: 3 },
-      { pattern_type: 'goal_status_changed', detail: "4 of your goals have moved to 'completed' status.", evidence_count: 4 },
+      { pattern_type: 'decision_status_changed', detail: "3 of your decisions have moved to 'deferred' status.", evidence_count: 3, computed_at: '2026-07-19T00:00:00' },
+      { pattern_type: 'goal_status_changed', detail: "4 of your goals have moved to 'completed' status.", evidence_count: 4, computed_at: '2026-07-19T00:00:00' },
     ]);
     const { getByText, queryByText } = render(BehavioralPatterns);
 
@@ -44,5 +44,14 @@ describe('BehavioralPatterns', () => {
     // Raw internal event-type vocabulary never reaches the screen.
     expect(queryByText(/decision_status_changed/)).toBeNull();
     expect(queryByText(/goal_status_changed/)).toBeNull();
+  });
+
+  it('shows when this was last computed (backlog #269, computed_at staleness signal)', async () => {
+    api.getBehavioralPatterns.mockResolvedValue([
+      { pattern_type: 'decision_status_changed', detail: "3 of your decisions have moved to 'deferred' status.", evidence_count: 3, computed_at: '2026-07-19T00:00:00' },
+    ]);
+    const { findByText } = render(BehavioralPatterns);
+
+    expect(await findByText(/Last updated/)).toBeTruthy();
   });
 });

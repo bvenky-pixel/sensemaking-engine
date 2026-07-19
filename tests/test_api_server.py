@@ -562,6 +562,10 @@ def test_get_personal_operating_model_returns_last_computed_pom(client):
     res = client.get("/personal-operating-model")
     assert res.status_code == 200
     assert res.json()["identity"]["self_concept"] == "Values independence at work."
+    # computed_at (2026-07-19, backlog #271): attached from the
+    # personal_operating_model table's own column, not the (default-"")
+    # value on the stored JSON blob itself.
+    assert res.json()["computed_at"]
 
 
 def test_get_personal_operating_model_never_returns_another_accounts_pom(client):
@@ -1278,6 +1282,9 @@ def test_patterns_endpoint_reflects_last_computed_batch(client):
     body = client.get("/patterns").json()
     assert len(body) == 1
     assert body[0]["evidence_count"] == 3
+    # computed_at (2026-07-19, backlog #269): the offline run's own
+    # timestamp, now surfaced rather than silently dropped.
+    assert body[0]["computed_at"]
 
     # Truncate-and-replace per account, not append -- a second run must
     # not accumulate.
