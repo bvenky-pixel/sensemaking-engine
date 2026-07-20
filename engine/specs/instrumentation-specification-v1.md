@@ -155,17 +155,27 @@ above — deliberate, not an oversight). No unification with
 
 ## Open questions
 
-**Backlog #251** ("Instrumentation: unify with src/evaluation/
-metrics") tracks a real, still-open overlap: `src/evaluation/` has its
-own metrics/scoring machinery for calibration rounds, built
-independently of this package's reliability/cost tracking. Not resolved
-here.
+**Backlog #251 — RESOLVED 2026-07-19, not real duplication** (see
+engine/decisions.md "Instrumentation/evaluation 'overlap' closed -- not
+real duplication"): `src/evaluation/`'s metrics/scoring machinery
+(groundedness/constraint-violation heuristics over a Judgment's OUTPUT)
+and this package's own reliability/cost tracking solve different
+problems that happen to share the word "metrics" -- no computation is
+duplicated; `src/evaluation/` already imports `UsageTracker` directly
+for its own token/cost accounting, a clean one-directional dependency,
+not something needing unification.
 
-**Backlog #294** tracks routine upkeep both cost tables' own docstrings
-already call out: `pricing.py`/`frontier_pricing.py` are manually-
-maintained snapshots that will go stale, and neither has a scheduled
-re-verification cadence against OpenRouter's/Anthropic's current
-pricing pages.
+**Backlog #294 — RESOLVED 2026-07-19** (see engine/decisions.md
+"Instrumentation: pricing.py refreshed with production model costs"):
+`pricing.py`'s table was missing the three models
+`src/llm/providers.py`'s per-component chains actually dispatch to in
+production (`qwen/qwen3-32b`, `google/gemini-2.5-flash-lite`,
+`deepseek/deepseek-chat`) -- added. `frontier_pricing.py` was checked
+and found current for the four models it's scoped to. Still no
+scheduled re-verification cadence against OpenRouter's/Anthropic's
+current pricing pages -- both tables remain manually-maintained
+snapshots per their own docstrings, revisit opportunistically rather
+than on a fixed schedule.
 
 ## Verification
 

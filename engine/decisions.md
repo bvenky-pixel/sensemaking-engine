@@ -11389,3 +11389,113 @@ dedicated mocked-LLM test file before this, per
 confirms a real cited id survives grounding, and the direct regression
 test that a hallucinated id never in the given WorldState is silently
 dropped. Full `pytest` (573 passed) clean.
+
+## Instrumentation: pricing.py refreshed with production model costs (2026-07-19, backlog #294)
+
+Research confirmed `src/instrumentation/pricing.py`'s
+`_OPENROUTER_PRICING_PER_MTOK` table had exactly one entry
+(`openai/gpt-4o-mini`, the original, no-longer-used uniform model pin)
+and was missing the three models `src/llm/providers.py`'s own
+per-component chains actually dispatch to in production since the
+2026-07-18 rebalance (`qwen/qwen3-32b`, `google/gemini-2.5-flash-lite`,
+`deepseek/deepseek-chat`) -- a gap this project's own decisions.md
+already logged as producing "unknown cost" results in real calibration
+runs. `frontier_pricing.py`'s own reference-model table was checked
+separately and found current (matches the four models it's scoped to
+as of its own 2026-06-24 cache date; its deliberate exclusion of newer
+model names and its own promo-vs-standard Sonnet 5 rate choice are both
+already-documented design choices, not staleness). Routine maintenance,
+no founder decision needed -- this doesn't add a new default paid
+model, it makes cost tracking accurate for per-component overrides
+already approved and running in production.
+
+Added the three missing entries (`qwen/qwen3-32b`: $0.08/$0.28,
+`google/gemini-2.5-flash-lite`: $0.10/$0.40, `deepseek/deepseek-chat`:
+$0.20/$0.80 per 1M input/output tokens), sourced directly from
+`providers.py`'s own already-cited docstring, no new research needed.
+Verified with a new direct regression test,
+`test_production_per_component_models_are_priced_not_unknown`
+(`tests/test_instrumentation.py`) -- confirms all three resolve to a
+real cost rather than `None`. Full `pytest` suite clean.
+
+## Instrumentation/evaluation "overlap" closed -- not real duplication (2026-07-19, backlog #251)
+
+Research found `src/instrumentation/` (token/cost/latency measurement,
+provider-attempt outcome tracking -- "it observes; it does not evaluate
+or act") and `src/evaluation/` (groundedness/constraint-violation
+heuristics scoring a Judgment's actual OUTPUT quality) solve genuinely
+different problems that happen to share the word "metrics." The only
+real connection is a clean, one-directional dependency already in
+place: `src/evaluation/baselines.py`/`confidant_runner.py` already
+import and reuse `UsageTracker`/`default_tracker` directly for
+token/cost accounting during eval runs -- no computation is duplicated
+anywhere; the two modules' actual algorithms (token/cost math vs.
+word-overlap/regex heuristics) share nothing. `engine/specs/
+instrumentation-specification-v1.md`'s own Open Questions flagged this
+as "a real, still-open overlap" without citing any specific duplicated
+logic -- the overlap doesn't survive scrutiny.
+
+**Closed, no code change.** If a real gap emerges later it would be a
+small additive glue consumer (e.g. a combined report placing
+`UsageTracker.summary()` and `evaluation/metrics.compute_all()` side by
+side for one eval run), not a merge of either module's internals --
+and nothing today asks for even that. `engine/specs/
+instrumentation-specification-v1.md`'s Open Questions section should be
+read as resolved by this entry.
+
+## Synthesis fusion-vs-single-call measurement declined (2026-07-19, backlog #254)
+
+Research confirmed "literal multi-persona fusion" was already
+concretely defined and explicitly rejected when Synthesis shipped
+(2026-07-16, see this file's own "Synthesis" entry and
+`engine/specs/architecture-roadmap-v1.md`'s Phase 3 section): 5
+independent lens-specific LLM calls plus a 6th fusion call, ~6x a
+normal turn's Judgment/Planner cost, versus the shipped single-Planner-
+call-picks-one-lens design (`Planner.active_lens`). The roadmap doc
+itself already flagged that "measuring" this properly would require
+first BUILDING the fusion arm, which was never built precisely because
+of its cost -- so #254 wasn't actually a scoped measurement task, it
+was asking permission to build a second, expensive pipeline purely to
+benchmark against a design that was already deliberately chosen.
+
+**CONFIRMED by the founder: close/defer**, matching the recommendation.
+No new evidence has surfaced since the original decision to justify the
+cost of building a comparison arm nobody has asked for. No code
+change -- `engine/specs/architecture-roadmap-v1.md`'s own "worth
+revisiting if literal fusion is ever attempted for real" framing stands
+as the reopening condition, not this round.
+
+## Business-gated enterprise/investor infrastructure remains parked (2026-07-19, backlog #258)
+
+Confirmed correctly gated, not an oversight: `engine/specs/
+architecture-roadmap-v1.md`'s own "Explicitly not scoped by this
+roadmap" section already names exactly this (sponsor/organization
+layer, SOC2/ISO27001/SAML/investor-dashboard apparatus, physiological/
+wearable/calendar/task-app signal ingestion, client-side E2EE key
+management) with its own stated reopening condition: "an actual
+organization customer or investor process that needs them." No such
+trigger has occurred. No code, no doc change -- the backlog item's own
+title ("do not start prematurely") is the accurate, current state, not
+a stale placeholder.
+
+## "Plans" (transformation plans) design deferred (2026-07-19, backlog #266)
+
+Research confirmed this is a genuinely undesigned, brand-new feature --
+zero mentions of "Plans" or "transformation plan" anywhere in
+engine/decisions.md, engine/specs/, or frontend/specs/, including
+`information-architecture-v1.md` (still its original "Three Spaces:
+Home/Journey/Settings" version, unrevised). The premise that the
+pending 5-tab IA work (backlog #260-267) already positions a "Plans"
+tab doesn't hold up either -- those backlog titles don't name a "Plans"
+tab, and none of that work has been built yet. Even a first-pass design
+proposal (the treatment given to Tier 2 v2 and Insight Engine's merge
+question this same day) couldn't start here without first knowing
+whether Plans is its own tab, a feature inside Journey, or something
+else entirely -- that depends on where the 5-tab nav actually lands.
+
+**CONFIRMED by the founder: defer until the 5-tab IA work (backlog
+#260-267) lands**, matching the recommendation. No design proposal
+written this round -- designing Plans against a navigation structure
+that doesn't exist yet risks the proposal being wrong in ways that are
+purely a sequencing artifact, not a real product question. Revisit once
+#260-267 is real.

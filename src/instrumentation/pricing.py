@@ -32,8 +32,21 @@ from typing import Dict, Optional, Tuple
 # model -> (input $ per 1M tokens, output $ per 1M tokens). Snapshot only
 # -- see module docstring. Add entries as needed; an unlisted, non-":free"
 # model is reported as unknown cost, not silently priced at $0.
+#
+# Refreshed 2026-07-19 (backlog #294, see engine/decisions.md
+# "Instrumentation: pricing.py refreshed with production model costs"):
+# "openai/gpt-4o-mini" is the original, no-longer-used uniform pin,
+# kept for any historical run still referencing it. The three entries
+# below are what src/llm/providers.py's per-component model chains
+# actually dispatch to in production today (2026-07-18 rebalance, see
+# that module's own docstring for the sourcing) -- added because
+# engine/decisions.md logged this exact gap producing "unknown cost"
+# results in real calibration runs before this fix.
 _OPENROUTER_PRICING_PER_MTOK: Dict[str, Tuple[float, float]] = {
     "openai/gpt-4o-mini": (0.15, 0.60),
+    "qwen/qwen3-32b": (0.08, 0.28),
+    "google/gemini-2.5-flash-lite": (0.10, 0.40),
+    "deepseek/deepseek-chat": (0.20, 0.80),
 }
 
 # Verified-$0 OpenRouter model IDs that don't match the `:free`-suffix
