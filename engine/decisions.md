@@ -11499,3 +11499,145 @@ written this round -- designing Plans against a navigation structure
 that doesn't exist yet risks the proposal being wrong in ways that are
 purely a sequencing artifact, not a real product question. Revisit once
 #260-267 is real.
+
+## Orchestrator: skip-logic/model-routing provisional criteria proposed (2026-07-19, backlog #238)
+
+`src/orchestrator/engine.py`'s own module docstring names two deferred
+non-goals ("skip unnecessary computation," "select models as
+interaction-level policy"), each originally deferred for "no evidence
+yet." Asked whether to close both as still-correctly-gated or define
+provisional criteria now regardless -- **the founder chose the latter
+(non-recommended option)**: define provisional criteria now anyway.
+Full analysis in `engine/specs/orchestrator-skip-logic-model-routing-proposal.md`
+(discussion draft, no code/prompt/schema changes).
+
+The two non-goals turned out to have very different shapes once traced
+through the pipeline:
+
+- **Skip-logic**, taken literally ("skip Judgment if Interpretation
+  produced nothing new"), is not a safe optimization for this
+  pipeline's shape: `run_turn` is a strict sequential chain where
+  Response (the actual reply the person sees) depends on Planner, which
+  depends on Judgment. Skipping Judgment cascades to no reply at all --
+  a correctness regression, not a latency win. The only safe-sounding
+  variant (reuse the previous turn's bundle rather than omit a stage)
+  is a materially different, larger, riskier feature ("turn reuse under
+  explicit staleness disclosure"), not something to back into via a
+  provisional trigger. **Recommendation stands even though the founder
+  asked for provisional criteria: close skip-logic, don't define it.**
+  Not "no evidence exists" (the original, weaker reason) but "the
+  literal mechanism is architecturally unsafe."
+- **Model-routing** has a real, already-available mechanical signal:
+  Interpretation's own `interp.urgency == "high"` field (`src/interpretation/schema.py`),
+  proposed as the provisional, explicitly-uncalibrated criterion -- same
+  framing as `MIN_EVIDENCE`/`TIER2_RECENCY_WINDOW_TURNS`. The plumbing
+  to route on it is real but mechanical (an optional `model_override`
+  parameter threaded through `run_judgment`/`run_planner`/
+  `run_response_generator` into `call_provider`, bypassing
+  `_resolve_model_chain`'s component lookup when set). What the
+  document deliberately does NOT settle: which model to route TO.
+  `_DEFAULT_COMPONENT_MODELS` was rebalanced to the cheapest viable
+  chain per component with no "next tier up" already approved, and
+  CLAUDE.md's standing policy requires fresh explicit permission before
+  any non-free-tier model, even for a conditional per-turn case. That
+  decision -- naming a target model and accepting its real per-high-
+  stakes-turn cost -- is out of this document's scope.
+
+No code changes. `interp.urgency` is not read by Orchestrator for
+anything today. If the founder later names a target model, the
+plumbing described in the proposal doc is buildable on request.
+
+## #252: production model re-validated against Interpretation exit criteria (2026-07-19/20, backlog #252)
+
+Dispatched `interpretation-benchmark.yml` (workflow_dispatch, default
+`runs_per_case=10`, `openrouter_model` left blank -- resolves to
+whatever `src/llm/providers.py` gives Interpretation in production,
+i.e. `_SHARED_REASONING_CHAIN` unless `OPENROUTER_MODEL` is globally
+overridden). Run 29717965367, job 88274822138, **conclusion: success**.
+
+Result (from the job's own log, since the uploaded artifact ZIP is
+unreachable from this sandbox -- see limitation below): all 20 runs
+(TC1 x10, TC2 x10) completed without raising `InterpretationError`:
+`Done: 20/20 succeeded, 0 failed.`
+
+**What this does and doesn't confirm.** This verifies exit criterion #1
+("stable across repeated runs... no field flips between fundamentally
+different shapes") only in the weak sense that every run completed and
+produced schema-valid output -- zero hard failures across 20 real
+dispatches is itself real signal, not nothing. It does **not** verify
+criteria #2 (zero role violations), #3 (no fabrication/leak
+relocation), #5 (good enough for Judgment to consume without defensive
+prompting), or #6 (every field justifies its existence) -- those
+require reading the actual per-run JSON field content, which lives only
+in the uploaded artifact. This environment's outbound proxy rejects the
+CONNECT to the Azure Blob Storage host GitHub redirects artifact
+downloads to (`productionresultssa2.blob.core.windows.net:443`,
+confirmed via `$HTTPS_PROXY/__agentproxy/status` showing
+`connect_rejected`), and the benchmark script itself only prints
+`[OK]`/`[FAIL]` per-run lines to stdout by design -- it never dumps full
+JSON to the job log. Stated plainly rather than glossed over: a full
+six-criteria re-validation was not achievable from this environment this
+round. Whoever can retrieve the `interpretation-benchmark-results`
+artifact (id 8451340314, run 29717965367) outside this sandbox should
+do the qualitative scoring; this entry only closes the "does production
+still run clean" half of #252.
+
+## #253: Judgment v2 evaluation harness re-run with pinned model -- 2/3 conditions, a first (2026-07-19/20, backlog #253)
+
+Per CLAUDE.md's standing policy (`openrouter/free` unsuitable for
+anything requiring model invariance across calls), pinned
+`OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free` -- this
+project's own prior pinned default (see this file's earlier entry on
+why it was replaced as the *uniform* default), a well-attested,
+non-arbitrary choice for a one-off invariant evaluation run, not a new
+model introduced without basis. Dispatched
+`judgment-evaluation-smoketest.yml` with that override. Run
+29717978757, job 88274858446, **conclusion: failure** (script exits 1
+whenever fewer than 3/3 conditions succeed -- but 2/3 succeeding with
+real, comparable, non-degenerate output is the actual result worth
+recording, not a wash).
+
+Real results, from the job log:
+
+- **Baseline A (raw transcript)**: succeeded. 1 call, 11,070 tokens,
+  $0.0000 (confirmed `:free`), full real Judgment output --
+  `has_knowledge_correction=True`, `has_decision_resolution=True`,
+  `has_risk_signal=True`, one contradiction correctly identified
+  (Sarah's promotion being retracted).
+- **Baseline B2 (incremental summary)**: failed, isolated to one
+  provider response-shape error on one of its own many sequential
+  summary-update calls -- `"Unexpected OpenRouter response shape:
+  'choices'"`. Not the systemic cross-call-model-variance failure mode
+  CLAUDE.md warns `openrouter/free` produces; a single pinned free model
+  can still occasionally get a malformed response from OpenRouter
+  itself, distinct from the two prior 2026-07-05 runs where all 3
+  conditions failed outright.
+- **Confidant (Interpretation -> WorldState -> Judgment)**: succeeded.
+  12 calls (11 Interpretation + 1 Judgment), 139,338 tokens, 656.3s
+  latency, $0.0000. Real Judgment output with a materially richer
+  picture than Baseline A on the same transcript: 2 contradictions found
+  vs. Baseline A's 1, 10 near-duplicate pairs correctly identified (none
+  in Baseline A, which has no near-duplicate detection input to work
+  from), `groundedness_heuristic` 30/30 entries plausibly grounded
+  (rate 1.0).
+
+**First time this harness has produced 2/3 usable conditions** -- the
+two prior 2026-07-05 attempts both got 0/3. Worth recording as its own
+signal: the Confidant condition's `supporting_evidence` field contained
+real WorldState item UUIDs throughout (e.g.
+`0256a3dc-4049-42e0-9bba-a3a6c46ffe25`, matching an actual Fact id in
+the same run's WorldState) -- a live, non-mocked confirmation that the
+earlier #242 migration (`Judgment.supporting_evidence`: prose quotes ->
+real KnowledgeItem id references, with engine-level grounding
+enforcement) is working correctly end-to-end in production-shaped
+conditions, not just in the test suite.
+
+Not resolved by this round: Baseline B2's isolated failure means the
+harness still hasn't produced one clean 3/3 run comparing all three
+conditions side by side, which `judgment-v2-evaluation-design.md`'s full
+pilot needs. No code change -- this was a re-run for evidence, not a
+bug in `src/`; the OpenRouter response-shape error is a provider-side
+transient, not something this codebase's error handling did wrong (it
+was correctly caught and reported as a `[FAIL]` line rather than
+crashing the whole script, which is exactly why Baseline A and Confidant
+still completed).

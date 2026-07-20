@@ -137,9 +137,24 @@ only.
 
 ## Open questions
 
-**Backlog #238** ("Orchestrator: revisit deferred skip-logic/
-model-routing scope") tracks the remaining deliberately deferred §1
-responsibility above — not resolved by this doc.
+**Backlog #238 ("Orchestrator: revisit deferred skip-logic/
+model-routing scope") — RESOLVED 2026-07-19** (see engine/decisions.md
+"Orchestrator: skip-logic/model-routing provisional criteria proposed",
+and the full discussion draft at
+`engine/specs/orchestrator-skip-logic-model-routing-proposal.md`): asked
+to define provisional criteria for both deferred non-goals rather than
+leave them closed, the founder chose that non-recommended path.
+Skip-logic, traced through the actual pipeline, turned out to be
+architecturally unsafe in its literal form (skipping Judgment cascades
+to no reply at all, since Response depends on Planner depends on
+Judgment) — the recommendation is to close it outright, not provisionally
+define it; the two deferred non-goals above still stand as written.
+Model-routing has a real, already-available mechanical signal
+(`interp.urgency == "high"`) and a scoped-but-not-built plumbing path,
+contingent on the founder naming a specific target model and accepting
+its cost under CLAUDE.md's standing policy — that naming has not
+happened, so no routing behavior exists yet. Treat as closed research,
+not an implemented feature.
 
 **Backlog #250 ("Orchestrator: revisit whole-stage retry, distinct from
 call-level fallback") — RESOLVED 2026-07-19** (see engine/decisions.md
