@@ -1199,6 +1199,49 @@ def test_has_stagnation_signal_true_when_a_decision_is_stale(client, monkeypatch
     assert matching["has_stagnation_signal"] is True
 
 
+def test_stagnation_note_sourced_from_last_judgment(client):
+    """Backlog #255: when the session's debug_json has a completed
+    Judgment with a non-empty stagnation_notes, list_sessions should
+    surface the FIRST entry, second-person rendered, as stagnation_note
+    -- richer than the fixed has_stagnation_signal-only phrase."""
+    from src.api import db as db_module
+
+    session_id = client.post("/sessions").json()["id"]
+    db_module.append_message(session_id, "user", "I want to move teams.")
+    debug = {"judgment": {"stagnation_notes": ["The user has not moved on this decision in several turns."]}}
+    with db_module._connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET debug_json = ? WHERE id = ?",
+            (json.dumps(debug), session_id),
+        )
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["stagnation_note"] == "You have not moved on this decision in several turns."
+
+
+def test_stagnation_note_none_when_debug_json_has_no_notes(client):
+    """A session with a completed Judgment whose stagnation_notes came
+    back empty that turn (a real, common, correct answer -- see
+    Judgment.stagnation_notes' own docstring) must report stagnation_note
+    as None, not fabricate one -- even if has_stagnation_signal's
+    separate, mechanical WorldState-only check happens to be true."""
+    from src.api import db as db_module
+
+    session_id = client.post("/sessions").json()["id"]
+    db_module.append_message(session_id, "user", "I want to move teams.")
+    debug = {"judgment": {"stagnation_notes": []}}
+    with db_module._connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET debug_json = ? WHERE id = ?",
+            (json.dumps(debug), session_id),
+        )
+
+    summaries = client.get("/sessions").json()
+    matching = [s for s in summaries if s["id"] == session_id][0]
+    assert matching["stagnation_note"] is None
+
+
 def _goal_update_turns():
     return [
         _minimal_interp("User wants to move to the Product team.", goals=["Move to the Product team."]),

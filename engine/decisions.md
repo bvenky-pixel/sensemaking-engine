@@ -11788,3 +11788,95 @@ rounds were driven by direct user complaints or ad hoc log greps, never
 a repeatable named-case set. No code change this round; PR05's mild
 over-fitting observation is noted as a watch item, not acted on from a
 single data point.
+
+## Frontend: richer stagnation wording sourced from Judgment's own stagnation_notes (2026-07-21, backlog #255)
+
+Closes the gap `frontend/decisions.md`'s own "three-increment frontend
+redesign" entry named as explicitly deferred: Home's stagnation aside
+(`session.has_stagnation_signal`) only ever rendered one fixed generic
+phrase ("There's more to think through here."), never Judgment's own
+richer `stagnation_notes` wording -- deliberately deferred at the time
+specifically because doing so "would need an extra debug_json read per
+session for a first pass that doesn't need it yet" (`src/api/db.py::list_sessions`'s
+own docstring). That extra read is now done, mirroring how
+`get_session_texts_for_insights` already reads a session's `judgment`
+dict out of `debug_json` the same way.
+
+`list_sessions` now also selects `debug_json` and, per row, extracts
+the last completed turn's `Judgment.stagnation_notes[0]` (second-person
+rendered via `src.executor.voice.to_second_person`, the same transform
+already applied to this field for the live Clarity Brief in
+`send_message`) into a new `SessionSummary.stagnation_note: Optional[str]`
+field. `None` whenever there's no completed turn yet, or that turn's
+`stagnation_notes` came back empty -- a real, common, correct answer
+per that field's own docstring (Judgment may reason a raw mechanical
+signal isn't actually significant that turn), not something to paper
+over with the old generic phrase.
+
+**`has_stagnation_signal` is kept, not replaced** -- it's a different,
+independent signal (a pure mechanical function of WorldState alone,
+`compute_stagnation_signals`) that can be true even when the richer
+text is absent. `Home.svelte` now prefers `stagnation_note` when
+present and falls back to the old fixed phrase only when
+`has_stagnation_signal` is true but `stagnation_note` is `None` --
+never both, never neither incorrectly.
+
+Verified: two new backend tests (`tests/test_api_server.py`) covering
+the populated-note case (with the second-person transform actually
+firing) and the empty-notes-but-signal-true fallback case; three new
+frontend tests (`Home.test.js`) covering the real-text render, the
+fallback-phrase render, and the neither-renders case. Full suite:
+`pytest` 576 passed, `npm test` 107 passed, `npm run build` green.
+
+## Frontend: audit of explicitly-declined/deferred features (2026-07-21, backlog #256)
+
+Reviewed every "explicitly out of scope"/"deliberately deferred"/
+"declined" item recorded across `frontend/decisions.md` and
+`frontend/specs/` to check whether anything built since has newly
+triggered one. Findings:
+
+**Already resolved by later, unrelated rounds (no action needed now,
+just noting the closure):**
+- "The exact frontend surfacing shape for Learning's cross-Journey
+  patterns (needs its own design pass)" -- resolved by
+  `interaction-model-v4.md`'s own design pass plus the Insight Engine
+  (`src/insight/`) and `BehavioralPatterns.svelte` (#214) actually
+  shipping; `interaction-model-v4.md` explicitly notes Insight Engine
+  "now exists to fulfill" the reserved-but-unimplemented Learning slot
+  its predecessor spec left open.
+- "'Something noticed across Journeys' (still gated on the backend's
+  unimplemented Learning process)" -- same resolution: `insight_theme`/
+  `insight_detail` on Home and the You tab's Behavioral Patterns card
+  are exactly this, already shipped.
+- "Deliberately out of scope: privacy_settings/personal_operating_model/
+  learned_patterns/insights all stay the single, global, cross-visitor
+  models" -- resolved by the later per-account rounds (#192-196, #257,
+  #273, #274), all completed.
+- "Not built, and a known rough edge: clicking a magic link reloads the
+  whole app fresh... lands back on Home, not the exact conversation" --
+  resolved by backlog #186 ("return to the same Journey after
+  magic-link verify"), already completed.
+
+**Still correctly out of scope, no new trigger found:**
+- "Have one POM question asked before Home" -- declined for a standing
+  philosophical reason ("a mandatory pre-Home gate is exactly the kind
+  of forced, survey-shaped touchpoint the 'no manufactured urgency'
+  philosophy exists to avoid"), still holds; nothing built since
+  changes that reasoning.
+- Multi-person/collaborative Journeys, archiving a resolved Journey,
+  the Foundations token-showcase page, Clarity Brief editing UI (still
+  no backend write path for it), URL/hash-based routing -- each still
+  has its own documented reopening condition
+  (`information-architecture-v1.md`'s "Future Considerations" for the
+  first two) that hasn't fired. "Mobile-specific layout beyond the
+  narrow-screen priority rule" is not newly relevant on its own --
+  it's already the explicit subject of the separate, already-scoped
+  Frontend IA v2 group (backlog #260-267, "build responsive tab-bar
+  navigation shell"), not something #256 needs to reopen independently.
+- Learning Phase 1's own live-dispatch walkthrough verification remains
+  genuinely open (same real-production-data/explicit-go-ahead blocker
+  as backlog #213), not newly relevant, not resolved by this audit.
+
+No code change -- this was a research-only audit. Nothing found
+warranted reopening; the two genuinely resolved-by-other-work items are
+recorded here so this doc doesn't keep listing them as open elsewhere.

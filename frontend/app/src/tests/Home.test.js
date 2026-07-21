@@ -343,3 +343,74 @@ describe('Home: Journey-completion login nudge', () => {
     await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
   });
 });
+
+// Backlog #255 (see engine/decisions.md "Frontend: richer stagnation
+// wording sourced from Judgment's own stagnation_notes"): the aside
+// should prefer the real stagnation_note text when present, and only
+// fall back to the old fixed generic phrase when has_stagnation_signal
+// is true but stagnation_note is null (e.g. Judgment's own notes came
+// back empty that turn even though the mechanical WorldState check
+// found something).
+describe('Home: stagnation aside prefers real Judgment wording', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.clearAllMocks();
+    api.getModes.mockResolvedValue(MODES);
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'me@example.com';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders the real stagnation_note text when present', async () => {
+    api.listSessions.mockResolvedValue([
+      {
+        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
+        bookmarked: false, has_stagnation_signal: true,
+        stagnation_note: 'You have not moved on this decision in several turns.', mode: null,
+      },
+    ]);
+
+    const { getByText, queryByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText('You have not moved on this decision in several turns.'));
+    expect(queryByText("There's more to think through here.")).toBeNull();
+  });
+
+  it('falls back to the fixed generic phrase when has_stagnation_signal is true but stagnation_note is null', async () => {
+    api.listSessions.mockResolvedValue([
+      {
+        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
+        bookmarked: false, has_stagnation_signal: true, stagnation_note: null, mode: null,
+      },
+    ]);
+
+    const { getByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText("There's more to think through here."));
+  });
+
+  it('renders neither aside when has_stagnation_signal is false and stagnation_note is null', async () => {
+    api.listSessions.mockResolvedValue([
+      {
+        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
+        bookmarked: false, has_stagnation_signal: false, stagnation_note: null, mode: null,
+      },
+    ]);
+
+    const { getByText, queryByText } = render(Home, {
+      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
+    });
+
+    await waitFor(() => getByText('A Journey'));
+    expect(queryByText("There's more to think through here.")).toBeNull();
+  });
+});

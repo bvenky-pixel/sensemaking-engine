@@ -192,6 +192,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from src.api.schema import InsightOut, LearnedPatternOut, MessageOut, SessionSummary
+from src.executor.voice import to_second_person
 from src.insight.schema import MAX_SESSIONS_FOR_INSIGHT, Insight
 from src.instrumentation.events import BehavioralEvent, is_events_enabled
 from src.instrumentation.usage import AttemptRecord, LLMUsage
@@ -789,12 +790,23 @@ def list_sessions(
     `bookmarked_only` (added for the Home redesign): filters to
     `bookmarked = 1` rows. `has_stagnation_signal` (also added then) is
     computed per session via compute_stagnation_signals (pure function
-    of WorldState alone, src/judgment/engine.py) being non-empty --
-    deliberately just a boolean flag, not the mechanical signal's raw
-    text or Judgment's own worded stagnation_notes (see
-    frontend/decisions.md for why: the raw text is internal, and
-    surfacing Judgment's actual wording would need an extra debug_json
-    read per session for a first pass that doesn't need it yet).
+    of WorldState alone, src/judgment/engine.py) being non-empty.
+
+    `stagnation_note` (2026-07-21, backlog #255, see engine/decisions.md
+    "Frontend: richer stagnation wording sourced from Judgment's own
+    stagnation_notes"): the deferred "extra debug_json read per session"
+    this docstring used to cite as the reason NOT to do this -- now done,
+    same "no ORM, parse debug_json in Python" style
+    get_session_texts_for_insights already uses to read a session's
+    `judgment` dict. Takes the first entry of the last completed turn's
+    `Judgment.stagnation_notes` (second-person rendered via
+    to_second_person, matching how the same field is rendered for the
+    live Clarity Brief in send_message), or `None` if there's no
+    completed turn yet or that list came back empty that turn -- a real,
+    common, correct answer per stagnation_notes' own docstring, not a
+    bug. The frontend prefers this text and falls back to the old fixed
+    generic phrase only when `has_stagnation_signal` is true but this is
+    `None`.
 
     `insight_theme`/`insight_detail` (major update, see engine/decisions.md):
     unlike has_stagnation_signal, this deliberately deviates from the
@@ -828,7 +840,7 @@ def list_sessions(
     matches no identity and is simply never returned, same as
     `_require_owned_session`'s own treatment of one.
     """
-    query = "SELECT id, world_state_json, updated_at, bookmarked, mode FROM sessions " \
+    query = "SELECT id, world_state_json, updated_at, bookmarked, mode, debug_json FROM sessions " \
             "WHERE id IN (SELECT DISTINCT session_id FROM messages WHERE role = 'user')"
     params: List[Optional[str]]
     if user_id is not None:
@@ -859,9 +871,14 @@ def list_sessions(
     first_message = {session_id: content for session_id, content in first_message_rows}
 
     summaries = []
-    for session_id, world_state_json, updated_at, bookmarked, mode in rows:
+    for session_id, world_state_json, updated_at, bookmarked, mode, debug_json in rows:
         state = WorldState.model_validate_json(world_state_json)
         theme, detail = session_insight.get(session_id, (None, None))
+        stagnation_note = None
+        if debug_json:
+            judgment = json.loads(debug_json).get("judgment")
+            if judgment and judgment.get("stagnation_notes"):
+                stagnation_note = to_second_person(judgment["stagnation_notes"][0])
         summaries.append(
             SessionSummary(
                 id=session_id,
@@ -870,6 +887,7 @@ def list_sessions(
                 bookmarked=bool(bookmarked),
                 mode=mode,
                 has_stagnation_signal=bool(compute_stagnation_signals(state)),
+                stagnation_note=stagnation_note,
                 insight_theme=theme,
                 insight_detail=detail,
             )

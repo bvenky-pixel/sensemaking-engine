@@ -472,11 +472,17 @@ an API check -- the bookmark star's state survives a full page reload.
 Composer, Home) is complete.** Everything scoped in this conversation
 under the relaxed guardrail has shipped, tested, and been live-verified
 in both color schemes. Remaining, explicitly deferred items from this
-arc: the exact frontend surfacing shape for Learning's cross-Journey
-patterns (needs its own design pass per `interaction-model-v4.md`),
-richer stagnation wording sourced from Judgment's own `stagnation_notes`
-instead of the fixed phrase, and live verification of the Learning Phase
-1 walkthrough workflow.
+arc, all since resolved (see engine/decisions.md for each): the exact
+frontend surfacing shape for Learning's cross-Journey patterns --
+resolved by `interaction-model-v4.md`'s own design pass plus Insight
+Engine/`BehavioralPatterns.svelte` shipping; richer stagnation wording
+sourced from Judgment's own `stagnation_notes` instead of the fixed
+phrase -- resolved 2026-07-21, backlog #255 ("Frontend: richer
+stagnation wording sourced from Judgment's own stagnation_notes"). Live
+verification of the Learning Phase 1 walkthrough workflow remains
+genuinely open -- blocked on the same real-production-data/explicit-
+go-ahead constraint as backlog #213, not something either of the above
+resolutions touches.
 
 ## Warm & Alive redesign (2026-07-18)
 

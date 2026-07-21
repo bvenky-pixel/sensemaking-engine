@@ -100,12 +100,25 @@ class SessionSummary(BaseModel):
     not a backend label, just a different and more stable source.
 
     `bookmarked`/`has_stagnation_signal` added for the Home redesign
-    (see frontend/decisions.md) -- `has_stagnation_signal` is
-    deliberately just a boolean (whether compute_stagnation_signals
-    found anything at all), not the mechanical signal text itself or
-    Judgment's own worded stagnation_notes; the frontend renders one
-    fixed, generic phrase when it's true, matching Learning Phase 1's
-    own "mechanical signal only" precedent for a first pass.
+    (see frontend/decisions.md) -- `has_stagnation_signal` is a boolean
+    (whether compute_stagnation_signals found anything at all, a pure
+    function of WorldState alone) that the frontend still uses as a
+    fallback gate.
+
+    `stagnation_note` (2026-07-21, backlog #255, see engine/decisions.md
+    "Frontend: richer stagnation wording sourced from Judgment's own
+    stagnation_notes") -- the actual richer text, sourced from the
+    session's last completed turn's `Judgment.stagnation_notes` (read
+    from `debug_json`, same source `get_session_texts_for_insights`
+    already reads `judgment` from). `None` whenever there's no completed
+    turn yet, or the last Judgment's own `stagnation_notes` came back
+    empty (a real, common, correct answer -- see that field's own
+    docstring in src/judgment/schema.py) even though
+    `has_stagnation_signal`'s mechanical check found a raw signal --
+    Judgment may have reasoned the raw signal isn't actually
+    significant this turn. The frontend prefers this real text when
+    present and only falls back to the old fixed generic phrase when
+    `has_stagnation_signal` is true but this is `None`.
 
     `mode` (2026-07-18, see frontend/decisions.md "Home: time period +
     mode filtering"): the Counseling mode chosen at creation (see
@@ -124,6 +137,7 @@ class SessionSummary(BaseModel):
     updated_at: str
     bookmarked: bool = False
     has_stagnation_signal: bool = False
+    stagnation_note: Optional[str] = None
     mode: Optional[str] = None
 
     # Major update (2026-07-11, see engine/decisions.md): the theme text

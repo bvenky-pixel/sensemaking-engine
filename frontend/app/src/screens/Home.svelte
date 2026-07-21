@@ -326,7 +326,9 @@
                   {session.bookmarked ? '★' : '☆'}
                 </span>
               </div>
-              {#if session.has_stagnation_signal}
+              {#if session.stagnation_note}
+                <p class="voice aside">{session.stagnation_note}</p>
+              {:else if session.has_stagnation_signal}
                 <p class="voice aside">There's more to think through here.</p>
               {/if}
               {#if session.insight_detail}
