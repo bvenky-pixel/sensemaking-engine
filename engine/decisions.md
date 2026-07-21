@@ -11729,3 +11729,62 @@ scenarios; it does not yet say anything about real production accounts'
 actual score distributions (e.g. what fraction of real users' aggregated
 content produces a non-"unclear" Stress/Motivation reading) -- that
 remains unobserved until real per-account data exists.
+
+## Planner/Response calibration: 3/3 scored, first case-ID-tracked round for either stage (2026-07-21, backlog #222, #223)
+
+Dispatched `planner-response-calibration.yml` (`scripts/run_planner_response_calibration.py`,
+5 tracked cases PR01-PR05, full pipeline per turn) against production's
+actual chain (`openrouter_model` left blank -- Interpretation/Judgment/
+Planner resolve to `qwen/qwen3-32b`, Response to `deepseek/deepseek-chat`).
+Run 29840024716, job 88666252173, **conclusion: success**, ~13m
+(46 calls -- some bounded single-stage retries beyond the 36 baseline
+calls for 9 turns x 4 stages, none surfaced as a `[FAIL]`; 293,688
+tokens, $0.0362).
+
+Real results, from the job log:
+
+- **PR01 (user_stated_response_style_constraint)**: HIT. User said
+  "please don't ask me a bunch of questions." `planning_constraints`
+  correctly translated this into `['No direct questions in the
+  response', ...]` (the 2026-07-10 literal-translation rule), and
+  Response actually honored it -- `response_text` contains zero
+  question marks, closing with an open invitation instead of a direct
+  question.
+- **PR02 (respect_already_made_decision)**: HIT, and a clean one on
+  content, not just the absence of trigger phrases: the user explicitly
+  said "I've decided -- I'm taking it." Planner's `resolution_blocker`
+  moved entirely to resignation logistics/non-compete timing --
+  `primary_objective`/`rationale` never re-litigated whether to take
+  the job -- and Response asked a logistics-only follow-up ("What
+  specific timeline are you considering for giving notice"). User
+  Agency principle #2 held on real dispatched output, not just an
+  absence-of-phrase proxy.
+- **PR03 (overwhelm_pacing)**: HIT. Three compounding stressors in one
+  turn produced `response_text` with exactly one question mark, plus
+  the v3 "real choice buttons" mechanism doing the actual
+  disambiguation work (three `ResponseOption`s, one per stressor) --
+  confirms the pacing rule and the button-based structure work together
+  as designed, not competing mechanisms.
+- **PR04 (emotional_acknowledgment_before_pivot)**, observation-only but
+  a clean positive read: "It sounds like sorting out your father's
+  estate is both a practical and emotional challenge right now. What
+  would you say is the most complex part..." -- the brief
+  acknowledgment-before-pivot from Response v2 Priority 1 visibly fired
+  on real dispatched output.
+- **PR05 (negative_control_mundane)**, observation-only, and the one
+  finding worth flagging: for a flat "dentist appointment moved" +
+  "renew car registration sometime this month" exchange, Response
+  framed the registration renewal as "the immediate priority" -- a mild
+  overstatement of urgency for something the user themselves scoped as
+  "sometime this month." Not catastrophizing or invented distress, but
+  a real, small over-fitting signal (treating routine admin as needing
+  full exploratory-question treatment) worth watching if it recurs on
+  real production turns.
+
+**3/3 scored cases hit.** This is the first structured, case-ID-tracked
+evaluation round either stage has had (`response-generator-specification-v2.md`'s
+own Open Questions section named this exact gap for #223) -- prior
+rounds were driven by direct user complaints or ad hoc log greps, never
+a repeatable named-case set. No code change this round; PR05's mild
+over-fitting observation is noted as a watch item, not acted on from a
+single data point.

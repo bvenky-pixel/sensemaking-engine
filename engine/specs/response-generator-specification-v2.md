@@ -184,11 +184,16 @@ offered.
 
 ## Open questions
 
-**Backlog #223** ("Response: dedicated calibration/evaluation round
-with tracked case IDs") — every round above was driven by direct user
-complaints or ad hoc log greps, not a structured, case-ID-tracked
-evaluation the way Judgment v2's evaluation design was. Not resolved by
-this doc.
+**Backlog #223 — RESOLVED 2026-07-21** (see engine/decisions.md
+"Planner/Response calibration: 3/3 scored, first case-ID-tracked round
+for either stage"): `scripts/run_planner_response_calibration.py`
+(cases PR01-PR05) dispatched against production's actual model chain --
+3/3 scored cases hit (response-style-constraint translation, User
+Agency on an already-made decision, overwhelm pacing), plus two clean
+observation-only reads (emotional acknowledgment fired correctly; one
+mild over-fitting signal on a mundane negative control worth watching,
+not acted on from a single data point). First structured, case-ID-
+tracked round either stage has had.
 
 ## Verification
 
