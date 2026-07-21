@@ -116,10 +116,20 @@
      of the viewport at this same breakpoint -- extra bottom padding
      here keeps real tab content from sitting underneath it. Desktop:
      TabBar is a plain top row (`position: static`), so no extra
-     padding is needed there. */
+     padding is needed there.
+
+     88px, not just the bar's own ~72px height (2026-07-21, found while
+     verifying the compact mode picker -- see engine/decisions.md
+     "Compact mode picker"): TabBar.svelte's own `bottom: var(--space-2)`
+     (16px) lifts it off the true viewport edge, so its full footprint
+     from the bottom is 72 + 16 = 88px, not 72 alone. The 16px shortfall
+     was invisible before now because content never reached this
+     boundary closely enough to matter -- packing six mode cards tight
+     enough to fit on a small phone's screen was what finally exposed
+     it (the last card rendered partly underneath the fixed bar). */
   @media (max-width: 639px) {
     .tab-content {
-      padding-bottom: 72px;
+      padding-bottom: calc(72px + var(--space-2));
     }
   }
 </style>

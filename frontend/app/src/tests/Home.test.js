@@ -28,7 +28,7 @@ describe('Home', () => {
   it('always shows the mode picker, with no journey list or filters', async () => {
     const { getByText, queryByRole } = render(Home, { props: { onOpen: vi.fn() } });
 
-    await waitFor(() => expect(getByText('Pick what fits right now.')).toBeTruthy());
+    await waitFor(() => expect(getByText('Vent')).toBeTruthy());
     expect(queryByRole('button', { name: 'All time filter' })).toBeNull();
   });
 

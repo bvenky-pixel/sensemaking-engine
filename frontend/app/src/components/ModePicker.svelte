@@ -52,8 +52,17 @@
     padding: 0;
   }
 
+  /* Compact mode picker (2026-07-21, direct founder instruction, see
+     Home.svelte's own docstring and engine/decisions.md "Compact mode
+     picker"): all six cards used to run to roughly 780px total (24px
+     padding on all four sides, a 20px label, and descriptions that
+     often wrapped two lines) -- taller than most phone viewports on
+     their own, before the header above them. Tighter padding/margins/
+     font size here, plus clamping the description to one line (below),
+     bring six cards down to something that fits alongside a compact
+     header without scrolling on standard phone heights. */
   .modes li {
-    margin-bottom: var(--space-2);
+    margin-bottom: 6px;
   }
 
   /* Shared .card/.card-interactive recipe, plus a per-mode tinted left
@@ -61,19 +70,18 @@
      categories, not just decorate. */
   .mode-card {
     display: flex;
-    align-items: flex-start;
-    gap: var(--space-2);
+    align-items: center;
+    gap: var(--space-1);
     width: 100%;
     text-align: left;
-    padding: var(--space-3);
+    padding: 8px var(--space-2);
     border-left: 4px solid var(--mode-tint);
   }
 
   .mode-dot {
     flex-shrink: 0;
-    width: 10px;
-    height: 10px;
-    margin-top: 6px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--mode-tint);
   }
@@ -81,18 +89,28 @@
   .mode-text {
     display: block;
     flex: 1;
+    min-width: 0;
   }
 
   .mode-label {
     display: block;
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 20px;
+    font-size: 16px;
     color: var(--ink);
   }
 
+  /* Clamped to one line (with an ellipsis for anything longer) rather
+     than left free to wrap -- a card's height needs to be predictable
+     and small regardless of how long any given mode's description
+     text happens to be, not just usually small. */
   .mode-description {
-    display: block;
-    margin-top: var(--space-1);
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--ink-muted);
   }
 </style>

@@ -12141,3 +12141,66 @@ and nothing else; tapping + from Activity opens the same start content
 with no back button and TabBar still visible; starting and completing a
 real Journey from there, then backing out, correctly returns to the
 start screen with the center action re-marked active.
+
+## Compact mode picker: all six modes visible without scrolling (2026-07-21, direct founder instruction)
+
+Direct follow-up ask: "rework the + screen in a way where all mode
+options are visible on mobile without having to scroll." Measured the
+actual cost first rather than guessing -- the six mode cards alone
+(24px padding on all sides, a 20px label, descriptions often wrapping
+two lines, 16px margins between cards) added up to roughly 780px,
+before the header (title, 108px orb + enso, a ZenQuote that runs 1-3
+lines depending which quote gets picked, plus a now-redundant "Pick
+what fits right now" line) on top of that -- taller than most phone
+viewports on its own.
+
+**Asked the founder which trade-off to make** (three options: compact
+list with everything tightened, a 2-column grid, or labels-only with no
+descriptions) rather than guessing at a redesign this visible.
+**Chose "compact list, tighter everything."**
+
+**Changes.** `Home.svelte`: `BreathingOrb`'s existing `compact` prop
+(108px -> 72px, no enso ring -- this prop already existed for Journey's
+idle-orb use, not new) knocks the hero down; the redundant "Pick what
+fits right now" line is gone entirely (the cards are self-explanatory);
+title font-size 32px -> 22px, margins tightened throughout.
+`ZenQuote.svelte`: margins tightened, and the blockquote clamped to 2
+lines (`-webkit-line-clamp`) -- quote length varies by which one gets
+randomly picked, which directly conflicts with a hard "always fits"
+goal if left unbounded, so its height needs a ceiling regardless of
+content, not just a usually-short average. `ModePicker.svelte`: card
+padding 24px -> 8px/16px, label font-size 20px -> 16px, dot 10px -> 8px,
+li margin-bottom 16px -> 6px, and -- the same reasoning as the quote --
+the description clamped to exactly 1 line rather than left to wrap,
+since a card's height needs to be predictable regardless of how long
+any given mode's description text happens to be.
+
+**Found a real bug while verifying, not introduced by this change but
+finally exposed by it:** `App.svelte`'s `.tab-content { padding-bottom:
+72px }` (mobile) was sized to TabBar's own rendered height alone, but
+TabBar is `position: fixed; bottom: var(--space-2)` (16px) -- its true
+footprint from the viewport edge is 72 + 16 = 88px, not 72. This 16px
+shortfall was invisible before now because content never packed close
+enough to that boundary to matter; compacting six cards tight enough to
+target small phones is what finally made the last card's bottom edge
+reach it. Fixed to `calc(72px + var(--space-2))`.
+
+**Verified with Playwright at three phone heights** (iPhone SE 375x667,
+iPhone 13 mini 375x812, iPhone 13 390x844), checking each mode card's
+actual bounding rect against the viewport, not just document
+scrollHeight (which stays technically "scrollable" by design -- trailing
+padding under the fixed TabBar is deliberate slack, not a defect):
+standard and larger phones (812px+) show all six cards fully clear of
+the TabBar with zero scrolling. The smallest phone tested (iPhone SE,
+667px) needs a small scroll (~89px) for the sixth card to fully clear
+the fixed nav -- confirmed this scroll actually reaches full clearance
+after the `.tab-content` padding fix (before that fix, the reserved
+space fell 16px short even at full scroll, which would have been a
+genuine dead end, not just a small scroll). This matches the caveat
+given to the founder before they chose this option, not a surprise
+found after the fact.
+
+Verified: 117 frontend tests unaffected (no test asserted exact pixel
+sizes, only presence/interaction, so no test file needed updating this
+round), `npm run build` clean, full `pytest` 576 passed (no Python
+touched).

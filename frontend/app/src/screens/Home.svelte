@@ -27,6 +27,23 @@
   // that, since it was already the closest thing this app had to a
   // "start something new" screen; only which App.svelte state value
   // mounts it changed.
+  //
+  // All six modes visible with no scrolling, on mobile (2026-07-21,
+  // direct founder instruction, see engine/decisions.md "Compact mode
+  // picker"): the previous full-size hero (108px orb + enso, a ZenQuote
+  // that can run to 2-3 lines depending which quote gets picked, a
+  // redundant "Pick what fits right now" line, plus six full-padding
+  // cards) added up to roughly 780px of cards alone before the header --
+  // taller than most phone viewports. Founder's own choice, from three
+  // options offered, was "compact list, tighter everything" over a
+  // grid layout or dropping descriptions -- BreathingOrb's own
+  // `compact` prop (already existed for Journey's idle-orb use) shrinks
+  // it to 72px with no enso ring; the redundant intro line is gone
+  // entirely (the cards are self-explanatory); title and quote margins
+  // are tightened; ModePicker.svelte's own cards got the matching
+  // compaction (see that file's own docstring). Still not a hard
+  // guarantee on the smallest phones (iPhone SE-class, ~667px tall) --
+  // see that same decisions.md entry for the honest caveat.
   import { fade } from 'svelte/transition';
   import { createSession } from '../lib/api.js';
   import BreathingOrb from '../components/BreathingOrb.svelte';
@@ -52,29 +69,31 @@
   <p class="display">A quiet place to think something through.</p>
 
   <div class="hero" in:fade={{ duration: 320 }}>
-    <BreathingOrb />
+    <BreathingOrb compact />
     <ZenQuote />
-    <p class="voice hero-copy">Pick what fits right now.</p>
     <ModePicker onChoose={chooseMode} {starting} />
   </div>
 </div>
 
 <style>
   .display {
-    margin: 0 0 var(--space-4);
+    font-size: 22px;
+    margin: 0 0 var(--space-2);
   }
 
   .hero {
     text-align: center;
   }
 
-  .hero-copy {
-    color: var(--ink-muted);
-    margin: 0 0 var(--space-3);
+  /* BreathingOrb's own `compact` variant zeroes its own margin (see
+     that component's docstring) -- a small explicit gap here instead,
+     tighter than the full-size hero's old var(--space-3). */
+  .hero :global(.hero-orb) {
+    margin-bottom: var(--space-1);
   }
 
   /* The mode cards themselves stay left-aligned (label/description read
-     better that way) even though the orb + intro line above them are
+     better that way) even though the orb + quote above them are
      centered. */
   .hero :global(.modes) {
     text-align: left;
