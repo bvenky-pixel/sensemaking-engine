@@ -11641,3 +11641,91 @@ transient, not something this codebase's error handling did wrong (it
 was correctly caught and reported as a `[FAIL]` line rather than
 crashing the whole script, which is exactly why Baseline A and Confidant
 still completed).
+
+## Insight Engine calibration: 4/4 scored, first live data on clustering-by-meaning (2026-07-21, backlog #249)
+
+Dispatched `insight-calibration.yml` (`scripts/run_insight_calibration.py`,
+5 scenarios) against production's actual per-component chain
+(`openrouter_model` left blank -- resolves to `qwen/qwen3-32b`, the
+model `run_insight_detection`'s `Insight` component chain actually
+dispatches to; `google/gemini-2.5-flash-lite` fallback unused). Run
+29840020433, job 88666234037, **conclusion: success**, completed in
+under a minute (4 real calls, 5,837 tokens, $0.0008).
+
+Real results, from the job log:
+
+- **`reworded_recurring_theme`**: HIT. Two sessions describing the same
+  underlying pattern in different words (a manager's stalled transfer
+  approval; a co-founder's deferred pivot decision) correctly clustered
+  into one theme ("Decision delays caused by others' inaction"), both
+  session ids in evidence.
+- **`three_sessions_shared_theme`**: HIT. Three sessions (deferring a
+  dinner choice, a work decision, an apartment choice) correctly
+  clustered as "Decision deferral to others," all three ids in
+  evidence -- confirms clustering isn't limited to minimal pairs.
+- **`negative_control_unrelated`**: HIT. Two genuinely unrelated
+  sessions (an org transfer freeze; a house-vs-MBA affordability
+  decision) correctly produced zero insights -- no over-clustering.
+- **`two_sessions_same_topic_different_take`** (observation-only): the
+  model DID cluster a blocked-transfer session with an unrelated harsh-
+  review session under "Managerial decisions causing unexpected work
+  obstacles" purely on shared-manager/surprise framing -- a defensible
+  call given the deliberately ambiguous design, but worth watching: this
+  is the direction over-clustering would show up in if the model's
+  threshold for "same theme" turns out to be too permissive on real
+  production data.
+- **`below_evidence_floor`**: HIT, and confirmed live in production's
+  exact calling shape: a single session made ZERO LLM calls (the
+  engine's own `MIN_EVIDENCE_SESSIONS` short-circuit), not just in
+  `tests/test_insight_engine.py`'s unit coverage.
+
+**4/4 scored scenarios hit**, first real signal on `MIN_EVIDENCE_SESSIONS=2`/
+`MAX_SESSIONS_FOR_INSIGHT=30` (both still explicit first guesses, per
+`insight-engine-specification-v1.md`) -- this round didn't stress-test
+the numeric thresholds themselves (no scenario approached 30 sessions),
+it validated the clustering PROMPT's basic under-/over-firing behavior,
+which is the prerequisite question. No code change. Revisit if the
+observation-only scenario's permissiveness shows up as a real problem
+once production has enough multi-session accounts to observe.
+
+## POM inferred-systems calibration: 5/5 scored, first live data on all six systems (2026-07-21, backlog #292)
+
+Dispatched `pom-inferred-calibration.yml` (`scripts/run_pom_inferred_calibration.py`,
+6 scenarios) against production's actual chain (`openrouter_model` left
+blank -- resolves to `qwen/qwen3-32b`, `run_inferred_pom`'s `POM`
+component chain). Run 29840022423, job 88666244548, **conclusion:
+success**, ~1m25s (6 real calls, 15,033 tokens, $0.0020).
+
+Real results, from the job log -- all five targeted scenarios produced
+the expected non-"unclear" signal, correctly grounded in the content
+actually given:
+
+- **`narrative_redemptive_and_identity`**: HIT. `narrative.arc="redemptive"`
+  with a summary correctly identifying the setback-to-mentoring arc;
+  `identity.self_concept` populated and grounded in the same facts.
+- **`motivation_low_autonomy`**: HIT. `motivation.autonomy="low"`,
+  correctly grounded in the manager/partner/parent decision pattern.
+- **`stress_high_signals`**: HIT. `stress.level="high"`, grounded in all
+  three emotional-signal lines plus the explicit self-report.
+- **`learning_style_reflective_processor`**: HIT. `learning_style.style`
+  populated with an actually-specific description ("prefers reflective
+  writing and deliberate decision-making with historical context"), not
+  a generic restatement.
+- **`theory_of_mind_named_entity`**: HIT. `theory_of_mind.entries`
+  contains an entry for "Priya" whose `inferred_perspective` correctly
+  attributes her hesitation to staffing pressure rather than personal
+  opposition, exactly the grounded, non-invented read the scenario was
+  designed to test.
+- **`negative_control_thin_data`** (observation-only): correctly stayed
+  almost entirely "unclear"/empty on two flat, signal-free facts --
+  `stress.level`, `narrative.arc`, `learning_style.style`, `identity.self_concept`
+  all abstained. No confident-sounding invention from thin data.
+
+**5/5 scored scenarios hit, and the negative control correctly
+abstained** -- the strongest first-round result of any calibration
+campaign this session has run. No code change. This validates the
+inference PROMPT's basic grounding/abstention behavior on hand-built
+scenarios; it does not yet say anything about real production accounts'
+actual score distributions (e.g. what fraction of real users' aggregated
+content produces a non-"unclear" Stress/Motivation reading) -- that
+remains unobserved until real per-account data exists.
