@@ -1,0 +1,41 @@
+name: Insight Engine calibration
+
+# Manual only -- each run makes real, billable calls (up to 4: scenarios
+# 1-4 in scripts/run_insight_calibration.py; the 5th, below-evidence-floor
+# scenario makes zero calls by design) to the configured LLM provider.
+# See that script's module docstring for why this exists: Insight Engine
+# shipped as a fully tested MECHANISM (grounding enforcement, evidence
+# floor, session cap) with zero live data on whether the actual
+# cross-session theme-detection prompt correctly clusters by MEANING
+# rather than surface wording, or over-clusters unrelated sessions.
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  calibration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Insight Engine calibration
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_insight_calibration.py

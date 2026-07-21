@@ -211,6 +211,18 @@ def test_openrouter_free_router_cost_is_verified_zero_not_unknown():
     assert cost == 0.0
 
 
+def test_production_per_component_models_are_priced_not_unknown():
+    """Backlog #294 (2026-07-19, see engine/decisions.md "Instrumentation:
+    pricing.py refreshed with production model costs") -- the direct
+    regression test: the three models src/llm/providers.py's per-component
+    chains actually dispatch to in production must resolve to a real
+    cost, not None, which is exactly the gap that produced "unknown cost"
+    results in real calibration runs before this fix."""
+    assert estimate_cost_usd("openrouter", "qwen/qwen3-32b", 1_000_000, 1_000_000) == pytest.approx(0.08 + 0.28)
+    assert estimate_cost_usd("openrouter", "google/gemini-2.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(0.10 + 0.40)
+    assert estimate_cost_usd("openrouter", "deepseek/deepseek-chat", 1_000_000, 1_000_000) == pytest.approx(0.20 + 0.80)
+
+
 # --- Tracker aggregation ---
 
 

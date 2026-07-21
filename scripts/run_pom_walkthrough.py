@@ -90,11 +90,12 @@ def main() -> None:
     _run_session("B (relationship/stress/narrative)", SESSION_B_MESSAGES, tracker)
 
     claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(DEMO_USER_ID)
+    events = db.get_events_for_user(DEMO_USER_ID)
     print(f"\n{'=' * 70}\nAggregated: {len(claims)} claim(s), {len(assumptions)} assumption(s), "
-          f"{len(entities)} entit(y/ies) across both sessions.\n{'=' * 70}")
+          f"{len(entities)} entit(y/ies), {len(events)} behavioral event(s) across both sessions.\n{'=' * 70}")
     print(aggregated_content)
 
-    pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content, tracker=tracker)
+    pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content, events, tracker=tracker)
     db.replace_personal_operating_model(DEMO_USER_ID, pom)
 
     print(f"\n{'=' * 70}\nPERSONAL OPERATING MODEL\n{'=' * 70}")

@@ -9795,6 +9795,1013 @@ passed (498 + 11 new).
 Not dispatched against production yet -- same standing discipline as
 the other `flyctl ssh console` workflows built this segment.
 
+## Spec-doc backlog: Understanding + Retrieval (2026-07-19)
+
+Backlog #215 and #218, the first two of an 8-item cluster ("spec docs")
+giving every remaining mature component the same versioned-spec
+treatment `learning-specification-v1.md` established.
+
+**#215** — new `engine/specs/understanding-specification-v1.md`.
+Covers both tiers as they actually exist today, not as a proposal:
+Tier 1's deterministic per-kind rendering (including the two
+special-cased kinds, Entity and EmotionalSignalItem, which have no
+single `content` string) and the Decision bare-label fix; Tier 2's
+non-blocking failure mode, its two-gate conditional-recompute design
+(candidate-pool signature hash + a hard staleness backstop), and its
+engine-level grounding enforcement. Flagged, but deliberately did not
+fix as part of writing this doc: `src/understanding/__init__.py`'s own
+docstring still calls Tier 2 "deferred," stale since Tier 2 shipped.
+
+**#218** — new `engine/specs/retrieval-specification-v1.md`. States
+plainly what Retrieval is NOT: the vision doc's own "need-aware
+selective retrieval" description, which depends on Need State
+Inference doing real filtering that doesn't exist yet. Documents the
+"label-only, not filtering" choice for `need_state` (Fork 2 from the
+Need State Inference design pass) and POM's compact top-level-only
+summary rendering, and points backlog #224 at the still-open question
+of whether label-only should become real filtering later.
+
+Verified: doc-only changes, nothing in `src/api/server.py` or
+`frontend/app/src` reads `understanding.tier1` or a statement's `kind`
+yet (confirmed by grep before touching the schema literal), so no
+behavior changed. Both docs cross-reference their own backlog's open
+questions rather than resolving them.
+
+## Spec-doc backlog: Personal Operating Model + Need State Inference (2026-07-19)
+
+Continuing the "spec docs" cluster: backlog #217 and #219.
+
+**#217** — new `engine/specs/personal-operating-model-specification-v1.md`.
+Documents the mechanical/LLM-inferred split (Belief + Relationship are
+pure aggregation; Identity/Motivation/Learning Style/Stress/Narrative/
+Theory of Mind are one LLM call), the engine-level grounding
+enforcement that downgrades any field whose evidence gets stripped by
+the word-overlap check, and per-account offline computation. Restated
+plainly, rather than glossing over it, the standing caveat that the
+Motivation/Narrative operationalizations use the standard textbook
+formulations (SDT, Narrative Identity Theory) because the founder's
+original vision documents for these eight systems were never committed
+to this repo — and pointed backlog #272 at the still-open
+uncapped-aggregation question now that POM is per-account.
+
+**#219** — new `engine/specs/need-state-inference-specification-v1.md`.
+This one required surfacing something this project doesn't usually
+leave undocumented: both of Need State Inference's own design forks
+(deterministic classifier vs. a dedicated LLM call; label-only vs.
+actually filtering Retrieval) were decided without founder confirmation
+because `AskUserQuestion` failed twice with a tool-level stream error
+at the time, not because the founder was consulted and picked a side.
+The spec states this plainly as a process note rather than presenting
+the shipped design as settled, and points backlog #225 (already tracked
+for exactly this) at both forks as still genuinely open.
+
+Verified: doc-only changes, no code touched, full test suite
+unaffected.
+
+## Spec-doc backlog: Insight Engine + Orchestrator (2026-07-19)
+
+Continuing the "spec docs" cluster: backlog #220 and #221.
+
+**#220** — new `engine/specs/insight-engine-specification-v1.md`.
+Documents the one-call/one-schema design and its engine-level grounding
+enforcement, and gives the #273 per-account fix its own clear
+before/after: originally one cross-account aggregate `send_message`
+injected into every conversation regardless of who was asking, now
+scoped per account (closing both the privacy gap and a second,
+non-privacy bug where another account's more-recent activity could
+crowd this account's own sessions out of the evidence window). Also
+documents a consumption surface easy to miss: `list_sessions`'s
+per-session `insight_theme`/`insight_detail`, which deliberately
+deviates from the boolean-only-flag precedent `has_stagnation_signal`
+set by surfacing real Insight text directly on Home's session rows.
+
+**#221** — new `engine/specs/orchestrator-specification-v1.md`,
+distinct from the abstract Orchestrator section already in
+`system-architecture-v2-specification.md` §1. Walks `run_turn`'s actual
+seven-step sequence stage by stage, states plainly which of §1's named
+responsibilities were deliberately NOT built (skip-logic, model-tier
+selection, whole-stage retry — all still just named in the spec, not
+implemented), and documents which cross-cutting parameters
+(`retrieved_context`, `mode`, `pom`, `on_stage_complete`) are threaded
+to only the one stage that actually consumes each, not broadcast to
+all four.
+
+Verified: doc-only changes, full test suite unaffected.
+
+## Spec-doc backlog: Instrumentation + Response v2/v3 (2026-07-19)
+
+Finishing the "spec docs" cluster: backlog #227 and #216, the last two
+of the 8-item set (#215-221, #227).
+
+**#227** — new `engine/specs/instrumentation-specification-v1.md`.
+Covers all four pieces sharing the `src/instrumentation/` package
+(`usage.py`'s `UsageTracker`/`LLMUsage`/`AttemptRecord`, `events.py`'s
+diff-based behavioral event detection and the correctness bug that
+design avoided, the two unrelated cost tables in `pricing.py`/
+`frontier_pricing.py` that are easy to conflate, and the #230
+persistence layer). Points backlog #251 at the still-open overlap with
+`src/evaluation/`'s own separate metrics machinery.
+
+**#216** — new `engine/specs/response-generator-specification-v2.md`,
+a versioned update to the existing `response-generator-specification-v1.md`
+rather than a replacement — v1 is pre-implementation and philosophical
+and was never updated after Response v2 Priority 1 (three prompt-only
+pacing/acknowledgment/closing-register fixes) or Response v3 (compact
+structure, then real choice buttons, then per-option reasoning, across
+three same-day rounds driven by direct user pushback on round 1's
+initial guess). Also corrected one detail from this session's own
+carried-over recollection while researching: the "user vs. you" voice
+fix was never a Response Generator change at all — root-caused instead
+to `src/executor/engine.py::build_clarity_brief` copying internal,
+deliberately-third-person cognitive artifacts into user-facing fields;
+documented accurately here rather than repeating the earlier
+misattribution.
+
+Verified: doc-only changes, full test suite unaffected. This completes
+the 8-item spec-doc cluster (#215, #216, #217, #218, #219, #220, #221,
+#227).
+
+## Spec-doc backlog sweep: #288-294 (2026-07-19)
+
+Direct follow-up to the "spec docs" cluster: went back through all 8
+just-written spec docs (Understanding, Retrieval, POM, Need State
+Inference, Insight Engine, Orchestrator, Instrumentation, Response
+v2/v3) specifically looking for gaps each doc surfaces but that had no
+existing backlog number yet -- as opposed to the many open questions
+that already pointed at an existing item (#224, #225, #238, #248, #249,
+#250, #251, #268, #223, #207-210, #272 all already existed and needed
+no new entry).
+
+Six genuinely new gaps found, none previously tracked:
+
+- **#288** Understanding: `src/understanding/__init__.py`'s docstring
+  still calls Tier 2 "deferred," stale since Tier 2 shipped.
+- **#289** Understanding: Tier 1's status filters and Tier 2's three
+  numeric constants (recency window, staleness turns, min grounding
+  items) are all uncalibrated first guesses, same category as
+  Learning's own `MIN_EVIDENCE` before its calibration item existed.
+- **#290** Understanding: no live-dispatch calibration round has ever
+  checked Tier 2's actual synthesis QUALITY, as opposed to its
+  structural correctness (which tests already cover) -- distinct from
+  #248's feature-scoping question.
+- **#291** POM: the Motivation/Narrative textbook-vs-founder's-own-
+  formulation caveat, stated plainly in `src/pom/schema.py`'s own
+  docstring since POM was built, has never actually been taken back to
+  the founder for a real yes/no.
+- **#292** POM: same "no live-dispatch quality calibration yet" gap as
+  #290, for the six LLM-inferred POM systems instead of Understanding's
+  Tier 2.
+- **#293** Insight Engine: `replace_insights` truncates and replaces an
+  account's themes wholesale on every run, with no merging/dedup logic
+  across successive `run_insight_detection` runs -- flagged as a
+  Non-goal in the spec, not necessarily a defect yet at today's low
+  run-frequency, but worth a real decision once multi-run production
+  data exists.
+- **#294** Instrumentation: `pricing.py`/`frontier_pricing.py` are
+  both explicitly manually-maintained snapshots their own docstrings
+  admit will go stale, with no scheduled re-verification cadence.
+
+Each new item was cross-referenced back into its originating spec doc's
+Open Questions section (not left orphaned in the backlog alone).
+Doc-only changes elsewhere; full suite still 511 passed.
+
+## Understanding: fix stale __init__.py docstring (2026-07-19)
+
+Backlog #288. `src/understanding/__init__.py`'s module docstring still
+described Tier 2 as "deferred," written before Tier 2 shipped
+(`src/understanding/tier2_engine.py`) -- flagged as an open question
+while writing `engine/specs/understanding-specification-v1.md` rather
+than fixed silently as part of that doc. Rewrote the Tier 2 bullet to
+describe what actually ships today (conditional recompute,
+non-blocking failure mode) and point at the real spec doc + decisions
+entry instead of "the plan file this round shipped from," which no
+longer exists as a live reference point. Docstring-only change --
+`tests/test_understanding.py` (19 tests) still green, no behavior
+touched.
+
+## Understanding: #289 calibration assessed, remains blocked on real data (2026-07-19)
+
+Backlog #289 ("calibrate Tier 1/Tier 2 uncalibrated thresholds against
+real data"): checked every evidence source this codebase actually has
+before touching any constant, same discipline as every other
+calibration decision in this file.
+
+**What exists**: `experiments/confidant-validation/tier1-validation-report.md`
+(the [LIVE]/[CAPTURED]/[SYNTHETIC] validation round) is the only prior
+attempt at exactly this kind of analysis for Understanding. All three
+of its evidence sources predate Tier 2 entirely -- Tier 2 didn't exist
+when that report was written, so nothing in it speaks to
+`TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`/`MIN_GROUNDING_ITEMS`.
+The [LIVE] 10-turn walkthrough's raw per-turn WorldState snapshots were
+never preserved in this repo -- only the report's own summarized
+findings survive (confirmed by grep: the run id `29189585671` appears
+nowhere else). The [SYNTHETIC] 100-turn stress harness that produced
+Area 5's growth data was an ad hoc scratchpad script, explicitly noted
+as "not part of the shipped codebase," and no longer exists to rerun.
+`tests/test_understanding.py` covers correctness, not real-world
+threshold tuning -- crafted fixtures can't stand in for actual usage
+patterns any more than a unit test could calibrate Learning's own
+`MIN_EVIDENCE`.
+
+**Asked the founder directly** whether to dispatch the existing,
+already-built `backup-database.yml` workflow (read-only, no LLM cost)
+to pull real production session data for this specific check --
+declined; existing data only. With production access off the table and
+no other multi-turn dataset in this repo postdating Tier 2, there is no
+real data left to calibrate against.
+
+**Resolution**: constants left unchanged. Guessing new values with no
+evidence behind them would be exactly the mistake this project has
+refused to make everywhere else (Learning's own `MIN_EVIDENCE`
+discipline, Retrieval's rejected relevance-matching alternative, POM's
+coarse confidence scale instead of an invented float). This is the same
+"genuinely blocked on real usage volume, not a code task" category as
+backlog #213, still pending for the identical reason. #289 stays
+pending; #290 (a live-dispatch calibration round specifically for Tier
+2 synthesis quality) is the more promising near-term path once the
+founder is ready to authorize a live dispatch, since it would generate
+exactly the kind of fresh, real multi-turn data this assessment found
+missing.
+
+## Tier 2 mandatory self-check gate (2026-07-19, backlog #290)
+
+Direct follow-up to "Tier 2 second live calibration run"'s own explicit
+recommendation, left unattempted at the time ("left as a recommendation
+for the next round, not attempted here without further direction"):
+the abstention worked example fixed "abstain when there's nothing yet"
+but not "abstain when there's something plausible-sounding to invent" --
+turn 2 of `negative_control_unrelated` (pottery classes / house-saving)
+still fabricated a narrative connection across two genuinely unrelated
+candidates in both live runs so far, nearly identical wording each time.
+
+Implemented the specific fix named in that entry, not a fresh guess:
+added a MANDATORY SELF-CHECK to law 3 of
+`src/understanding/tier2_prompt.py` -- before citing any two candidates
+together, the model must ask whether either candidate's OWN TEXT
+explicitly references the other's topic/situation/constraint, not
+whether a plausible-sounding bridge CAN be imagined. Explicitly frames
+"a connection you can imagine is not a connection either candidate
+actually stated" and "plausibility is not the standard, explicit mutual
+reference in the candidates' own text is" -- directly targeting the
+observed failure mode (an eager model constructing a coherent-sounding
+story between two real-but-unconnected candidates) rather than
+repeating the abstention-example approach that already proved to only
+partially generalize.
+
+Prompt-only change, no schema/engine touched. Verified:
+`tests/test_tier2.py` + `tests/test_understanding.py` (42 tests) and
+full suite (511 passed) unaffected. Not yet measured against a real
+model -- see the following entry for the dispatch.
+
+## Tier 2 third live calibration run -- self-check gate: fixed the over-synthesis problem (backlog #290)
+
+Dispatched against `claude/sensemaking-engine-60xbki` (run 29678560737,
+commit `4c767e5`), `openrouter_model` input left blank -- ran under the
+real per-component pinned defaults (`src/llm/providers.py`'s
+`_SHARED_REASONING_CHAIN`: `qwen/qwen3-32b` primary, falling back to
+`google/gemini-2.5-flash-lite`), matching what production actually
+serves for the Tier2 component, rather than forcing a single override
+model the way the first two runs did. Scored **3/3** on the scored
+scenarios:
+
+```
+[HIT ] synthesis_decision_and_assumption: expected_nonempty=True, actual=True
+[HIT ] synthesis_goal_and_blocking_fact: expected_nonempty=True, actual=True
+[HIT ] negative_control_unrelated: expected_nonempty=False, actual=False
+[observation] same_decision_two_options: tier2_nonempty=True
+```
+
+**The deeper over-synthesis problem from both prior runs is fixed.**
+`negative_control_unrelated` was the one scenario that failed on BOTH
+prior live runs, always via the exact same fabricated pottery-classes/
+house-savings connection. This run: turn 1 ("trying to save up for a
+house") produced `tier2 statements (0)`, and turn 2 ("pottery classes
+on Tuesdays") ALSO produced `tier2 statements (0)` -- the model
+correctly recognized these as two real, unconnected candidates and
+stayed silent on both turns, not just the first-turn paraphrase case
+the second run's abstention example had already fixed. This is the
+first time across all three runs this scenario has fully passed.
+
+**No overcorrection into silence.** Both genuine synthesis scenarios
+still produced real, correctly-grounded connections: "Your House-vs-MBA
+decision may be constrained less by preference than by an unexamined
+affordability assumption" (grounded in the actual fact/claim/assumption
+candidates) and "Your goal to move into the Product team may be
+influenced by recent leadership changes, as the manager's promotion has
+introduced uncertainty about the new reporting structure" (grounded in
+the actual fact/fact/fact/inference candidates offered) -- the
+self-check gate suppressed fabricated connections without suppressing
+real ones.
+
+**Mechanism still sound.** Every caching check across all four
+scenarios again showed `signature unchanged=True, computed_at_turn
+unchanged=True` -- candidate selection, grounding-signature hashing,
+and skip-on-no-change gating all held under this run's real pipeline
+data too, on a different model family than the first two runs.
+
+**`same_decision_two_options` (observation-only, not scored)**:
+produced "Your belief that there's a correct decision about requesting
+a raise... may be intensifying your uncertainty, as you're actively
+evaluating factors but remain unclear about which factors are most
+decisive" -- a defensible synthesis of the decision plus an assumption
+plus an inference, not simply a restatement of the two Decision options
+as before; this specific paraphrase-across-same-underlying-choice
+failure mode was not observed this run either.
+
+Cost: 35 calls, 210,564 tokens; `estimated_cost_usd` reports unknown
+(qwen/qwen3-32b and gemini-2.5-flash-lite aren't in
+`src/instrumentation/pricing.py`'s table yet -- an honest "don't know,"
+not a guess, per that module's own discipline; also now a concrete input
+to backlog #294).
+
+**Assessment**: this closes the specific, evidence-backed compliance gap
+that both prior runs left open. The self-check framing ("does either
+candidate's own text explicitly reference the other's topic?") appears
+to generalize better than the abstention worked example did -- it fixed
+BOTH the "too early to synthesize" case (already fixed by round 2) and
+the "plausible-sounding but fabricated" case (not fixed by round 2) in
+one change. Not a large sample (4 scenarios, 6 turns) and not yet tested
+against a wider variety of unrelated-candidate pairs beyond this one
+scripted pair -- worth keeping an eye on with real production data once
+it exists (see #289/#290's own still-open calibration-volume question),
+but no further prompt iteration is warranted from this evidence alone.
+
+## Instrument worldstate-walkthrough for Tier 2 candidate-pool data (2026-07-19, backlog #289)
+
+`scripts/run_worldstate_walkthrough.py` never printed Tier 2 state --
+only Tier 1 -- so its existing 11-turn live-dispatch transcript, the
+only long (>2 turn) real pipeline run this codebase has, gave zero
+visibility into `TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`
+behavior. `scripts/run_tier2_calibration.py`'s own scenarios (used for
+#290) are deliberately short (1-2 turns each) to stay cheap -- useful
+for synthesis QUALITY, structurally unable to inform TURN-COUNT-based
+thresholds, which only 289's own concern actually needs.
+
+Added a per-turn Tier 2 print block (candidate_pool_size via
+`select_tier2_candidates`, `tier2_recomputed_this_turn`,
+`tier2_computed_at_turn`, and any surviving synthesis statements),
+mirroring the calibration script's own per-turn Tier 2 print shape.
+`candidate_pool_size` is computed directly, independent of whether a
+recompute actually fired this turn, so pool growth is visible even on
+turns that skip the LLM call (the common case). No behavior change --
+printing only. Verified: full suite (511 passed) and a structural
+smoke test (no API key set, runs to completion, 0/11 as expected).
+
+## Understanding #289: real multi-turn data found, and a real finding -- the recompute gate doesn't skip in practice
+
+Dispatched the newly-instrumented `worldstate-walkthrough.yml` (run
+29680235697, commit `7162c34`), `openrouter_model` left blank -- same
+real per-component pinned models as the #290 run
+(`qwen/qwen3-32b`/`google/gemini-2.5-flash-lite`). 11/11 turns
+succeeded, 55/55 provider attempts succeeded (100% reliability across
+every component including Tier2).
+
+**The GitHub API truncated the retrieved log to its last ~569KB**, so
+only turns 6-11's Tier 2 output survived retrieval (turns 1-5's own
+Tier 2 prints were pushed out by the WorldState render tables' own
+verbose box-drawing output) -- noted honestly, not glossed over: this
+run gives real data for turns 6-11 only, not the full 11-turn arc.
+
+**Real finding: `candidate_pool_size` grew every single turn observed**
+(48 -> 53 -> 55 -> 65 -> 72 -> 79, turns 6 through 11) **and
+`tier2_recomputed_this_turn=True` on every one of those six turns, with
+no exceptions.** The end-of-run summary confirms this holds for the
+WHOLE conversation, not just the six visible turns: `Tier2: 11 calls,
+11/11 succeeded` -- Tier 2 called the LLM on every single turn of an
+11-turn conversation, never once skipping via
+`should_recompute_tier2`'s caching gate.
+
+**This is a real, actionable finding, distinct from "no data exists."**
+The design's own cost justification (`tier2_engine.py`'s module
+docstring, `engine/decisions.md` "Tier 2 design") rests on "most turns
+skip the LLM call entirely." In this real, actively-elaborating
+career-decision conversation, that assumption did not hold even once:
+every turn introduced or updated enough WorldState content that the
+candidate pool's grounding signature changed every time, so the
+signature-based recompute trigger fired every turn regardless of the
+5-turn staleness backstop even existing. The staleness backstop
+(`TIER2_STALENESS_TURNS=5`) was never the trigger in this run --
+signature changes always got there first -- so its own real-world
+necessity remains untested by this data, not confirmed or refuted.
+
+**The recency window's actual pruning behavior is also untested by this
+run, for a structural reason, not an oversight**: `TIER2_RECENCY_WINDOW_TURNS=10`
+means a detail candidate from turn 1 only falls OUT of scope once
+`turn_count - last_updated > 10` -- at turn 11, a turn-1 item's gap is
+exactly 10, still inside the window. An 11-turn conversation is
+mathematically incapable of demonstrating the window's first exclusion;
+a 12+-turn transcript would be needed to observe it at all.
+
+**Resolution for #289**: no constant was changed. There is now real
+evidence that the ASSUMPTION behind the current design (gating saves
+cost on "most turns") doesn't hold for a realistic, information-dense
+conversation -- but that's a finding about the recompute TRIGGER's
+sensitivity (any grounding-signature change fires it, including minor
+status/text drift on already-included items), not evidence that
+`TIER2_RECENCY_WINDOW_TURNS`/`TIER2_STALENESS_TURNS`'s specific numeric
+values are wrong. Changing either number wouldn't address what this run
+actually showed -- the pool's signature changes every turn regardless
+of window width, because new content keeps arriving. Guessing a
+"better" number here would be exactly the ungrounded-tuning mistake
+this project refuses to make elsewhere. New backlog #295 tracks the
+real, structurally distinct question this surfaced: whether the
+recompute trigger itself should be less sensitive (e.g., only fire on a
+THREAD item's status change or a minimum count of new detail items,
+rather than any signature delta) -- a mechanism question, not a
+threshold-tuning one, and out of scope for #289 itself.
+
+Cost: 55 calls, 466,410 tokens, 586s total latency; cost reports
+"unknown (partial -- some calls had no pricing entry)" -- qwen/gemini
+aren't in `pricing.py`'s table (same #294 gap already tracked).
+
+## POM: Motivation/Narrative formulation confirmed by the founder (2026-07-19, backlog #291)
+
+Since POM shipped, `src/pom/schema.py`'s own docstring has flagged an
+open question: the founder's original vision documents describing
+POM's eight systems were never committed to this repo (shared only as
+uploaded context earlier in the project's history), so
+`MotivationSystem`/`NarrativeSystem` use the standard textbook
+formulations of Self-Determination Theory and Narrative Identity Theory
+rather than a confirmed match to the founder's own specific intent.
+
+Asked the founder directly rather than guess or re-derive from memory:
+confirmed the current SDT/Narrative Identity Theory implementation
+matches their original intent for these two systems, no changes needed.
+Updated `src/pom/schema.py`'s module docstring and the two affected
+class docstrings (`MotivationSystem`, `NarrativeSystem`) from "flagged,
+not necessarily the founder's own formulation" to "confirmed by the
+founder" — same treatment as any other resolved open question, not left
+as a stale caveat now that it's settled. Updated
+`engine/specs/personal-operating-model-specification-v1.md` to match:
+its own caveat/Non-goals/Open-Questions sections all previously implied
+this was still open.
+
+Docstring/doc-only change, no behavior touched.
+
+## POM: opt-in Journey-close reflection question (2026-07-19, backlog #207)
+
+No prior design existed for this beyond the one-line backlog title, and
+the app has no existing "close a Journey" concept at all -- Journey.svelte's
+`onBack` just navigates to Home, there's no explicit end-of-conversation
+action. Two genuine design forks, confirmed with the founder directly
+before building rather than assumed:
+
+1. **Close trigger** -- chosen: reuse the existing `onBack` navigation
+   as the close signal, no new UI affordance. Same "winds down" moment
+   `markJourneyCompleted`'s login nudge already treats as end-of-Journey.
+2. **Answer destination** -- chosen: feeds POM as free-text evidence,
+   folded into `get_aggregated_knowledge_for_pom`'s aggregated_content
+   (same "surface everything already known" treatment as every other
+   content type POM ingests), not a personal-journal-only feature and
+   not a direct override of specific POM fields.
+
+**Schema** (`src/api/db.py`): `privacy_settings` gains a second column,
+`reflection_prompt_enabled` -- opt-IN, defaults `False` (unlike
+`cross_session_learning_enabled`'s opt-out default: being interrupted
+with a question at the end of every Journey should be a deliberate
+choice, not an ambient default). Additive `ALTER TABLE` migration, same
+"try, ignore if the column already exists" pattern as
+`magic_links.return_session_id`. New `journey_reflections` table
+(`session_id`, `user_id`, `content`, `created_at`) holds submitted
+answers. `get_reflection_prompt_enabled`/`set_reflection_prompt_enabled`
+mirror the existing cross-session-learning accessors;
+`save_journey_reflection`/`get_reflections_for_pom` are new.
+`get_aggregated_knowledge_for_pom` appends each reflection as its own
+`Reflection: ...` line. `export_all_data`/`reset_all_data` both updated
+-- reflections are content (like sessions/messages), not a preference
+(like `privacy_settings` itself), so a data reset deletes them.
+
+**API** (`src/api/schema.py`, `src/api/server.py`): `PrivacySettingsOut`/
+`SetPrivacySettingsRequest` both gained the second field -- POST
+`/privacy/settings` always takes both fields together, no partial
+update. New `POST /sessions/{id}/reflection` (`SubmitJourneyReflectionRequest`,
+blank-content rejected same "fail loud" validator as `Response.response_text`),
+gated behind `require_user` + `_require_owned_session` + a server-side
+re-check of `reflection_prompt_enabled` -- a stale client that opted in
+then out before this specific submission lands must not have it
+silently stored anyway, same "server never trusts client-side toggle
+state alone" discipline as `send_message`'s own
+`cross_session_learning_enabled` read-path gate.
+
+**Frontend**: `Settings.svelte` gets a second toggle, "Ask a reflection
+question when I finish a Journey," shown ONLY when "Learn across
+Journeys" is on (asking a question whose answer will never be read by
+anything would be a pointless interruption) -- turning learning off
+also turns reflection off; turning learning back on does NOT
+auto-re-enable it, still its own deliberate opt-in.
+`api.js::setCrossSessionLearningEnabled`/`setReflectionPromptEnabled`
+both now take both current values and send the whole settings object
+each time, matching the backend's own "no partial update" shape.
+`Journey.svelte`'s `handleBack` shows the prompt (a full-screen
+`.reflection-prompt` card, replacing the Journey body, same "stands in
+for everything else on screen" treatment as `.limit-gate`) instead of
+calling `onBack()` immediately, for a Journey with real content and
+this account opted in; Skip and a failed submission both still
+navigate home -- a lost reflection is an honest, non-blocking tradeoff,
+never something that traps a person on the screen.
+
+Verified: 518 backend tests (new coverage: endpoint auth/ownership/gate/
+validation, aggregation wiring, export/reset), 94 frontend tests (new
+coverage: toggle visibility/persistence, prompt show/skip/submit/
+submission-failure flows), clean `npm run build`. Live browser
+verification deferred to the end-of-backlog validation pass per
+explicit instruction this round, not skipped outright.
+
+## POM: draw Motivation/competence from existing behavioral_events (2026-07-19, backlog #208)
+
+The only prior design for this beyond the one-line backlog title was the
+Open Questions note in `engine/specs/personal-operating-model-specification-v1.md`:
+"drawing Motivation/competence from existing `behavioral_events` rather
+than solely from the LLM inference." One genuine design fork, confirmed
+with the founder directly before building: once there's enough
+behavioral evidence, does the mechanical signal (a) **override** the
+LLM's `competence` value outright, (b) fill in only when the LLM
+inference is `"unclear"`, or (c) get fed in as another evidence line for
+the LLM to weigh (mirroring #207's reflection treatment)? Chosen:
+**(a) override** -- same "mechanical, already-trusted data wins"
+treatment `compute_belief_system`/`compute_relationship_system` already
+get, extended to this one Motivation dimension specifically (not
+autonomy/relatedness -- neither has an equivalent behavioral-event
+proxy).
+
+**Engine** (`src/pom/engine.py`): new `compute_behavioral_competence(events,
+min_evidence=MIN_BEHAVIORAL_EVIDENCE)`, pure/mechanical, no LLM call.
+Pools Goal completion and Decision resolution together (both speak to
+the same "did they see it through" construct competence is meant to
+capture): `goal_status_changed -> "completed"` and
+`decision_status_changed -> "resolved"` count as success;
+`-> "abandoned"` and `-> "deferred"/"expired"` count as struggle;
+still-in-progress statuses (`active`/`paused`/`open`) count as neither
+and are excluded. `MIN_BEHAVIORAL_EVIDENCE = 3` is a first-cut,
+NOT-empirically-calibrated floor, deliberately duplicated (not
+imported) from `src/learning/engine.py`'s own `MIN_EVIDENCE` constant,
+same "small constants/utilities duplicated across engine packages"
+convention this module already follows. Below the floor, returns `None`
+-- meaning "leave the LLM's own read in place," the same silence-below-
+floor discipline `compute_behavioral_patterns` already established.
+Above the floor, buckets the success ratio into `ConfidenceLevel`
+(`>= 2/3` -&gt; `"high"`, `<= 1/3` -&gt; `"low"`, else `"moderate"`) --
+also a first-cut threshold, not calibrated. `compute_personal_operating_model`
+now takes `events: List[BehavioralEvent]` (this account's own
+`behavioral_events`, via the existing `db.get_events_for_user`) as a
+required parameter and, when the mechanical read isn't `None`,
+overrides both `motivation.competence` and `motivation.competence_evidence`
+(replacing the LLM's own evidence strings with plain-language mechanical
+ones, e.g. "2 of 3 goals were completed rather than abandoned.") after
+`run_inferred_pom` returns -- every other Motivation/POM field is left
+untouched.
+
+**Callers**: `scripts/run_pom_computation.py` and
+`scripts/run_pom_walkthrough.py` both updated to fetch
+`db.get_events_for_user(user_id)` and pass it through -- no other
+caller exists (POM only ever computes offline, never live, per its own
+module docstring).
+
+Verified: `tests/test_pom_engine.py` covers the floor (insufficient
+evidence returns `None`, including all-in-progress-status events),
+high/low/moderate bucketing, pooled goal+decision evidence, and the
+end-to-end override (mocked LLM output stays for autonomy/relatedness
+while competence and its evidence get replaced) plus the inverse (LLM
+competence stands untouched when `events=[]`). Full suite not re-run
+this round per the standing instruction to batch validation until the
+backlog is closed or a task is genuinely blocked without it -- these
+targeted tests pass cleanly on their own.
+
+## POM: light affirm/correct affordance on the You screen (2026-07-19, backlog #209)
+
+The only prior design for this beyond the one-line backlog title was
+the same Open Questions note in `engine/specs/personal-operating-model-
+specification-v1.md` #207/#208 both cite: "a light affirm/correct
+affordance on the frontend's You surface." "The You surface" is
+Settings' existing "You" section (`PersonalOperatingModel.svelte`'s own
+header comment already calls it that) -- there is no dedicated "You"
+tab yet (backlog #263, still unbuilt), and nothing about #209 depends
+on that shipping first.
+
+One genuine design fork, confirmed with the founder directly before
+building: once someone reacts to a rendered POM statement, does the
+feedback (a) get fed back in as evidence text for the next LLM
+computation to weigh (mirroring #207's reflection treatment), (b) act
+as a hard pin/override that survives future recomputation, or (c) get
+stored and displayed back with no computation effect at all yet?
+Chosen: **(a) evidence text**, same "surface everything already known,
+let the one existing inference call weigh it" treatment #207's
+reflections get -- no new engine-level protection/pinning logic
+needed, and no conflict with POM's existing "full recompute replaces
+the whole row" architecture (`replace_personal_operating_model`).
+
+**Schema** (`src/api/db.py`): new `pom_field_feedback` table (`user_id`,
+`system`, `statement`, `feedback` -- `'affirm'`/`'correct'` --
+`correction_text`, `created_at`). Pure addition (`CREATE TABLE IF NOT
+EXISTS`, no `ALTER TABLE` migration needed). `save_pom_feedback`/
+`get_pom_feedback_for_pom` mirror `save_journey_reflection`/
+`get_reflections_for_pom`; the latter renders each row as a full
+plain-language sentence (`"User confirmed this is accurate about
+themselves (identity): ..."` / `"User said this was inaccurate about
+themselves (stress) and clarified: ..."`, falling back to restating the
+original statement when no correction text was given), appended
+directly (no extra label prefix) into `get_aggregated_knowledge_for_pom`'s
+`aggregated_content`, right after the #207 reflection lines.
+`export_all_data`/`reset_all_data` both updated -- feedback is content,
+same treatment `journey_reflections` gets, not a preference like
+`privacy_settings`.
+
+**API** (`src/api/schema.py`, `src/api/server.py`): new
+`SubmitPomFeedbackRequest` (`system`, `statement` -- both rejected
+blank, same "fail loud" validator #207 uses -- `feedback: Literal["affirm",
+"correct"]`, optional `correction_text`, blank-to-`None` normalized so a
+bare thumbs-down with an empty text box still submits cleanly). New
+`POST /pom/feedback` (204), gated behind `require_user` only -- unlike
+#207's reflection endpoint, there's no separate opt-in toggle to
+re-check server-side: the affordance only ever appears on POM content
+this account can already see through the equally-`require_user`-gated
+`GET /personal-operating-model`, so reacting to it needs no extra gate.
+
+**Frontend**: new `PomFeedback.svelte`, mounted once per rendered POM
+statement across all eight sub-systems in `PersonalOperatingModel.svelte`
+(belief/relationship list items, identity, each populated Motivation
+dimension -- `system` tagged `motivation.<dim>` so a reaction to
+competence specifically is distinguishable from autonomy/relatedness --
+learning_style, stress, narrative, each theory_of_mind entry). Two
+plain-text reactions ("Sounds right" / "Not quite", matching this
+codebase's existing `.link-button` text-control convention rather than
+icon glyphs); tapping "Not quite" reveals an optional textarea (same
+"optional, write as much or as little" framing as #207's reflection
+box) before submitting. Deliberately no read-back of prior feedback on
+load -- this only ever POSTs, confirmed as the "light" reading of the
+affordance the founder chose over a persisted/displayed-back status.
+A failed submission shows a quiet, retry-friendly error and leaves the
+reactions in place rather than trapping the flow.
+
+Verified (targeted, not a full-suite re-run, per the standing
+instruction to batch full validation until the backlog is closed):
+`tests/test_pom_aggregation.py` (aggregation wiring for both affirm and
+correct-with-clarification lines), `tests/test_api_server.py` (login
+gate, both feedback kinds persisting correctly, blank-statement and
+invalid-feedback-value rejection) all pass. `PomFeedback.test.js`
+(idle/affirm/correct/cancel/failure-retry states in isolation) +
+`PersonalOperatingModel.test.js` (affordance renders once per populated
+statement) all pass, plus a clean `npm run build`. Live browser
+verification deferred to the end-of-backlog validation pass, same
+explicit standing instruction #207/#208 both honored.
+
+## POM: Insight-triggered conversational callback (2026-07-19, backlog #210)
+
+The only prior design for this beyond the one-line backlog title was
+the same Open Questions clause #207/#208/#209 all cite: "Insight-
+triggered conversational callbacks." Three genuine design forks,
+confirmed with the founder directly before building:
+
+1. **Scope** -- Home.svelte already shows a passive, static per-Journey
+   label ("This has come up before, too. {insight_detail}", shipped
+   2026-07-11, no LLM involved). Confirmed this does NOT already
+   satisfy #210: chosen scope is genuinely new behavior where
+   Response's own generated text, mid-conversation, can reference a
+   past Insight -- not just documenting the existing list-view label.
+2. **Trigger/mechanism** -- chosen: a guaranteed, Python-gated prompt
+   clause fired only on `turn_count == 1` (the first turn of a
+   brand-new Journey), mirroring the POM-seeding precedent's "resolve
+   the decision entirely in Python, hand the model only the outcome"
+   discipline -- not left to the model's own discretion via the
+   existing Judgment -> supporting_evidence path (which was already
+   true before this round and doesn't guarantee anything gets said),
+   and not fired periodically throughout a Journey (an Insight is a
+   whole recurring life theme, not a per-dimension probe -- repeating
+   it would read as fixating).
+3. **Which Insight, if several exist** -- chosen: genuine relevance
+   matching to the current conversation, OVERRIDING the simpler
+   "most-recently-computed" default this round's own research
+   recommended. Implemented as a mechanical word-overlap score (see
+   below), not real semantic/embedding search -- same "grounded
+   word-overlap over invented ML" discipline as `src/pom/engine.py`'s
+   own `_is_evidence_grounded`, deliberately narrower than the general
+   relevance-filtering system Retrieval/Need State Inference both
+   explicitly declined to build elsewhere in this codebase (this is a
+   single-purpose selection for one clause, not a new general
+   mechanism).
+
+**Engine** (`src/insight/engine.py`): new `select_relevant_insight(insights,
+state)` -- the one function in this module that runs LIVE, inside a
+turn (everything else here stays offline-only, per the module's own
+scope docstring). Scores each Insight's `theme`+`detail` against a
+plain-text rendering of THIS turn's own WorldState content (facts,
+claims, goals, decisions, entity names -- `_render_state_content`,
+duplicated rendering per this codebase's per-package convention) by
+shared-word overlap, returns the single highest-scoring Insight, or
+`None` when nothing has any real overlap -- a callback with zero
+genuine connection to the conversation would read as a non sequitur,
+worse than no callback. Ties broken by list order (already
+`computed_at`-ordered via `db.get_insights`), never re-sorted.
+
+**Threading** (mirrors `pom`'s own existing threading exactly):
+`src/api/server.py::send_message` already builds `insights` for
+Retrieval -- now also passes it to `run_turn`. `run_turn` (`src/
+orchestrator/engine.py`) threads it ONLY to `run_response_generator`,
+same as `pom`. `run_response_generator` (`src/response/engine.py`)
+calls `select_relevant_insight(insights, state)` -- but ONLY when
+`state.turn_count == 1`, skipping the word-overlap scan entirely on
+every later turn rather than doing pointless work -- and passes the
+resolved `Optional[Insight]` into `response_mode_focus_note`.
+
+**Prompt clause** (`src/orchestrator/modes.py`): new `_insight_callback_note`
+(gated on `turn_count == 1` AND a non-`None` insight) and
+`_INSIGHT_CALLBACK_CLAUSE`, explicitly a "light, secondary
+acknowledgment... do not force it if it would read as a non sequitur."
+Deliberately **mode-agnostic** -- unlike the POM-seeding clauses (which
+only apply to Vent/Strategize/Commit/Explore and explicitly skip
+Realign), this callback appends to EVERY mode's note, including
+Realign, since it's orthogonal to any mode's own per-dimension seeding
+logic. `response_mode_focus_note` restructured (still returns `""` for
+a Journey with no mode, same backward-compat guarantee) so the callback
+clause appends after Realign's own `{concept}` resolution and after any
+POM-seeding clause -- the two guaranteed-injection mechanisms can never
+actually coincide in practice (`turn_count == 1` and `turn_count % 3 ==
+0` are mutually exclusive), verified directly in tests rather than
+assumed.
+
+Verified (targeted, not a full-suite re-run, per the standing
+instruction to batch full validation until the backlog is closed):
+`tests/test_insight.py` (relevance scoring: no insights, no state
+content, zero overlap, highest-score selection, tie-breaking by list
+order), `tests/test_modes.py` (gate on turn_count == 1, mode-agnostic
+append including realign, non-overlap with POM-seeding), `tests/
+test_response_engine.py` (new file -- end-to-end threading from
+`run_response_generator` through to the actual prompt text sent to
+`call_provider`), `tests/test_orchestrator.py` (insights threads to
+Response only, defaults to None for every existing caller) all pass.
+No frontend changes -- the callback surfaces purely through Response's
+own generated text, no new UI surface needed. Live browser/dispatch
+verification deferred to the end-of-backlog validation pass, same
+standing instruction #207/#208/#209 all honored.
+
+## Learning: MIN_EVIDENCE calibration remains blocked; production deploy dispatched to start the clock (2026-07-19, backlog #213)
+
+Investigated backlog #213 ("calibrate `MIN_EVIDENCE` against real data").
+Confirmed this is NOT the same shape as #289/#290/#292's calibration
+rounds -- those calibrate LLM output quality on a realistic-but-scripted
+conversation, which a live dispatch can honestly exercise. Learning's
+`MIN_EVIDENCE` (`src/learning/engine.py`) gates `compute_behavioral_patterns`,
+a pure population-frequency threshold with **zero LLM calls** -- what it
+needs is the real distribution of how often genuine multi-session users'
+goals/decisions actually change status over real calendar time, which no
+scripted scenario can stand in for (a scripted event count is an
+artifact of what was written, not a sample of real behavior). This
+codebase's own prior reasoning already says as much, repeatedly (see
+this same entry's precedent in the #289 round: *"crafted fixtures can't
+stand in for actual usage patterns any more than a unit test could
+calibrate Learning's own MIN_EVIDENCE"*).
+
+Also confirmed: `CONFIDANT_RECORD_EVENTS=1` was committed to `fly.toml`
+(and is present on `main`) back on 2026-07-18, but nothing in
+decisions.md recorded an actual `deploy.yml` dispatch since -- meaning
+production was likely not yet writing real `behavioral_events` at all,
+before today.
+
+Asked the founder directly how to proceed, given the task is genuinely
+blocked rather than facing a design fork: leave it blocked and move on,
+dispatch `deploy.yml` to start the data-collection clock, or attempt a
+`backup-database.yml`-style pull of whatever data might already exist
+(despite an equivalent ask being declined once before, for #289).
+Chosen: **dispatch `deploy.yml`** -- not to calibrate anything today,
+but so `CONFIDANT_RECORD_EVENTS` actually takes effect live and real
+usage can start accumulating from this point forward.
+
+Dispatched against `main` (commit `4b7ef99`), NOT this session's own
+feature branch (`claude/sensemaking-engine-60xbki`, 15 commits ahead of
+`main`, unmerged) -- deploying unreviewed feature-branch work would
+have been a separate, much bigger decision than what was actually asked
+here. `main` already carries the `CONFIDANT_RECORD_EVENTS=1` config
+from the earlier round, so this deploy alone is sufficient to start
+recording. Run completed successfully (workflow run 29686664395,
+`deploy.yml`, `main`, conclusion: success).
+
+Backlog #213 itself remains genuinely blocked: real behavioral_events
+now have a chance to accumulate going forward, but calibrating
+`MIN_EVIDENCE` against them still requires real usage volume over real
+time, which no action taken today can shortcut. No code change to
+`MIN_EVIDENCE` itself this round -- it stays at its honest, uncalibrated
+first-cut value of 3 until genuine data exists to check it against.
+
+## Need State + Retrieval: founder confirms both previously-unilateral forks (2026-07-19, backlog #224/#225)
+
+Backlog #225 ("Need State: resolve the unresolved design fork") named
+two forks decided without founder confirmation at build time (Need
+State Inference's own `AskUserQuestion` attempt failed twice with a
+tool-level stream error, not a user response -- see that round's
+"Process note" in this file and in `engine/specs/need-state-inference-
+specification-v1.md`). Backlog #224 ("Retrieval: close the 'label-only,
+not filtering' gap") turned out to be the exact same underlying
+question as #225's second fork, viewed from Retrieval's side rather
+than Need State's -- resolving one resolves the other, not two
+independent decisions.
+
+Research this round confirmed #224/#225 are NOT blocked on real usage
+data the way #213 is (compute_behavioral_patterns has zero LLM
+involvement and needs a real usage distribution; the label-vs-filter
+question is a scope/design call the founder could make today either
+way, and the computation-method question is a preference, not a
+data-availability gate) -- so, unlike #213, these were taken straight
+to the founder rather than deferred further.
+
+Two questions put directly to the founder:
+
+1. **Need State computation** -- deterministic classifier (current,
+   `src/need_state/engine.py::infer_need_state`) vs. a dedicated LLM
+   call. **CONFIRMED: keep the deterministic classifier.** No new LLM
+   call, no new hallucination surface, consistent with this project's
+   "mechanical over invented ML until evidence justifies more"
+   discipline used everywhere else (Learning, POM's mechanical
+   systems).
+2. **Retrieval's effect** -- label-only (current) vs. actually
+   filtering Patterns/Insights by inferred need. **CONFIRMED: stay
+   label-only.** No `pattern_type`/`theme`-to-`NeedState` taxonomy
+   exists or is being built; Judgment keeps seeing every Pattern/Insight
+   unfiltered, with the inferred need surfaced only as an added text
+   line. A follow-up question about HOW filtering would work
+   (mechanical keyword-mapping vs. letting Judgment itself filter via
+   prompt instruction) was correctly answered N/A once label-only was
+   confirmed.
+
+**No code behavior changed** -- both forks were already implemented
+exactly this way; what changed is that these are now the founder's own
+deliberate, confirmed choices rather than an unresolved placeholder a
+tooling failure forced onto best judgment. Updated the "unconfirmed,
+override if wanted" framing in `src/need_state/engine.py`'s module
+docstring, `src/retrieval/engine.py`'s module docstring, and both specs'
+(`need-state-inference-specification-v1.md`, `retrieval-specification-
+v1.md`) Process Note / Open Questions / Non-goals sections to reflect
+the confirmation instead of leaving them reading as still-open.
+`tests/test_need_state.py` + `tests/test_retrieval.py` (27 tests)
+re-run clean -- no behavior to break, since only prose changed.
+
+## Judgment v3 design pass (2026-07-19, backlog #228)
+
+Reviewed `engine/specs/judgement-v3-design` (a discussion draft, never
+frozen, never implemented in full) at the founder's explicit direction
+("do a full v3 design pass now," chosen over "keep cherry-picking as
+evidence justifies" and "formally close/reject v3"). Of the draft's
+seven named responsibilities, two were already substantially covered
+by existing v2 fields (Salience Detection -> `secondary_issues`;
+Goal Progress Assessment -> `stagnation_notes`, which already
+superseded the draft's own `trajectory` idea in an earlier round) and
+NOT touched further -- no new evidence has emerged since either
+supersession that argues for revisiting them. The other four had no v2
+equivalent and shipped as real fields:
+
+1. **Situation Assessment** -> `situation_assessment: str = ""` -- a
+   higher-level characterization of the KIND of situation this is,
+   distinct from `primary_problem` (the specific blocker) and
+   `current_focus` (what the user is doing about it).
+2. **Contradiction Assessment** (materiality) -> `contradiction_significance:
+   str = ""` -- assesses what a recorded contradiction actually implies,
+   distinct from `contradictions` itself (which only records the
+   tension).
+3. **Risk Assessment** (materiality) -> `risk_significance: str = ""` --
+   assesses whether named risks materially constrain the primary goal,
+   distinct from `risk_scan` (justifies the check) and `risks`
+   (specific factors).
+4. **Decision Readiness** -> `decision_readiness: str = ""` -- whether
+   the user appears to be actively weighing open decision option(s),
+   never a recommendation of which to pick (stays a future Planner's
+   job per the draft's own Explicit Non-Responsibilities).
+
+The draft's two remaining genuinely-open questions were also closed
+this round, each "no": explicit issue ranking beyond the existing
+primary/secondary split (no motivating evidence), and a separate
+assessment-confidence field distinct from Interpretation's own
+confidence fields (Judgment's existing `confidence` already answers the
+same question -- "how complete is the evidentiary basis" -- in
+different words).
+
+All four new fields are plain, defaulted (`= ""`) strings with NO
+boolean-gate/auto-repair -- same "no gate without evidence of a
+transcription-compliance failure" discipline as `secondary_issues`/
+`stagnation_notes` when they were first added. Defaulting them (rather
+than making them required, matching the ORIGINAL v2 core fields'
+convention) was deliberate: it meant zero of the ~7 test files across
+the codebase that construct `Judgment(...)` objects directly needed any
+change, following the same precedent `secondary_issues`/`stagnation_notes`/
+`near_duplicates` themselves set when they were incrementally added.
+
+Updated: `src/judgment/schema.py` (new fields + docstring), `src/judgment/
+prompt.py` (FIELD DEFINITIONS entries + OBSERVATIONS VS ASSESSMENTS
+"second layer" note), `engine/specs/judgment-specification-v2.md` (Output
+block, Field Definitions, new "Open Questions — resolved" section), and
+`engine/specs/judgement-v3-design`'s own status header (now "PARTIALLY
+ADOPTED," not a live backlog of untouched proposals).
+
+Verified: new `tests/test_judgment_v3_fields.py` (7 tests: defaults,
+populated round-trip, prompt-presence, anti-restatement wording, the
+"never recommend an option" constraint, second-layer framing) plus the
+full existing Judgment/orchestrator/response/understanding suite (264
+tests) re-run clean with zero fixture changes needed, confirming the
+defaulted-field design choice.
+
+Live-dispatch quality verification (do these four fields actually
+produce non-redundant text against a real model, the way `stagnation_notes`/
+`secondary_issues` needed live testing to validate) is deliberately NOT
+done this round -- offered as a follow-up, not assumed.
+
+## Judgment write-back: confirmed as case-by-case policy (2026-07-19, backlog #247)
+
+Two independently-justified ad-hoc exceptions to "Judgment never writes
+to WorldState" have accumulated over time: `apply_judgment_resolutions`
+(2026-07-10, decision lifecycle round 3) and `apply_knowledge_corrections`
+(2026-07-12, Fact/Claim correction and near-duplicate consolidation).
+Neither was ever reconciled into one general write-back policy --
+`src/orchestrator/engine.py` even still had a comment calling
+`apply_judgment_resolutions` "the one deliberate exception" despite a
+second one sitting immediately below it in the same function.
+
+Put directly to the founder: confirm case-by-case exceptions as the
+ongoing policy, or generalize into one explicit, reusable write-back
+mechanism the two (and any future) cases route through. **CONFIRMED:
+case-by-case exceptions.** Each future write-back need gets its own
+narrowly-justified carve-out, following the same precedent -- no
+invented general abstraction ahead of a second/third concrete need
+that would actually share meaningful structure with the first two.
+
+Fixed the stale "the one deliberate exception" comment in
+`src/orchestrator/engine.py` to describe both exceptions and reference
+this confirmation. Updated `engine/specs/judgment-specification-v2.md`'s
+Design Principles section (now names both exceptions, states the
+confirmed policy explicitly) and added a Field Definitions entry for
+the second exception (Knowledge Corrections), which the spec had never
+documented at all despite existing in `src/judgment/schema.py` since
+2026-07-12. No behavior changed -- both exceptions already worked
+exactly this way; this round settles that they're allowed to keep doing
+so, and fixes the docs that had drifted from that reality.
+
+## Interpretation: contradictions/risks stay declined (2026-07-19, backlog #239)
+
+Interpretation was explicitly declined a `contradictions`/`risks` field
+in 2026-07-11 (`engine/specs/interpretation-v2-proposal.md`'s own status
+header): Judgment already owns "detect a conflict"/"detect a risk" over
+the full WorldState, and tracing the pipeline confirmed Judgment never
+reads raw Interpretation output at all -- an Interpretation-only version
+would be inert debug output with nothing downstream to consume it.
+
+Put directly to the founder: does that reasoning still hold, or is there
+a new reason to build it? **CONFIRMED: keep it declined.** No new
+WorldState tier or downstream consumer has emerged since 2026-07-11 --
+if anything, this round's own Judgment v3 pass (`contradiction_significance`/
+`risk_significance`, see above) extends Judgment's ownership of exactly
+this responsibility further, reinforcing rather than undermining the
+original reasoning. Updated `engine/specs/interpretation-v2-proposal.md`'s
+status header to record the confirmation. No code change -- these
+fields remain un-implemented by deliberate, now-doubly-confirmed choice.
+
+## Interpretation: third-party emotion exclusion confirmed despite POM's Theory of Mind (2026-07-19, backlog #240)
+
+Interpretation excludes third-party emotion inference (`emotional_signals`
+scoped to the user's own emotions only), decided 2026-07-09
+(`engine/specs/interpretation-spec-v0.9.md`) with an explicit reintroduce-
+when condition: "when multi-agent/attribution reasoning is actually
+being built." That condition has technically been met since --
+`src/pom/schema.py`'s `TheoryOfMindSystem` ships exactly that (per-entity
+third-party perspective/emotion inference, grounded against aggregated
+WorldState content) -- but nobody had reconciled the two before this
+round.
+
+Put directly to the founder given this new fact: does Interpretation's
+own per-turn exclusion still hold? **CONFIRMED: keep the exclusion.**
+POM's Theory of Mind covers the cross-session, durable-profile need (one
+LLM call over aggregated content across every session); Interpretation
+is a stateless PER-TURN extractor with no live in-conversation consumer
+for a third-party signal today -- adding it now would risk the same
+"inert field, nothing reads it yet" problem as backlog #239's
+contradictions/risks fields. Updated `src/interpretation/schema.py`'s
+`EmotionalSignal` docstring and `engine/specs/interpretation-spec-v0.9.md`
+to record the confirmation and the reasoning for why POM's shipped
+feature doesn't change Interpretation's own scope. No code change.
+
+## Interpretation: stateless-vs-state-aware treated as resolved by precedent (2026-07-19, backlog #241)
+
+Interpretation was designed stateless per turn from v1.1 onward
+(`build_messages(user_text)` takes only the raw message, no WorldState
+view) -- a deliberate choice, not an oversight. `engine/specs/
+interpretation-v2-proposal.md`'s own "Priority 3 (state-aware
+architecture)" item nominally stayed "open" in that document's language.
+But the one time this concretely mattered in practice (2026-07-10,
+decision lifecycle round 3 -- Interpretation's `decision_events`
+confirmed insufficient for a STRUCTURAL reason: it never sees
+WorldState, so it can't anchor to an existing option's exact text), the
+founder's real call was already made: relocate state-dependent matching
+downstream (to Judgment, which reads full WorldState verbatim; later
+also Tier 2) rather than restructure Interpretation's own pipeline
+shape.
+
+This round proposed closing Priority 3 on that same precedent -- treated
+as already answered, not re-opened from scratch -- rather than putting a
+fresh design question to the founder with no new information since
+2026-07-10 to inform it. Proceeded on that basis without objection.
+Updated `engine/specs/interpretation-v2-proposal.md`'s status header to
+record this closure and the reasoning, flagged plainly (same discipline
+as any other resolution this project records) so it's easy to revisit
+if the other direction was actually wanted. No code change --
+Interpretation was already built this way; this round only settles that
+it's staying that way.
+
 ## Systemic policy for all-providers-fail schema validation (2026-07-19)
 
 Backlog #232. This wasn't a new finding -- the "Comprehensive
@@ -9860,3 +10867,777 @@ turn actually completes and both outcomes are recorded in order) and
 (confirms the new `for/else` doesn't accidentally swallow a genuine
 total failure when every provider fails). Full suite: `pytest` 511
 passed (509 + 2 new).
+
+## Learning/POM/Insight Engine: manual-only cadence confirmed (2026-07-19, backlog #268)
+
+Backlog #268 named a real gap in appearance only: Learning, POM, and
+Insight Engine all compute offline, and none of the three has a
+recurring schedule -- each only ever runs via `workflow_dispatch`. This
+reads, on first glance, like an oversight (production data just sits
+uncomputed until someone remembers to click a button), but this
+project already has a direct precedent for exactly this shape:
+`backup-database.yml` is deliberately `workflow_dispatch`-only, not
+scheduled, for reasons already on record. Framed the question to the
+founder the same way, rather than assuming a cron job is obviously
+missing.
+
+**CONFIRMED by the founder: keep manual-only, no cron added.** No code
+change -- all three scripts (`run_learning.py`, `run_pom_computation.py`,
+`run_insight_detection.py`) and their workflows stay exactly as built.
+Recorded as a deliberate, confirmed standing choice rather than an
+open gap in `engine/specs/learning-specification-v1.md` and
+`engine/specs/insight-engine-specification-v1.md`'s own Open Questions
+sections (POM's own spec doesn't currently reference #268, so left
+untouched there).
+
+## Learning/POM: surface computed_at staleness signal (2026-07-19, backlog #269/#271)
+
+Both `learned_patterns` and `personal_operating_model` have stored a
+real `computed_at TEXT NOT NULL` column since each table was first
+created (written on every offline run by `replace_learned_patterns`/
+`replace_personal_operating_model` respectively), but neither read
+accessor (`get_learned_patterns`, `get_personal_operating_model`) ever
+selected or returned it -- a plain, symmetric gap across both
+pipelines, not a design choice requiring a founder decision. Both
+`GET /patterns` and `GET /personal-operating-model` currently hand a
+person their own behavioral history / standing profile with zero
+indication of how fresh it is, which matters precisely because both
+are offline-computed and can go stale for a long stretch between
+`workflow_dispatch` runs (see backlog #268 immediately above -- no cron
+recomputes either automatically).
+
+**Learning side**: `LearnedPatternOut` (`src/api/schema.py`) gained a
+`computed_at: str` field (no default -- constructed in exactly one
+place, `db.get_learned_patterns`, which always has a real value from
+the SQL row); `get_learned_patterns` now selects
+`pattern_type, detail, evidence_count, computed_at` instead of
+omitting the last column. `BehavioralPatterns.svelte` shows one shared
+"Last updated <date>" line under the pattern list, sourced from the
+first pattern's `computed_at` -- every pattern on one card comes from
+the same computation run, so no need to repeat the timestamp per row.
+
+**POM side** needed a different mechanical approach, because
+`GET /personal-operating-model`'s own docstring already documents a
+deliberate precedent: POM is returned as the raw internal
+`PersonalOperatingModel` type, not a separate "Out" mirror type the way
+Learning/Insight have, since it's stored/read back as one whole JSON
+blob rather than assembled column-by-column -- a mirror type would
+just copy identical fields with no decoupling benefit. Adding
+`computed_at` to the JSON blob itself would be wrong (the blob is
+`src/pom/engine.py`'s own output, which has no notion of when it's
+persisted -- same reason `learned_patterns`' rows don't carry it
+either until `replace_*` writes it). Added `computed_at: str = ""` to
+`PersonalOperatingModel` (`src/pom/schema.py`) with an empty-string
+default -- same "default new fields so no existing construction site
+needs updating" precedent already used this session for Judgment v3's
+four new fields -- and `get_personal_operating_model`
+(`src/api/db.py`) now selects `pom_json, computed_at` and attaches the
+real column value after parsing:
+`pom.model_copy(update={"computed_at": row[1]})`, overwriting whatever
+default the stored JSON blob itself carries. `PersonalOperatingModel.svelte`
+shows the same "Last updated" line, guarded on `pom.computed_at` being
+non-empty (defends against a stale test fixture or an as-yet-uncomputed
+default; in production this is always real once POM exists at all,
+since `replace_personal_operating_model` always writes a real
+timestamp).
+
+Verified: new/updated tests in `tests/test_api_server.py`
+(`test_patterns_endpoint_reflects_last_computed_batch` and
+`test_get_personal_operating_model_returns_last_computed_pom` both now
+assert `computed_at` is present), two new Vitest cases (one per
+component) asserting the "Last updated" line renders, plus a POM-side
+test confirming the line is omitted when `computed_at` is empty. Full
+`pytest` (560 passed) and `vitest` (104 passed) both clean.
+
+## Fix stale LearnedPatternOut/get_patterns docstrings (2026-07-19, backlog #270)
+
+`LearnedPatternOut` (`src/api/schema.py`) and `GET /patterns`
+(`src/api/server.py::get_patterns`) both independently claimed Learning
+was "not yet rendered"/"not yet consumed by the frontend" -- true when
+originally written, but stale since backlog #214 shipped
+`BehavioralPatterns.svelte` without either docstring ever being
+updated to match. `InsightOut`'s own docstring also drew a contrast
+against `LearnedPatternOut` ("unlike LearnedPatternOut, this IS
+rendered") that became inaccurate the same way. All three fixed to
+state plainly that both are now rendered in the frontend, with
+`InsightOut`'s contrast replaced by "same as LearnedPatternOut now is."
+No behavior change -- prose only.
+
+## POM: recency cap added to aggregation (2026-07-19, backlog #272)
+
+`get_aggregated_knowledge_for_pom` (`src/api/db.py`) read every
+session owned by an account with no `LIMIT`/`ORDER BY` at all --
+deliberately uncapped, on the reasoning (recorded in the function's own
+docstring at the time) that POM is a standing, all-history profile
+that benefits from every session, unlike Insight Engine's own
+recency-capped `get_session_texts_for_insights`
+(`MAX_SESSIONS_FOR_INSIGHT = 30`). Backlog #272 asked whether that
+reasoning still held now that POM is per-account (closing the
+cross-account leak #257/#273 fixed) rather than a single global
+aggregation -- a real design fork, not an implementation detail, so
+taken to the founder rather than assumed.
+
+**CONFIRMED by the founder: add a recency cap, overriding this
+project's own "keep uncapped" recommendation.** Added
+`MAX_SESSIONS_FOR_POM = 30` to `src/pom/schema.py` (deliberately
+duplicated from, not imported from, Insight Engine's own
+`MAX_SESSIONS_FOR_INSIGHT` -- same "small constants duplicated across
+engine packages" convention `src/pom/engine.py::MIN_BEHAVIORAL_EVIDENCE`
+already follows relative to Learning's `MIN_EVIDENCE`; POM and Insight
+Engine may want to tune this independently later, and nothing couples
+them today). `get_aggregated_knowledge_for_pom`'s query now reads
+`... WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?`, mirroring
+`get_session_texts_for_insights`' own shape and cost/latency reasoning.
+`scripts/run_pom_computation.py`'s module docstring updated to no
+longer describe the aggregation as uncapped.
+
+Verified: new test
+`test_get_aggregated_knowledge_for_pom_caps_at_most_recently_updated_sessions`
+in `tests/test_pom_aggregation.py` -- `MAX_SESSIONS_FOR_POM + 1`
+sessions created, the single oldest-`updated_at` one given content
+that must NOT appear in the aggregated claims; asserts both the count
+(`len(claims) == MAX_SESSIONS_FOR_POM`) and the specific exclusion.
+Full `pytest` suite (560 passed) clean.
+
+## You tab: per-parameter empty-state nudges declined, omission stays (2026-07-19, backlog #275)
+
+Backlog #275 asked whether POM/Learning's per-parameter empty states
+(e.g. a POM sub-system with nothing grounded yet, a pattern below
+`MIN_EVIDENCE`) should gain an evidence-gathering nudge -- some text
+suggesting what kind of conversation would surface that specific
+parameter -- rather than staying pure omission. This directly revisits
+`frontend/decisions.md`'s existing, dated "omit rather than show a
+hollow signal" principle (2026-07-18, POM surfaced to users): a system
+this codebase already committed to in writing, so reopening it needed
+the founder's own call, not a unilateral judgment call either way.
+
+**CONFIRMED by the founder: keep omitting, no nudge added.** No code
+change -- `PersonalOperatingModel.svelte` and `BehavioralPatterns.svelte`
+both already omit any parameter/pattern with nothing grounded, with no
+per-parameter suggestion text. The "omit rather than show a hollow
+signal" principle in `frontend/decisions.md` stands unrevised.
+
+## Orchestrator: bounded single-stage retry (2026-07-19, backlog #250)
+
+Backlog #250 named a real, deliberate non-goal from Orchestrator's own
+original design (`src/orchestrator/engine.py`'s module docstring):
+"managing retries" beyond stage-level stop-and-report was explicitly
+out of scope, distinct from `src/llm/providers.py`'s own call-level
+fallback across providers within one stage's attempt. Research this
+round found the current honest-partial-failure behavior already
+matches this project's "honest failure over invented recovery"
+discipline, with no evidence yet that stage retry reduces real
+user-visible failures -- and flagged a real ambiguity in what "whole-
+stage retry" even means (re-run just the failed stage once? the whole
+turn? something else?). Put directly to the founder rather than
+assumed either way.
+
+**CONFIRMED by the founder: add one bounded re-attempt per stage**,
+overriding this project's own "leave as-is" recommendation. New
+`_with_bounded_retry` helper in `src/orchestrator/engine.py`: calls a
+stage's `run_*` function, and if the FIRST call raises that stage's own
+`*Error` (i.e. only after `resolve_provider_chain()` already exhausted
+every configured provider once), tries the SAME stage exactly once
+more before letting a second failure propagate to `run_turn`'s existing
+`except` clause unchanged. All four stages (Interpretation, Judgment,
+Planner, Response) wrapped identically. Never a loop, never a retry of
+the whole turn, never a retry of a stage that already succeeded -- a
+second failure still returns `failed_stage`/`error` exactly as before
+this change. A transient provider hiccup isn't guaranteed to repeat on
+a second, fully independent attempt, so this recovers some turns the
+old stop-immediately behavior would have failed outright, at the cost
+of at most one extra attempt on an already-worst-case path (every
+provider already failed once).
+
+Verified: two new tests in `tests/test_orchestrator.py` --
+`test_run_turn_retries_a_failed_stage_once_and_succeeds_on_the_second_attempt`
+(a stage that fails once then succeeds recovers the turn, not
+`failed_stage`) and
+`test_run_turn_gives_up_after_exactly_two_attempts_at_a_failing_stage`
+(a stage that fails twice reports `failed_stage` after EXACTLY 2 calls,
+confirming the retry is bounded, not a loop). Every existing failure
+test in that file (which mocks a stage to always raise) still passes
+unchanged, since a mock that always fails still fails on the bounded
+retry's second attempt too. Full `pytest` (563 passed) clean.
+`engine/specs/orchestrator-specification-v1.md`'s own Non-goals/Open
+Questions updated to reflect this is no longer deferred.
+
+## Understanding: Tier 2 recompute gated to thread-item status changes only (2026-07-19, backlog #295)
+
+Backlog #295 already had its root cause diagnosed by an earlier round
+this session (see "Understanding #289: real multi-turn data found --
+the recompute gate doesn't skip in practice" above): a live 11-turn
+walkthrough showed `should_recompute_tier2` firing on 11/11 turns,
+because `compute_tier2_grounding_signature`'s hash covered EVERY
+candidate (thread AND detail kinds, id+status+text), and ordinary
+fact/claim/entity accumulation -- the common case on nearly every turn
+-- changed that hash just as much as a real goal/decision/uncertainty
+status transition did. That round explicitly declined to guess a fix
+("changing either recency/staleness number wouldn't address what this
+run actually showed... guessing a 'better' number here would be
+exactly the ungrounded-tuning mistake this project refuses to make
+elsewhere") and left the actual mechanism question -- what SHOULD
+trigger recompute -- to a founder decision. This round put that
+decision directly to the founder, with the candidates decisions.md
+itself had already floated (gate on thread-item status changes only;
+require a minimum count of changed items; accept current behavior).
+
+**CONFIRMED by the founder: gate on thread-item status changes only**
+(the recommended option). `compute_tier2_grounding_signature`
+(`src/understanding/tier2_engine.py`) now hashes only thread-kind
+(`goal`/`decision`/`uncertainty`) candidates' `id:status` -- detail
+kinds (fact/claim/entity/assumption/inference/emotional signal) are
+excluded from the signature entirely, even though `select_tier2_candidates`
+still includes them in whatever pool `run_tier2_synthesis` actually
+sees once a recompute IS triggered by something else. `text` is also
+dropped from the hash (not just detail kinds) -- a thread item's Tier 1
+text is a deterministic function of content+status, so a real status
+transition is the meaningful signal, not incidental rewording.
+
+Verified: `tests/test_tier2.py`'s
+`test_signature_changes_when_a_new_candidate_is_added` (a Fact-based
+test asserting the OLD full-pool behavior) rewritten as
+`test_signature_changes_when_a_new_thread_candidate_is_added` (same
+assertion, now using a Goal, since that's what should still change the
+signature) plus a new
+`test_signature_is_unaffected_by_a_new_detail_candidate` (the direct
+regression test: a new Fact must NOT change the signature, even though
+it's still a real candidate `select_tier2_candidates` includes). Full
+`pytest` (563 passed, up from 560) clean.
+`engine/specs/understanding-specification-v1.md`'s Open Question #3
+updated to RESOLVED.
+
+## Understanding: Tier 2 v2 design proposal drafted (2026-07-19, backlog #248)
+
+Research confirmed `engine/specs/understanding-specification-v1.md`'s
+own "declarative-uncertainty and values-level synthesis" phrase
+(Open Question #4) had no concrete definition anywhere in this
+codebase or its specs -- just a name, not a scoped feature, first
+written down when backlog #248 was created. Put to the founder as: defer/
+close (recommended, since building against an undefined term risks
+either redundancy with Tier 2 v1's existing `synthesis` kind or,
+worse, violating Tier 2's own hard "never characterize the person"
+rule), or draft a concrete design proposal first.
+
+**The founder chose to draft a design proposal** (the non-recommended
+option), overriding the recommendation to defer outright. Wrote
+`engine/specs/tier2-v2-design-proposal.md` -- a DISCUSSION DRAFT, same
+status/shape as `engine/specs/judgement-v3-design` -- concretely
+defining, for the first time, both phrases as two possible new Tier 2
+statement kinds extending the existing single LLM call (no new call,
+no new engine): **declarative uncertainty** (naming the specific
+boundary of what remains unknown across several candidates, as a
+stated fact, distinct from Tier 1's own question-shaped `uncertainty`
+kind and from Tier 2 v1's situational `synthesis` kind) and **values-level
+synthesis** (naming a tension between two things the person's own
+words already state, e.g. "wanting to move forward here means setting
+aside not disappointing your manager"). The document is explicit that
+`values_synthesis` carries a real risk of violating law 5 (never
+label a trait/value the person didn't state) and that this risk is not
+yet solved by prompt wording alone -- recommends further review of
+`declarative_uncertainty` as lower-risk, and treats `values_synthesis`
+as not yet safely buildable until its enforcement question is
+answered. No code, prompt, or schema changes made -- per the document's
+own explicit scope, same as `judgement-v3-design`'s own precedent.
+`engine/specs/understanding-specification-v1.md`'s Open Question #4
+updated to point to the new document.
+
+## Insight Engine: keep re-offering existing evidence sessions across runs (2026-07-19, backlog #293, narrow fix)
+
+Research confirmed a real, mechanical bug independent of any merge/dedup
+design decision: `get_session_texts_for_insights` (`src/api/db.py`)
+capped its query at the top `MAX_SESSIONS_FOR_INSIGHT` most-recently-
+updated sessions with no exception for sessions that are evidence for
+an account's EXISTING Insights. Once an account has more than
+`MAX_SESSIONS_FOR_INSIGHT` qualifying sessions, an old evidence session
+scrolling out of that window meant the next `run_insight_detection`
+call never even saw it again -- `replace_insights`' truncate-and-
+replace would then delete a still-true Insight for no reason connected
+to the person's actual situation, purely from recency-window churn.
+
+Fixed by widening the query: `get_session_texts_for_insights` now
+unions the top-N recency window with every session id currently
+referenced by one of this account's own `insight_sessions` rows (via a
+join scoped to `insights.user_id = ?`, so another account's insight
+evidence can never leak in), then re-sorts by `updated_at DESC`. This
+doesn't merge or dedupe anything across runs -- it only ensures the
+SAME single LLM call this run still gets a chance to see and re-cite
+evidence it relied on last time, using the existing, unmodified
+grounding logic (`_enforce_grounding` in `src/insight/engine.py`) to
+decide fresh each run whether the theme still holds. The deeper "how do
+we decide two runs found the same theme" question stays separate --
+see the design-proposal entry below.
+
+Verified: new `tests/test_insight_db.py` (a dedicated file, mirroring
+`tests/test_pom_aggregation.py`'s own style, since
+`get_session_texts_for_insights` had no direct test coverage anywhere
+before this) -- confirms a session's own judgment text is returned, a
+session with no completed judgment is excluded,
+`test_an_existing_insights_evidence_session_survives_rotating_out_of_the_recency_window`
+(the direct regression test: `MAX_SESSIONS_FOR_INSIGHT` newer sessions
+pushed an old evidence session out of the plain window, and it's still
+present in the result), and that another account's evidence sessions
+are never pulled in. Full `pytest` (567 passed, up from 563) clean.
+
+## Insight Engine: cross-run merge design proposal drafted (2026-07-19, backlog #293, deeper piece)
+
+Alongside the narrow fix above, the founder was asked what should
+happen with the deeper, still-unresolved question this backlog item was
+originally about: deciding whether two separate `run_insight_detection`
+runs found "the same theme," for real merging (not just the recency-
+window fix, which doesn't address wording drift or a theme
+disappearing because the model itself just didn't re-cite it this
+time). Options put: defer until real multi-run production data exists
+(recommended, same "blocked until real production data exists"
+precedent as backlog #213), or design the merge logic now.
+
+**The founder chose to design the merge logic now**, overriding the
+recommendation to defer. Wrote `engine/specs/insight-dedup-design-
+proposal.md` -- a DISCUSSION DRAFT proposing that `run_insight_detection`
+accept a new optional `prior_insights` parameter (default `None`, a
+true no-op for every existing call site), with `src/insight/prompt.py`
+gaining a new labeled "PREVIOUSLY IDENTIFIED THEMES" section (populated
+only when non-empty) instructing the model to reuse a prior theme's
+exact wording when a new one describes the same underlying pattern,
+never carry a theme forward that current evidence doesn't support, and
+to keep treating prior themes as context only -- never evidence in
+place of `_enforce_grounding`'s existing, unmodified mechanical floor.
+`scripts/run_insight_detection.py` would fetch `db.get_insights(user_id)`
+before recomputing and pass it through; `replace_insights` itself needs
+no change, since the merge decision moves inside the one LLM call
+rather than becoming a separate database operation. Explicitly does
+NOT add a second, independent matching mechanism (fuzzy text/embedding
+similarity) -- recommends shipping the prompt-only version and
+observing at least two real successive `workflow_dispatch` runs before
+deciding whether a mechanical fallback is worth its own complexity, same
+"observe before building" discipline as this session's whole "blocked
+on real data" precedent for other uncalibrated thresholds. No code,
+prompt, or schema changes made this round -- per the document's own
+explicit scope. `engine/specs/insight-engine-specification-v1.md`'s
+Non-goals/Open Questions updated to reflect both the shipped narrow fix
+and the still-proposed deeper piece.
+
+## State builder: Entity attribute updates now bump last_updated (2026-07-19, backlog #244)
+
+`_merge_entities` (`src/state/builder.py`) enriched an EXISTING entity's
+attributes without ever touching its `provenance.last_updated` -- a
+deliberate scope-limit from the original 2026-07-10 trajectory round
+("entities aren't part of that"), but with a real, confirmed downstream
+consequence: `src/understanding/tier2_engine.py`'s recency-window
+filter (`TIER2_RECENCY_WINDOW_TURNS`) reads `provenance.last_updated`
+directly, so an Entity frozen at its creation turn would silently and
+permanently drop out of Tier 2's candidate pool 10 turns after first
+mention -- even if the person kept stating brand-new attributes about
+it every turn. Unambiguous bug fix, no founder decision needed (Entity
+already has one shared `provenance` field like every other
+KnowledgeItem; per-attribute provenance would be a much bigger, entirely
+unmotivated schema change).
+
+Fixed: the attribute-update loop in `_merge_entities` now sets
+`entity.provenance.last_updated = turn` after setting/appending an
+attribute on an already-existing entity (harmless no-op for a
+same-turn-created entity, already stamped `turn`). Verified with a new
+direct regression test,
+`test_entity_attribute_update_on_an_existing_entity_bumps_last_updated`
+(`tests/test_world_state_evolution.py`) -- confirms `first_seen` stays
+at the creation turn while `last_updated` advances to the update turn.
+`relationships` staying unpopulated by the real pipeline (a separate,
+pre-existing gap this round's research also surfaced) is out of scope
+here.
+
+## Fix stale FactStatus.superseded backlog description (2026-07-19, backlog #245)
+
+Research confirmed this item was already resolved by later work: the
+2026-07-05 origin ("`FactStatus.superseded` exists in the schema but no
+code path ever sets it") predates 2026-07-12's Fact/Claim correction
+round (`apply_knowledge_corrections`, see engine/decisions.md "Fact/Claim
+correction and near-duplicate consolidation"), which sets exactly this
+status via `Judgment.knowledge_corrections[].kind`, live-confirmed
+firing organically in a real gpt-4o run
+(`tests/test_world_state_evolution.py`'s own
+`test_contradiction_is_not_detected_known_gap` docstring was already
+updated at that time to point at the fix). No code change needed --
+this entry exists only to close the backlog item explicitly and record
+that its literal premise is stale, same "reconcile the description, not
+the mechanism" treatment already used for backlog #226 (Learning vs.
+POM's overlapping scope).
+
+## State builder: Unknown resolution keeps history in place (2026-07-19, backlog #246)
+
+`_reconcile_unknowns` (`src/state/builder.py`) discarded a resolved
+Unknown outright and promoted a brand-new, unlinked Fact in its place --
+`UnknownStatus` has permitted `"resolved"` since the field was added,
+but nothing ever set it, same shape as `FactStatus.superseded`'s own
+pre-#245 gap. The function's own docstring already named this precisely
+as a deferred parity gap against Design Principle 3 ("nothing is
+silently deleted"), deferred as "a merge-behavior change beyond this
+round's ask" at the time `status` was added. Research confirmed no
+consumer anywhere reads `Unknown.status == "resolved"` expecting
+matches, and Understanding Tier 1's own visibility filter already only
+shows `{"open"}` Unknowns -- so applying the exact same parity fix
+`apply_knowledge_corrections` already proved for Facts/Claims carries
+zero display/behavioral blast radius. Low-risk mechanical fix, no
+founder decision needed.
+
+Fixed: a resolved Unknown now has its `status` flipped to `"resolved"`
+and `provenance.last_updated` bumped to the resolving turn, and is kept
+in the returned list (previously discarded) alongside the newly
+promoted Fact. Two pre-existing tests
+(`test_unknown_resolution_fires_on_high_word_overlap`,
+`test_unknown_resolution_word_overlap_catches_reordered_phrasing`) that
+asserted `state.unknowns == []` were updated to assert
+`[u.status for u in state.unknowns] == ["resolved"]` instead -- the
+direct, deliberate behavior change these tests exist to pin down. New
+direct regression test
+`test_resolved_unknown_keeps_its_original_id_and_bumps_last_updated_but_stays_hidden_from_tier1`
+confirms the resolved Unknown keeps its own original id/first_seen
+(genuine history preservation, not just a new object), gets
+`last_updated` bumped, and -- despite no longer being deleted -- stays
+correctly excluded from `build_tier1_statements`' rendering. Full
+`pytest` (569 passed) clean.
+
+## WorldState: read-only Working Memory / Durable Knowledge groupings added (2026-07-19, backlog #243)
+
+The 2026-07-05 "Working Memory / Durable Knowledge split" TODO in
+`src/state/world_state.py`'s own module docstring was deliberately
+deferred pending Judgment's actual usage patterns making the right
+split obvious -- naming assumptions/inferences/biases as the genuinely
+ambiguous case at the time (durable knowledge about the user, or just
+conversational scratchpad?). Research this round found that ambiguity
+had substantially self-resolved through later, unrelated incremental
+work: the id-bearing `assumption_items`/`inference_items` counterparts
+(added 2026-07-12) already landed in the "Durable Knowledge" section of
+the class body, without anyone deliberately revisiting this TODO. No
+concrete downstream consumer asks for the split today. Put to the
+founder as a real go/no-go, given the genuine cost spread across three
+options (close/defer, read-only groupings only, or a full restructure
+touching every prompt-building call site, the inspector, tests, and
+migration for already-persisted flat JSON).
+
+**CONFIRMED by the founder: add read-only groupings only** (the
+recommended option). Added `WorldState.durable_knowledge()` and
+`WorldState.working_memory()` -- plain Python methods (not pydantic
+fields or `@computed_field` properties) returning a dict grouping the
+existing fields per the TODO's own original split, deliberately
+invisible to `model_dump_json()` and every existing prompt-building call
+site (`src/judgment/engine.py`, `src/planner/engine.py`,
+`src/response/engine.py` all still dump the same flat fields
+unchanged -- no new entry needed in `PROMPT_EXCLUDED_FIELDS`). Zero
+behavior change, zero migration cost for already-persisted sessions.
+`turn_count`/`understanding` deliberately excluded from both groupings
+-- WorldState's own bookkeeping/rendering layer, neither "facts about
+the user's world" nor "conversation scratchpad." Module docstring
+rewritten from a TODO to a RESOLVED design note recording this choice.
+Verified with two new tests confirming the groupings partition the
+expected fields correctly and stay absent from a plain
+`model_dump_json()` call. Full `pytest` (571 passed) clean.
+
+## Judgment: supporting_evidence migrated to KnowledgeItem id references (2026-07-19, backlog #242)
+
+Research confirmed backlog #242's own "stable object IDs" half was
+already fully resolved by earlier work (backlog #81/#82, 2026-07-12) --
+every KnowledgeItem subtype has carried a stable `id` since then. The
+remaining, genuinely open piece was `supporting_evidence`, which turned
+out to name two different candidate features: (a) migrating
+`Judgment.supporting_evidence` from prose quotes/paraphrases to real
+`KnowledgeItem.id` references, now that WorldState actually has stable
+ids to reference (a plumbing change); (b) adding a NEW
+`Provenance.supporting_evidence` turn-log (every turn that reaffirmed an
+item, not just first_seen/last_updated) -- a real bookkeeping-cost
+question with no concrete consumer, explicitly deferred when
+`Provenance` itself shipped and still deferred (Provenance's own
+docstring is unchanged). Put to the founder as a real choice between
+closing both, building (a), or building (b).
+
+**CONFIRMED by the founder: migrate Judgment's field to id references**
+(option (a), overriding the recommendation to close both). Every
+WorldState item's `id` field was already visible to the model (it's a
+plain, non-excluded field on every KnowledgeItem, dumped verbatim into
+Judgment's prompt via `state.model_dump_json(exclude=PROMPT_EXCLUDED_FIELDS)`),
+so this needed no new WorldState-side plumbing -- only:
+1. `src/judgment/prompt.py`'s `supporting_evidence` field definition
+   rewritten to instruct citing the real `id` field verbatim, never a
+   quote/paraphrase. The Retrieved Context paragraph (which previously
+   suggested drawing on it "in supporting_evidence") was also corrected
+   -- Retrieved Context has no WorldState item id of its own, so it can
+   never appear there now; a Retrieved-Context-informed conclusion must
+   be grounded in the WorldState content it connects to instead (e.g.
+   `situation_assessment`).
+2. `src/judgment/schema.py`'s `supporting_evidence` field docstring
+   rewritten to describe the new id-based contract.
+3. New `_known_knowledge_item_ids(state)` helper in
+   `src/judgment/engine.py` (deliberately duplicated from, not imported
+   from, `src/understanding/tier2_engine.py`'s own
+   `_knowledge_item_lookup` -- same "small per-package helpers
+   duplicated across engine packages" convention as
+   `src/insight/engine.py`'s `_words`/`src/pom/engine.py`'s
+   `_render_entity_text`) -- `run_judgment` now filters
+   `supporting_evidence` down to ids that actually exist in the
+   WorldState given to that call, silently dropping a hallucinated or
+   stale one, same "never trust the model's own ids uncritically"
+   discipline as Insight Engine's/Tier 2's own grounding filters. No
+   minimum-count floor -- `supporting_evidence` was never itself a gate
+   on anything, so an empty list remains exactly as valid as it was when
+   this field was prose-based.
+
+No frontend or `src/api/` consumer reads `supporting_evidence` today
+(confirmed via search) -- this is purely an internal Judgment-chain
+field, so there was no display surface to update. Verified with a new
+`tests/test_judgment_engine.py` (this module's `run_judgment` had no
+dedicated mocked-LLM test file before this, per
+`tests/test_judgment_stagnation.py`'s own docstring noting as much) --
+confirms a real cited id survives grounding, and the direct regression
+test that a hallucinated id never in the given WorldState is silently
+dropped. Full `pytest` (573 passed) clean.
+
+## Instrumentation: pricing.py refreshed with production model costs (2026-07-19, backlog #294)
+
+Research confirmed `src/instrumentation/pricing.py`'s
+`_OPENROUTER_PRICING_PER_MTOK` table had exactly one entry
+(`openai/gpt-4o-mini`, the original, no-longer-used uniform model pin)
+and was missing the three models `src/llm/providers.py`'s own
+per-component chains actually dispatch to in production since the
+2026-07-18 rebalance (`qwen/qwen3-32b`, `google/gemini-2.5-flash-lite`,
+`deepseek/deepseek-chat`) -- a gap this project's own decisions.md
+already logged as producing "unknown cost" results in real calibration
+runs. `frontier_pricing.py`'s own reference-model table was checked
+separately and found current (matches the four models it's scoped to
+as of its own 2026-06-24 cache date; its deliberate exclusion of newer
+model names and its own promo-vs-standard Sonnet 5 rate choice are both
+already-documented design choices, not staleness). Routine maintenance,
+no founder decision needed -- this doesn't add a new default paid
+model, it makes cost tracking accurate for per-component overrides
+already approved and running in production.
+
+Added the three missing entries (`qwen/qwen3-32b`: $0.08/$0.28,
+`google/gemini-2.5-flash-lite`: $0.10/$0.40, `deepseek/deepseek-chat`:
+$0.20/$0.80 per 1M input/output tokens), sourced directly from
+`providers.py`'s own already-cited docstring, no new research needed.
+Verified with a new direct regression test,
+`test_production_per_component_models_are_priced_not_unknown`
+(`tests/test_instrumentation.py`) -- confirms all three resolve to a
+real cost rather than `None`. Full `pytest` suite clean.
+
+## Instrumentation/evaluation "overlap" closed -- not real duplication (2026-07-19, backlog #251)
+
+Research found `src/instrumentation/` (token/cost/latency measurement,
+provider-attempt outcome tracking -- "it observes; it does not evaluate
+or act") and `src/evaluation/` (groundedness/constraint-violation
+heuristics scoring a Judgment's actual OUTPUT quality) solve genuinely
+different problems that happen to share the word "metrics." The only
+real connection is a clean, one-directional dependency already in
+place: `src/evaluation/baselines.py`/`confidant_runner.py` already
+import and reuse `UsageTracker`/`default_tracker` directly for
+token/cost accounting during eval runs -- no computation is duplicated
+anywhere; the two modules' actual algorithms (token/cost math vs.
+word-overlap/regex heuristics) share nothing. `engine/specs/
+instrumentation-specification-v1.md`'s own Open Questions flagged this
+as "a real, still-open overlap" without citing any specific duplicated
+logic -- the overlap doesn't survive scrutiny.
+
+**Closed, no code change.** If a real gap emerges later it would be a
+small additive glue consumer (e.g. a combined report placing
+`UsageTracker.summary()` and `evaluation/metrics.compute_all()` side by
+side for one eval run), not a merge of either module's internals --
+and nothing today asks for even that. `engine/specs/
+instrumentation-specification-v1.md`'s Open Questions section should be
+read as resolved by this entry.
+
+## Synthesis fusion-vs-single-call measurement declined (2026-07-19, backlog #254)
+
+Research confirmed "literal multi-persona fusion" was already
+concretely defined and explicitly rejected when Synthesis shipped
+(2026-07-16, see this file's own "Synthesis" entry and
+`engine/specs/architecture-roadmap-v1.md`'s Phase 3 section): 5
+independent lens-specific LLM calls plus a 6th fusion call, ~6x a
+normal turn's Judgment/Planner cost, versus the shipped single-Planner-
+call-picks-one-lens design (`Planner.active_lens`). The roadmap doc
+itself already flagged that "measuring" this properly would require
+first BUILDING the fusion arm, which was never built precisely because
+of its cost -- so #254 wasn't actually a scoped measurement task, it
+was asking permission to build a second, expensive pipeline purely to
+benchmark against a design that was already deliberately chosen.
+
+**CONFIRMED by the founder: close/defer**, matching the recommendation.
+No new evidence has surfaced since the original decision to justify the
+cost of building a comparison arm nobody has asked for. No code
+change -- `engine/specs/architecture-roadmap-v1.md`'s own "worth
+revisiting if literal fusion is ever attempted for real" framing stands
+as the reopening condition, not this round.
+
+## Business-gated enterprise/investor infrastructure remains parked (2026-07-19, backlog #258)
+
+Confirmed correctly gated, not an oversight: `engine/specs/
+architecture-roadmap-v1.md`'s own "Explicitly not scoped by this
+roadmap" section already names exactly this (sponsor/organization
+layer, SOC2/ISO27001/SAML/investor-dashboard apparatus, physiological/
+wearable/calendar/task-app signal ingestion, client-side E2EE key
+management) with its own stated reopening condition: "an actual
+organization customer or investor process that needs them." No such
+trigger has occurred. No code, no doc change -- the backlog item's own
+title ("do not start prematurely") is the accurate, current state, not
+a stale placeholder.
+
+## "Plans" (transformation plans) design deferred (2026-07-19, backlog #266)
+
+Research confirmed this is a genuinely undesigned, brand-new feature --
+zero mentions of "Plans" or "transformation plan" anywhere in
+engine/decisions.md, engine/specs/, or frontend/specs/, including
+`information-architecture-v1.md` (still its original "Three Spaces:
+Home/Journey/Settings" version, unrevised). The premise that the
+pending 5-tab IA work (backlog #260-267) already positions a "Plans"
+tab doesn't hold up either -- those backlog titles don't name a "Plans"
+tab, and none of that work has been built yet. Even a first-pass design
+proposal (the treatment given to Tier 2 v2 and Insight Engine's merge
+question this same day) couldn't start here without first knowing
+whether Plans is its own tab, a feature inside Journey, or something
+else entirely -- that depends on where the 5-tab nav actually lands.
+
+**CONFIRMED by the founder: defer until the 5-tab IA work (backlog
+#260-267) lands**, matching the recommendation. No design proposal
+written this round -- designing Plans against a navigation structure
+that doesn't exist yet risks the proposal being wrong in ways that are
+purely a sequencing artifact, not a real product question. Revisit once
+#260-267 is real.
+
+## Orchestrator: skip-logic/model-routing provisional criteria proposed (2026-07-19, backlog #238)
+
+`src/orchestrator/engine.py`'s own module docstring names two deferred
+non-goals ("skip unnecessary computation," "select models as
+interaction-level policy"), each originally deferred for "no evidence
+yet." Asked whether to close both as still-correctly-gated or define
+provisional criteria now regardless -- **the founder chose the latter
+(non-recommended option)**: define provisional criteria now anyway.
+Full analysis in `engine/specs/orchestrator-skip-logic-model-routing-proposal.md`
+(discussion draft, no code/prompt/schema changes).
+
+The two non-goals turned out to have very different shapes once traced
+through the pipeline:
+
+- **Skip-logic**, taken literally ("skip Judgment if Interpretation
+  produced nothing new"), is not a safe optimization for this
+  pipeline's shape: `run_turn` is a strict sequential chain where
+  Response (the actual reply the person sees) depends on Planner, which
+  depends on Judgment. Skipping Judgment cascades to no reply at all --
+  a correctness regression, not a latency win. The only safe-sounding
+  variant (reuse the previous turn's bundle rather than omit a stage)
+  is a materially different, larger, riskier feature ("turn reuse under
+  explicit staleness disclosure"), not something to back into via a
+  provisional trigger. **Recommendation stands even though the founder
+  asked for provisional criteria: close skip-logic, don't define it.**
+  Not "no evidence exists" (the original, weaker reason) but "the
+  literal mechanism is architecturally unsafe."
+- **Model-routing** has a real, already-available mechanical signal:
+  Interpretation's own `interp.urgency == "high"` field (`src/interpretation/schema.py`),
+  proposed as the provisional, explicitly-uncalibrated criterion -- same
+  framing as `MIN_EVIDENCE`/`TIER2_RECENCY_WINDOW_TURNS`. The plumbing
+  to route on it is real but mechanical (an optional `model_override`
+  parameter threaded through `run_judgment`/`run_planner`/
+  `run_response_generator` into `call_provider`, bypassing
+  `_resolve_model_chain`'s component lookup when set). What the
+  document deliberately does NOT settle: which model to route TO.
+  `_DEFAULT_COMPONENT_MODELS` was rebalanced to the cheapest viable
+  chain per component with no "next tier up" already approved, and
+  CLAUDE.md's standing policy requires fresh explicit permission before
+  any non-free-tier model, even for a conditional per-turn case. That
+  decision -- naming a target model and accepting its real per-high-
+  stakes-turn cost -- is out of this document's scope.
+
+No code changes. `interp.urgency` is not read by Orchestrator for
+anything today. If the founder later names a target model, the
+plumbing described in the proposal doc is buildable on request.
+
+## #252: production model re-validated against Interpretation exit criteria (2026-07-19/20, backlog #252)
+
+Dispatched `interpretation-benchmark.yml` (workflow_dispatch, default
+`runs_per_case=10`, `openrouter_model` left blank -- resolves to
+whatever `src/llm/providers.py` gives Interpretation in production,
+i.e. `_SHARED_REASONING_CHAIN` unless `OPENROUTER_MODEL` is globally
+overridden). Run 29717965367, job 88274822138, **conclusion: success**.
+
+Result (from the job's own log, since the uploaded artifact ZIP is
+unreachable from this sandbox -- see limitation below): all 20 runs
+(TC1 x10, TC2 x10) completed without raising `InterpretationError`:
+`Done: 20/20 succeeded, 0 failed.`
+
+**What this does and doesn't confirm.** This verifies exit criterion #1
+("stable across repeated runs... no field flips between fundamentally
+different shapes") only in the weak sense that every run completed and
+produced schema-valid output -- zero hard failures across 20 real
+dispatches is itself real signal, not nothing. It does **not** verify
+criteria #2 (zero role violations), #3 (no fabrication/leak
+relocation), #5 (good enough for Judgment to consume without defensive
+prompting), or #6 (every field justifies its existence) -- those
+require reading the actual per-run JSON field content, which lives only
+in the uploaded artifact. This environment's outbound proxy rejects the
+CONNECT to the Azure Blob Storage host GitHub redirects artifact
+downloads to (`productionresultssa2.blob.core.windows.net:443`,
+confirmed via `$HTTPS_PROXY/__agentproxy/status` showing
+`connect_rejected`), and the benchmark script itself only prints
+`[OK]`/`[FAIL]` per-run lines to stdout by design -- it never dumps full
+JSON to the job log. Stated plainly rather than glossed over: a full
+six-criteria re-validation was not achievable from this environment this
+round. Whoever can retrieve the `interpretation-benchmark-results`
+artifact (id 8451340314, run 29717965367) outside this sandbox should
+do the qualitative scoring; this entry only closes the "does production
+still run clean" half of #252.
+
+## #253: Judgment v2 evaluation harness re-run with pinned model -- 2/3 conditions, a first (2026-07-19/20, backlog #253)
+
+Per CLAUDE.md's standing policy (`openrouter/free` unsuitable for
+anything requiring model invariance across calls), pinned
+`OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free` -- this
+project's own prior pinned default (see this file's earlier entry on
+why it was replaced as the *uniform* default), a well-attested,
+non-arbitrary choice for a one-off invariant evaluation run, not a new
+model introduced without basis. Dispatched
+`judgment-evaluation-smoketest.yml` with that override. Run
+29717978757, job 88274858446, **conclusion: failure** (script exits 1
+whenever fewer than 3/3 conditions succeed -- but 2/3 succeeding with
+real, comparable, non-degenerate output is the actual result worth
+recording, not a wash).
+
+Real results, from the job log:
+
+- **Baseline A (raw transcript)**: succeeded. 1 call, 11,070 tokens,
+  $0.0000 (confirmed `:free`), full real Judgment output --
+  `has_knowledge_correction=True`, `has_decision_resolution=True`,
+  `has_risk_signal=True`, one contradiction correctly identified
+  (Sarah's promotion being retracted).
+- **Baseline B2 (incremental summary)**: failed, isolated to one
+  provider response-shape error on one of its own many sequential
+  summary-update calls -- `"Unexpected OpenRouter response shape:
+  'choices'"`. Not the systemic cross-call-model-variance failure mode
+  CLAUDE.md warns `openrouter/free` produces; a single pinned free model
+  can still occasionally get a malformed response from OpenRouter
+  itself, distinct from the two prior 2026-07-05 runs where all 3
+  conditions failed outright.
+- **Confidant (Interpretation -> WorldState -> Judgment)**: succeeded.
+  12 calls (11 Interpretation + 1 Judgment), 139,338 tokens, 656.3s
+  latency, $0.0000. Real Judgment output with a materially richer
+  picture than Baseline A on the same transcript: 2 contradictions found
+  vs. Baseline A's 1, 10 near-duplicate pairs correctly identified (none
+  in Baseline A, which has no near-duplicate detection input to work
+  from), `groundedness_heuristic` 30/30 entries plausibly grounded
+  (rate 1.0).
+
+**First time this harness has produced 2/3 usable conditions** -- the
+two prior 2026-07-05 attempts both got 0/3. Worth recording as its own
+signal: the Confidant condition's `supporting_evidence` field contained
+real WorldState item UUIDs throughout (e.g.
+`0256a3dc-4049-42e0-9bba-a3a6c46ffe25`, matching an actual Fact id in
+the same run's WorldState) -- a live, non-mocked confirmation that the
+earlier #242 migration (`Judgment.supporting_evidence`: prose quotes ->
+real KnowledgeItem id references, with engine-level grounding
+enforcement) is working correctly end-to-end in production-shaped
+conditions, not just in the test suite.
+
+Not resolved by this round: Baseline B2's isolated failure means the
+harness still hasn't produced one clean 3/3 run comparing all three
+conditions side by side, which `judgment-v2-evaluation-design.md`'s full
+pilot needs. No code change -- this was a re-run for evidence, not a
+bug in `src/`; the OpenRouter response-shape error is a provider-side
+transient, not something this codebase's error handling did wrong (it
+was correctly caught and reported as a `[FAIL]` line rather than
+crashing the whole script, which is exactly why Baseline A and Confidant
+still completed).

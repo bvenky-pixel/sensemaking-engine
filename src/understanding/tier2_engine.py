@@ -20,6 +20,13 @@ Explicit scope decisions carried over from that design pass:
   discussion). should_recompute_tier2 below gates the actual LLM call
   behind a real candidate-pool change or a staleness backstop, so most
   turns skip it entirely, leaving the previous turn's tier2 untouched.
+  Narrowed 2026-07-19 (backlog #295, see
+  compute_tier2_grounding_signature's own docstring) -- the original
+  full-pool signature fired on nearly every turn in real usage, since
+  ordinary fact/claim/entity accumulation changed the hash just as much
+  as a real goal/decision/uncertainty transition; the signature now
+  only reflects thread-kind status changes, restoring the intended
+  rarity.
 - Engine-level grounding enforcement, not just prompt wording (same
   discipline as src/insight/engine.py's own evidence_session_ids
   filtering): every Tier2Statement's grounding_item_ids is filtered down
@@ -151,21 +158,43 @@ def compute_tier2_grounding_signature(
     candidates: List[UnderstandingStatement], state: WorldState
 ) -> str:
     """
-    Hash of the CURRENT CANDIDATE POOL -- id + real status + text per
-    candidate -- not just the ids a previously-computed Tier 2 statement
-    happens to cite. See engine/decisions.md "Tier 2 design" Q1 for why
-    hashing only already-cited items misses a new near-duplicate arrival:
-    pool membership itself is recomputed fresh every call (via
-    select_tier2_candidates), so a new item entering/leaving the pool,
-    or an existing pooled item's status changing, both change this hash
-    even when nothing previously CITED by an existing Tier 2 statement
-    changed at all.
+    Hash of the CURRENT THREAD-KIND POOL (goal/decision/uncertainty) --
+    id + real status only, per candidate. Detail kinds (fact/claim/
+    entity/assumption/inference/emotional signal) are deliberately
+    EXCLUDED from this hash, even though select_tier2_candidates still
+    includes them in the pool run_tier2_synthesis actually sees when a
+    recompute fires -- this only narrows what TRIGGERS a recompute, not
+    what Tier 2 synthesizes across once triggered.
+
+    Narrowed 2026-07-19 (backlog #295, see engine/decisions.md
+    "Understanding: Tier 2 recompute gated to thread-item status changes
+    only" -- the founder's own explicit choice, overriding this
+    function's own original full-pool design): a live 11-turn
+    walkthrough (see engine/decisions.md "Understanding #289: real
+    multi-turn data found...") found the ORIGINAL full-pool hash (every
+    candidate, every kind, id+status+text) changed on every single turn
+    observed, because ordinary fact/claim/entity accumulation -- the
+    common case on nearly every turn -- changes the hash exactly as much
+    as a real goal/decision/uncertainty status transition does. That
+    defeated the whole point of a signature-gated recompute (see this
+    module's own "CONDITIONAL, not every-turn" design principle):
+    Tier 2 was firing an LLM call on nearly every turn instead of only
+    when something genuinely thread-worthy changed. Gating on
+    thread-kind status only restores the intended rarity -- a new fact
+    or a stale assumption's recency window shifting no longer counts as
+    "the situation changed enough to re-synthesize," but a goal/decision/
+    uncertainty actually starting, resolving, or changing status does.
+    `text` is also dropped from the hash (not just detail kinds) -- Tier
+    1's own text template for a thread item is a deterministic function
+    of content+status, so a real status transition is what a change in
+    the underlying thread actually looks like here, not incidental text
+    rewording.
     """
     status_by_id, _ = _knowledge_item_lookup(state)
     parts = sorted(
-        f"{c.grounding_item_ids[0]}:{status_by_id.get(c.grounding_item_ids[0], '')}:{c.text}"
+        f"{c.grounding_item_ids[0]}:{status_by_id.get(c.grounding_item_ids[0], '')}"
         for c in candidates
-        if c.grounding_item_ids
+        if c.grounding_item_ids and c.kind in _THREAD_KINDS
     )
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 

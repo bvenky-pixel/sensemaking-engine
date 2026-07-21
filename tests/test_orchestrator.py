@@ -27,6 +27,7 @@ from src.judgment.schema import Judgment
 from src.orchestrator.engine import run_turn
 from src.planner.engine import PlannerError
 from src.planner.schema import Planner
+from src.insight.schema import Insight
 from src.response.engine import ResponseGeneratorError
 from src.response.schema import Response
 from src.state.world_state import WorldState
@@ -102,7 +103,7 @@ def test_run_turn_full_success_populates_every_field(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
     )
 
     result = run_turn("I want to move teams.", WorldState())
@@ -128,7 +129,7 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
         seen["planner_mode"] = mode
         return _PLANNER
 
-    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -143,6 +144,48 @@ def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
     assert seen["response_mode"] == "vent"
 
 
+def test_run_turn_threads_insights_to_response_only(monkeypatch):
+    """Insight-triggered conversational callback (2026-07-19, backlog
+    #210): run_turn's own `insights` parameter must reach
+    run_response_generator unchanged -- the one stage that resolves a
+    callback from it (see src.insight.engine.select_relevant_insight);
+    run_judgment/run_planner never receive it directly."""
+    seen = {}
+    insights = [Insight(theme="Avoidance", detail="Delays hard conversations.")]
+
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
+        seen["response_insights"] = insights
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    run_turn("I want to move teams.", WorldState(), insights=insights)
+
+    assert seen["response_insights"] == insights
+
+
+def test_run_turn_defaults_insights_to_none(monkeypatch):
+    """Every existing caller that doesn't pass `insights` at all must
+    still work, seeing None -- same no-op default discipline as `pom`."""
+    seen = {}
+
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
+        seen["response_insights"] = insights
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    run_turn("I want to move teams.", WorldState())
+
+    assert seen["response_insights"] is None
+
+
 def test_run_turn_resolves_adaptive_mode_to_planners_chosen_lens_for_response(monkeypatch):
     """Synthesis (see engine/decisions.md "Synthesis"): when mode is
     "adaptive", Planner itself picks which concrete lens fits this turn
@@ -155,7 +198,7 @@ def test_run_turn_resolves_adaptive_mode_to_planners_chosen_lens_for_response(mo
         seen["planner_mode"] = mode
         return _PLANNER.model_copy(update={"active_lens": "commit"})
 
-    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -181,7 +224,7 @@ def test_run_turn_falls_back_to_raw_mode_when_adaptive_planner_sets_no_lens(monk
     def _planner(state, judgment, tracker=None, mode=None):
         return _PLANNER  # active_lens defaults to None
 
-    def _response(state, judgment, planner, tracker=None, mode=None, pom=None):
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
         seen["response_mode"] = mode
         return _RESPONSE
 
@@ -211,7 +254,7 @@ def test_run_turn_threads_retrieved_context_to_judgment_only(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState(), retrieved_context="Known pattern: reopens closed decisions.")
@@ -234,7 +277,7 @@ def test_run_turn_defaults_retrieved_context_to_empty_string(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState())
@@ -257,7 +300,7 @@ def test_run_turn_defaults_mode_to_none(monkeypatch):
     monkeypatch.setattr("src.orchestrator.engine.run_planner", _planner)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
     )
 
     run_turn("I want to move teams.", WorldState())
@@ -276,7 +319,7 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
     monkeypatch.setattr(
         "src.orchestrator.engine.run_response_generator",
-        lambda state, judgment, planner, tracker=None, mode=None, pom=None: _RESPONSE,
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
     )
 
     calls = []
@@ -357,7 +400,7 @@ def test_run_turn_planner_failure_still_reports_judgment_and_updated_state(monke
 
 
 def test_run_turn_response_failure_still_reports_planner_and_updated_state(monkeypatch):
-    def _raise(state, judgment, planner, tracker=None, mode=None, pom=None):
+    def _raise(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None):
         raise ResponseGeneratorError("all providers failed")
 
     monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
@@ -373,6 +416,54 @@ def test_run_turn_response_failure_still_reports_planner_and_updated_state(monke
     assert result.planner == _PLANNER
     assert result.response is None
     assert any(g.content == "Move to the Product team." for g in result.state.goals)
+
+
+def test_run_turn_retries_a_failed_stage_once_and_succeeds_on_the_second_attempt(monkeypatch):
+    """Bounded single-stage retry (2026-07-19, backlog #250, see
+    engine/decisions.md "Orchestrator: bounded single-stage retry") --
+    the founder's own explicit choice. A stage that fails on its first
+    attempt but succeeds on an independent second attempt must recover
+    the turn, not report failed_stage."""
+    calls = {"n": 0}
+
+    def _judgment(state, tracker=None, retrieved_context=""):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise JudgmentError("transient failure")
+        return _JUDGMENT
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", _judgment)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
+    )
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert calls["n"] == 2
+    assert result.failed_stage is None
+    assert result.judgment == _JUDGMENT
+
+
+def test_run_turn_gives_up_after_exactly_two_attempts_at_a_failing_stage(monkeypatch):
+    """The retry is bounded to exactly one extra attempt, never a loop --
+    a stage that fails twice in a row must report failed_stage after
+    precisely 2 calls, not retry indefinitely."""
+    calls = {"n": 0}
+
+    def _raise(message, tracker=None):
+        calls["n"] += 1
+        raise InterpretationError("still failing")
+
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", _raise)
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert calls["n"] == 2
+    assert result.failed_stage == "interpretation"
+    assert result.error == "still failing"
 
 
 def test_run_turn_never_raises_on_any_stage_failure(monkeypatch):

@@ -40,6 +40,14 @@ text-relevance match against free-text pattern_type/theme fields (the
 "actually filter" alternative considered and rejected -- see
 engine/decisions.md for the full fork).
 
+**Backlog #224 resolved (2026-07-19, see engine/decisions.md)**: this
+was originally decided without founder confirmation (a tool failure
+blocked the AskUserQuestion attempt at build time). Put directly to the
+founder afterward, alongside Need State's own sibling fork (backlog
+#225) -- CONFIRMED: stay label-only. No new pattern_type/theme-to-need
+taxonomy exists, and none is being built; this is the founder's own
+deliberate choice, not a still-open gap.
+
 Personal Operating Model (2026-07-16, see engine/decisions.md "Personal
 Operating Model", src/pom/engine.py): `build_retrieved_context` also
 accepts the standing, offline-computed POM -- same "surface everything

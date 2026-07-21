@@ -150,13 +150,59 @@ export async function getPrivacySettings() {
   return _json(res);
 }
 
-export async function setCrossSessionLearningEnabled(enabled) {
+// Both fields are always sent together -- POST /privacy/settings takes
+// the whole settings object, not a partial update (see
+// src/api/schema.py::SetPrivacySettingsRequest). `reflectionPromptEnabled`
+// is the CURRENT value of the other toggle, unchanged by this call --
+// Settings.svelte already holds both in local state, so it always has
+// both to send regardless of which one the person just touched.
+export async function setCrossSessionLearningEnabled(enabled, reflectionPromptEnabled) {
   const res = await fetch('/privacy/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cross_session_learning_enabled: enabled }),
+    body: JSON.stringify({
+      cross_session_learning_enabled: enabled,
+      reflection_prompt_enabled: reflectionPromptEnabled,
+    }),
   });
   return _json(res);
+}
+
+// Journey-close reflection question (2026-07-19, backlog #207) --
+// same "send both fields" shape as setCrossSessionLearningEnabled
+// above, just toggling the other one.
+export async function setReflectionPromptEnabled(enabled, crossSessionLearningEnabled) {
+  const res = await fetch('/privacy/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cross_session_learning_enabled: crossSessionLearningEnabled,
+      reflection_prompt_enabled: enabled,
+    }),
+  });
+  return _json(res);
+}
+
+// Submits a Journey-close reflection answer (see Journey.svelte's own
+// reflection prompt, shown only when reflection_prompt_enabled is on).
+// 204 No Content on success -- nothing to parse back, so this can't
+// reuse _json (which always calls res.json()); same ApiError shape on
+// failure as everywhere else, not a plain Error.
+export async function submitJourneyReflection(sessionId, content) {
+  const res = await fetch(`/sessions/${sessionId}/reflection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      // body wasn't JSON -- keep the generic detail above.
+    }
+    throw new ApiError(res.status, detail);
+  }
 }
 
 // Returns a Blob, not JSON -- this is a file download
@@ -222,6 +268,29 @@ export async function logout() {
 export async function getPersonalOperatingModel() {
   const res = await fetch('/personal-operating-model');
   return _json(res);
+}
+
+// Light affirm/correct affordance on POM's "You" section (2026-07-19,
+// backlog #209) -- one reaction to one rendered POM statement. 204 No
+// Content on success, same "can't reuse _json" shape as
+// submitJourneyReflection above.
+export async function submitPomFeedback(system, statement, feedback, correctionText) {
+  const res = await fetch('/pom/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system, statement, feedback, correction_text: correctionText || null,
+    }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      // body wasn't JSON -- keep the generic detail above.
+    }
+    throw new ApiError(res.status, detail);
+  }
 }
 
 // Learning surfaced to users (2026-07-18, see frontend/decisions.md

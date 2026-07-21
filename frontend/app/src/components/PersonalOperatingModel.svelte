@@ -51,6 +51,7 @@
   // as the same voice, just in Settings' own layout.
   import { onMount } from 'svelte';
   import { getPersonalOperatingModel } from '../lib/api.js';
+  import PomFeedback from './PomFeedback.svelte';
 
   let pom = $state(null);
   let loaded = $state(false);
@@ -71,6 +72,7 @@
       ? ['autonomy', 'competence', 'relatedness']
           .filter((dim) => pom.motivation[dim] !== 'unclear' && pom.motivation[`${dim}_evidence`]?.length > 0)
           .map((dim) => ({
+            dim,
             label: MOTIVATION_LABELS[dim],
             evidence: pom.motivation[`${dim}_evidence`].join(' '),
           }))
@@ -91,6 +93,15 @@
         hasNarrative ||
         pom.theory_of_mind.entries.length > 0)
   );
+
+  // computed_at staleness signal (2026-07-19, backlog #271, mirrors
+  // BehavioralPatterns.svelte's own #269 -- see engine/decisions.md
+  // "Learning/POM: surface computed_at staleness signal").
+  function formatComputedAt(isoString) {
+    return new Date(isoString).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  }
 </script>
 
 <section class="card setting-section">
@@ -110,7 +121,10 @@
             <p class="pom-heading">What you've told me you believe</p>
             <ul class="pom-list">
               {#each pom.belief.beliefs as belief}
-                <li>{belief}</li>
+                <li>
+                  {belief}
+                  <PomFeedback system="belief" statement={belief} />
+                </li>
               {/each}
             </ul>
           </div>
@@ -121,7 +135,10 @@
             <p class="pom-heading">People who come up</p>
             <ul class="pom-list">
               {#each pom.relationship.relationships as relationship}
-                <li>{relationship}</li>
+                <li>
+                  {relationship}
+                  <PomFeedback system="relationship" statement={relationship} />
+                </li>
               {/each}
             </ul>
           </div>
@@ -131,6 +148,7 @@
           <div class="pom-block">
             <p class="pom-heading">How you seem to see yourself</p>
             <p class="voice">{pom.identity.self_concept}</p>
+            <PomFeedback system="identity" statement={pom.identity.self_concept} />
           </div>
         {/if}
 
@@ -139,7 +157,10 @@
             <p class="pom-heading">What seems to drive you</p>
             <ul class="pom-list">
               {#each motivationRows as row}
-                <li><strong>{row.label}.</strong> <span class="voice">{row.evidence}</span></li>
+                <li>
+                  <strong>{row.label}.</strong> <span class="voice">{row.evidence}</span>
+                  <PomFeedback system={`motivation.${row.dim}`} statement={row.evidence} />
+                </li>
               {/each}
             </ul>
           </div>
@@ -149,6 +170,7 @@
           <div class="pom-block">
             <p class="pom-heading">How you seem to learn and take things in</p>
             <p class="voice">{pom.learning_style.style}</p>
+            <PomFeedback system="learning_style" statement={pom.learning_style.style} />
           </div>
         {/if}
 
@@ -156,6 +178,7 @@
           <div class="pom-block">
             <p class="pom-heading">Stress</p>
             <p class="voice">{pom.stress.evidence.join(' ')}</p>
+            <PomFeedback system="stress" statement={pom.stress.evidence.join(' ')} />
           </div>
         {/if}
 
@@ -163,6 +186,7 @@
           <div class="pom-block">
             <p class="pom-heading">The shape of your story so far</p>
             <p class="voice">{pom.narrative.summary}</p>
+            <PomFeedback system="narrative" statement={pom.narrative.summary} />
           </div>
         {/if}
 
@@ -171,12 +195,21 @@
             <p class="pom-heading">What I've noticed about people in your life</p>
             <ul class="pom-list">
               {#each pom.theory_of_mind.entries as entry}
-                <li><strong>{entry.entity_name}:</strong> <span class="voice">{entry.inferred_perspective}</span></li>
+                <li>
+                  <strong>{entry.entity_name}:</strong> <span class="voice">{entry.inferred_perspective}</span>
+                  <PomFeedback
+                    system="theory_of_mind"
+                    statement={`${entry.entity_name}: ${entry.inferred_perspective}`}
+                  />
+                </li>
               {/each}
             </ul>
           </div>
         {/if}
       </div>
+      {#if pom.computed_at}
+        <p class="computed-at">Last updated {formatComputedAt(pom.computed_at)}</p>
+      {/if}
     {/if}
   {/if}
 </section>

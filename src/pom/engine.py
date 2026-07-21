@@ -32,11 +32,13 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
+from src.instrumentation.events import BehavioralEvent
 from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
 from src.pom.prompt import build_messages
 from src.pom.schema import (
     BeliefSystem,
+    ConfidenceLevel,
     InferredPOMBatch,
     PersonalOperatingModel,
     RelationshipSystem,
@@ -97,6 +99,81 @@ def compute_relationship_system(entities: List[Entity]) -> RelationshipSystem:
         _render_entity_text(e) for e in entities if e.attributes or e.relationships
     ]
     return RelationshipSystem(relationships=relationships)
+
+
+# First-cut, NOT empirically calibrated -- deliberately duplicated from
+# (not imported from) src/learning/engine.py's own MIN_EVIDENCE, same
+# "small constants/utilities duplicated across engine packages"
+# convention this module already follows for _words/_render_entity_text.
+# Chosen so a single reaffirmation or a two-event coincidence can never
+# override the LLM's own read; revisit once this runs against real
+# usage (backlog #292).
+MIN_BEHAVIORAL_EVIDENCE = 3
+
+# event_type -> (subject label, success new_status values, struggle new_status values).
+# A Goal/Decision that's still active/paused/open/deferred is in progress,
+# not yet a follow-through signal either way, and is deliberately excluded
+# from both counts.
+_FOLLOW_THROUGH_STATUSES = {
+    "decision_status_changed": ("decisions", {"resolved"}, {"deferred", "expired"}),
+    "goal_status_changed": ("goals", {"completed"}, {"abandoned"}),
+}
+
+
+def compute_behavioral_competence(
+    events: List[BehavioralEvent], min_evidence: int = MIN_BEHAVIORAL_EVIDENCE,
+) -> Optional[tuple]:
+    """
+    Mechanical alternative to the LLM's own motivation.competence read --
+    real goal/decision follow-through outcomes are more trustworthy than
+    text-based inference, same "mechanical, already-trusted data wins"
+    treatment compute_belief_system/compute_relationship_system already
+    get (see module docstring). Pools Goal completion and Decision
+    resolution together -- both speak to the same "did they see it
+    through" construct competence is meant to capture.
+
+    Returns None -- meaning "not enough evidence yet, leave the LLM's
+    own read in place" -- when fewer than min_evidence follow-through
+    events (combined) exist. Confirmed with the founder (2026-07-19,
+    backlog #208): once the floor is met, this OVERRIDES the LLM's
+    competence value and its evidence, rather than merely supplementing
+    it as another line of text for the LLM to weigh.
+
+    Bucketing thresholds (>= 2/3 success -> "high", <= 1/3 -> "low",
+    else "moderate") are a first-cut, NOT empirically calibrated -- same
+    honest-uncalibrated-threshold style as MIN_BEHAVIORAL_EVIDENCE
+    itself.
+    """
+    successes: dict = {}
+    struggles: dict = {}
+    for event in events:
+        labels = _FOLLOW_THROUGH_STATUSES.get(event.event_type)
+        if labels is None:
+            continue
+        _, success_statuses, struggle_statuses = labels
+        if event.new_status in success_statuses:
+            successes[event.event_type] = successes.get(event.event_type, 0) + 1
+        elif event.new_status in struggle_statuses:
+            struggles[event.event_type] = struggles.get(event.event_type, 0) + 1
+
+    total_success = sum(successes.values())
+    total = total_success + sum(struggles.values())
+    if total < min_evidence:
+        return None
+
+    ratio = total_success / total
+    level: ConfidenceLevel = "high" if ratio >= 2 / 3 else "low" if ratio <= 1 / 3 else "moderate"
+
+    evidence = []
+    for event_type, (subject, _, _) in _FOLLOW_THROUGH_STATUSES.items():
+        subtotal_success = successes.get(event_type, 0)
+        subtotal = subtotal_success + struggles.get(event_type, 0)
+        if subtotal:
+            verb = "resolved" if event_type == "decision_status_changed" else "completed"
+            stalled = "deferred/expired" if event_type == "decision_status_changed" else "abandoned"
+            evidence.append(f"{subtotal_success} of {subtotal} {subject} were {verb} rather than {stalled}.")
+
+    return level, evidence
 
 
 class POMEngineError(Exception):
@@ -220,7 +297,8 @@ def run_inferred_pom(aggregated_content: str, tracker: Optional[UsageTracker] = 
 
 def compute_personal_operating_model(
     claims: List[str], assumptions: List[str], entities: List[Entity],
-    aggregated_content: str, tracker: Optional[UsageTracker] = None,
+    aggregated_content: str, events: List[BehavioralEvent],
+    tracker: Optional[UsageTracker] = None,
 ) -> PersonalOperatingModel:
     """
     Combines the two mechanical systems with the one LLM call's six
@@ -229,14 +307,27 @@ def compute_personal_operating_model(
     every session's WorldState and building these inputs first -- this
     module has no database dependency of its own, matching every other
     engine package's separation from src/api.
+
+    `events` (this account's own behavioral_events, see
+    src.api.db.get_events_for_user) feeds compute_behavioral_competence:
+    when there's enough goal/decision follow-through evidence, its
+    mechanical read OVERRIDES motivation.competence and its evidence
+    (backlog #208) -- otherwise the LLM's own inference for competence
+    stands untouched, same as every other Motivation dimension.
     """
     belief = compute_belief_system(claims, assumptions)
     relationship = compute_relationship_system(entities)
     inferred = run_inferred_pom(aggregated_content, tracker=tracker)
 
+    motivation = inferred.motivation
+    behavioral_competence = compute_behavioral_competence(events)
+    if behavioral_competence is not None:
+        level, evidence = behavioral_competence
+        motivation = motivation.model_copy(update={"competence": level, "competence_evidence": evidence})
+
     return PersonalOperatingModel(
         belief=belief, relationship=relationship,
-        identity=inferred.identity, motivation=inferred.motivation,
+        identity=inferred.identity, motivation=motivation,
         learning_style=inferred.learning_style, stress=inferred.stress,
         narrative=inferred.narrative, theory_of_mind=inferred.theory_of_mind,
     )

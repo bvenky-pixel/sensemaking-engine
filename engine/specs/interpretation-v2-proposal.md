@@ -13,11 +13,32 @@ WorldState), and WorldState has no `contradictions`/`risks` tier today --
 so an Interpretation-only version of these fields would be functionally
 inert until a real architecture question is resolved (does this need its
 own WorldState tier; how does it relate to Judgment's existing fields).
-That design pass hasn't happened; these two fields remain a discussion
-draft, not implemented, pending it. Priority 2 (Decision Events/Goal
-Updates/Entity Attribute Updates) was already implemented separately, as
-v1.1, before this round. Priority 3 (state-aware architecture) remains
-open.
+Priority 2 (Decision Events/Goal Updates/Entity Attribute Updates) was
+already implemented separately, as v1.1, before this round.
+
+**CONFIRMED by the founder (2026-07-19, backlog #239, see
+engine/decisions.md "Interpretation: contradictions/risks stay
+declined"): the deferral above still holds.** No new WorldState tier or
+downstream consumer has emerged since 2026-07-11 that would make an
+Interpretation-level `contradictions`/`risks` field anything but inert
+debug output -- Judgment's own fields (now including
+`contradiction_significance`/`risk_significance`, added 2026-07-19,
+backlog #228) continue to own this responsibility with full WorldState
+visibility Interpretation structurally lacks. These two fields remain
+un-implemented by deliberate, confirmed choice, not by default.
+
+**Priority 3 (state-aware architecture) treated as resolved by existing
+precedent, not reopened (2026-07-19, backlog #241, see
+engine/decisions.md "Interpretation: stateless-vs-state-aware treated
+as resolved by precedent")**: the one time this concretely mattered
+(2026-07-10, decision-lifecycle round 3), the founder's own real call
+was to keep Interpretation stateless and relocate state-dependent
+matching downstream (to Judgment, and since then Tier 2) rather than
+restructure Interpretation's pipeline shape. This round proposed closing
+Priority 3 on that same precedent rather than re-opening it from
+scratch, and proceeded on that basis without objection -- flagged here
+plainly, same as any other resolution this project records, so it's
+easy to revisit if the other direction was actually wanted.
 
 This document proposes the next iteration of Confidant's Interpretation Engine following evaluation of:
 

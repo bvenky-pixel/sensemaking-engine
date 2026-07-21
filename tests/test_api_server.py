@@ -562,6 +562,10 @@ def test_get_personal_operating_model_returns_last_computed_pom(client):
     res = client.get("/personal-operating-model")
     assert res.status_code == 200
     assert res.json()["identity"]["self_concept"] == "Values independence at work."
+    # computed_at (2026-07-19, backlog #271): attached from the
+    # personal_operating_model table's own column, not the (default-"")
+    # value on the stored JSON blob itself.
+    assert res.json()["computed_at"]
 
 
 def test_get_personal_operating_model_never_returns_another_accounts_pom(client):
@@ -1278,6 +1282,9 @@ def test_patterns_endpoint_reflects_last_computed_batch(client):
     body = client.get("/patterns").json()
     assert len(body) == 1
     assert body[0]["evidence_count"] == 3
+    # computed_at (2026-07-19, backlog #269): the offline run's own
+    # timestamp, now surfaced rather than silently dropped.
+    assert body[0]["computed_at"]
 
     # Truncate-and-replace per account, not append -- a second run must
     # not accumulate.
@@ -1558,7 +1565,7 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
 def test_privacy_settings_default_to_cross_session_learning_enabled(client):
     _login(client)
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": True}
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": False}
 
 
 def test_privacy_settings_requires_login(client):
@@ -1573,14 +1580,32 @@ def test_privacy_settings_requires_login(client):
 
 def test_privacy_settings_can_be_disabled_and_persist(client):
     _login(client)
-    res = client.post("/privacy/settings", json={"cross_session_learning_enabled": False})
-    assert res.json() == {"cross_session_learning_enabled": False}
+    res = client.post(
+        "/privacy/settings",
+        json={"cross_session_learning_enabled": False, "reflection_prompt_enabled": False},
+    )
+    assert res.json() == {"cross_session_learning_enabled": False, "reflection_prompt_enabled": False}
 
     # A fresh GET, not just trusting the POST's own echoed response --
     # confirms it actually persisted to the DB rather than the endpoint
     # just reflecting back whatever the request body said.
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": False}
+    assert res.json() == {"cross_session_learning_enabled": False, "reflection_prompt_enabled": False}
+
+
+def test_reflection_prompt_enabled_can_be_set_independently_and_persists(client):
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    a second, independent preference on the same row as
+    cross_session_learning_enabled."""
+    _login(client)
+    res = client.post(
+        "/privacy/settings",
+        json={"cross_session_learning_enabled": True, "reflection_prompt_enabled": True},
+    )
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": True}
+
+    res = client.get("/privacy/settings")
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": True}
 
 
 def test_privacy_settings_are_independent_per_account(client):
@@ -1596,7 +1621,7 @@ def test_privacy_settings_are_independent_per_account(client):
 
     _login(client, email="own-privacy-account@example.com")
     res = client.get("/privacy/settings")
-    assert res.json() == {"cross_session_learning_enabled": True}
+    assert res.json() == {"cross_session_learning_enabled": True, "reflection_prompt_enabled": False}
 
 
 def test_send_message_omits_retrieved_context_when_cross_session_learning_disabled(client, monkeypatch):
@@ -1692,6 +1717,128 @@ def test_privacy_reset_deletes_sessions_but_keeps_settings(client, monkeypatch):
     # resetting journal content isn't the same action as reverting a
     # setting they deliberately chose.
     assert db.get_cross_session_learning_enabled(user_id) is False
+
+
+def test_submit_journey_reflection_requires_login(client):
+    res = client.post("/sessions/nonexistent/reflection", json={"content": "Something to remember."})
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
+def test_submit_journey_reflection_requires_reflection_prompt_enabled(client):
+    """Server-side gate, not just trusting the frontend's own toggle --
+    a submission must be rejected even if the frontend somehow tried to
+    send one while the account's own preference is off (its default)."""
+    email = _login(client)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "Something to remember."})
+
+    assert res.status_code == 403
+    assert res.json()["detail"] == "reflection_prompt_disabled"
+
+
+def test_submit_journey_reflection_succeeds_when_enabled_and_persists(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "Something to remember."})
+
+    assert res.status_code == 204
+    assert db.get_reflections_for_pom(user_id) == ["Something to remember."]
+
+
+def test_submit_journey_reflection_rejects_blank_content(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/reflection", json={"content": "   "})
+
+    assert res.status_code == 422
+
+
+def test_submit_journey_reflection_404s_for_a_session_owned_by_someone_else(client):
+    _login(client, email="other-reflection-account@example.com")
+    other_session_id = client.post("/sessions").json()["id"]
+    client.post("/auth/logout")
+
+    email = _login(client, email="person@example.com")
+    user_id = db.get_or_create_user(email)
+    db.set_reflection_prompt_enabled(user_id, True)
+
+    res = client.post(f"/sessions/{other_session_id}/reflection", json={"content": "Not my Journey."})
+
+    assert res.status_code == 404
+
+
+def test_submit_pom_feedback_requires_login(client):
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "x", "feedback": "affirm"})
+    assert res.status_code == 401
+    assert res.json()["detail"] == "login_required"
+
+
+def test_submit_pom_feedback_affirm_succeeds_and_persists(client):
+    """No separate opt-in toggle to check, unlike the reflection endpoint --
+    the affordance only ever appears on POM content this account can
+    already see through the login-gated GET, so require_user alone is
+    the whole gate."""
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "identity", "statement": "Values independence at work.", "feedback": "affirm",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User confirmed this is accurate about themselves (identity): Values independence at work."
+    ]
+
+
+def test_submit_pom_feedback_correct_with_text_persists_the_clarification(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "stress", "statement": "You seem stretched thin.",
+        "feedback": "correct", "correction_text": "Actually things have calmed down a lot.",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User said this was inaccurate about themselves (stress) and clarified: "
+        "Actually things have calmed down a lot."
+    ]
+
+
+def test_submit_pom_feedback_correct_without_text_falls_back_to_the_original_statement(client):
+    email = _login(client)
+    user_id = db.get_or_create_user(email)
+
+    res = client.post("/pom/feedback", json={
+        "system": "stress", "statement": "You seem stretched thin.", "feedback": "correct",
+    })
+
+    assert res.status_code == 204
+    assert db.get_pom_feedback_for_pom(user_id) == [
+        "User said this was inaccurate about themselves (stress): You seem stretched thin."
+    ]
+
+
+def test_submit_pom_feedback_rejects_blank_statement(client):
+    _login(client)
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "   ", "feedback": "affirm"})
+    assert res.status_code == 422
+
+
+def test_submit_pom_feedback_rejects_an_invalid_feedback_value(client):
+    _login(client)
+    res = client.post("/pom/feedback", json={"system": "identity", "statement": "x", "feedback": "meh"})
+    assert res.status_code == 422
 
 
 def test_privacy_export_never_includes_another_accounts_sessions(client, monkeypatch):

@@ -3,10 +3,12 @@ Personal Operating Model -- offline computation (see src/pom/engine.py,
 engine/decisions.md "Personal Operating Model").
 
 POM made per-user (2026-07-18, see engine/decisions.md "POM made
-per-user"): reads every account's own sessions' WorldState
-(src/api/db.py::get_aggregated_knowledge_for_pom(user_id), uncapped --
-POM is a single-person, all-history profile, not a recency-capped
-sample), one account at a time, computes the two mechanical systems
+per-user"): reads each account's own sessions' WorldState
+(src/api/db.py::get_aggregated_knowledge_for_pom(user_id), capped at
+MAX_SESSIONS_FOR_POM most-recently-updated sessions since 2026-07-19,
+backlog #272, see engine/decisions.md "POM: recency cap added to
+aggregation" -- previously uncapped), one account at a time, computes
+the two mechanical systems
 plus one LLM call for the other six per account, and replaces that
 account's own `personal_operating_model` row (upsert, keyed on
 user_id -- see db.py's own schema). Every user-facing surface in this
@@ -68,13 +70,14 @@ def main() -> None:
             continue
 
         claims, assumptions, entities, aggregated_content = db.get_aggregated_knowledge_for_pom(user_id)
+        events = db.get_events_for_user(user_id)
         print(
             f"\n=== {user_id} ==="
             f"\nAggregated {len(claims)} claim(s), {len(assumptions)} assumption(s), "
-            f"{len(entities)} entit(y/ies) across this account's sessions."
+            f"{len(entities)} entit(y/ies), {len(events)} behavioral event(s) across this account's sessions."
         )
 
-        pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content)
+        pom = compute_personal_operating_model(claims, assumptions, entities, aggregated_content, events)
         db.replace_personal_operating_model(user_id, pom)
 
         print("Belief:")

@@ -15,9 +15,9 @@ actually exposes to a real client -- `SendMessageResponse` mirrors what
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.orchestrator.modes import CounselingMode
 from src.orchestrator.schema import FailedStage
@@ -198,25 +198,33 @@ class UnderstandingResponse(BaseModel):
 class LearnedPatternOut(BaseModel):
     """One row from GET /patterns (see engine/specs/architecture-roadmap-v1.md
     Phase 1, src/learning/engine.py::Pattern) -- Learning's own,
-    offline-computed, evidence-counted output. Deliberately NOT rendered
-    anywhere in the frontend yet: interaction-model-v4.md requires
-    "something noticed across Journeys" to read as a felt moment, never
-    a dashboard list, and its exact form is its own, not-yet-done design
-    pass (see frontend/decisions.md). This schema exists so the data
-    contract is ready whenever that design lands."""
+    offline-computed, evidence-counted output. IS rendered in the
+    frontend (Settings' "Patterns" card, backlog #214, see
+    frontend/app/src/components/BehavioralPatterns.svelte) -- the
+    docstring here previously (and inaccurately, see backlog #270)
+    called this "not yet rendered," a claim #214 made stale without the
+    docstring ever being updated to match.
+
+    `computed_at` (added 2026-07-19, backlog #269, see engine/decisions.md
+    "Learning/POM: surface computed_at staleness signal"): the offline
+    computation's own timestamp, already stored in `learned_patterns`
+    since this table was first created but never selected/returned
+    until now -- lets the frontend show when this was last computed
+    rather than presenting it as always-current."""
 
     pattern_type: str
     detail: str
     evidence_count: int
+    computed_at: str
 
 
 class InsightOut(BaseModel):
     """One row from GET /insights (see src/insight/engine.py::Insight,
     engine/decisions.md "Major update") -- the Insight Engine's own,
-    offline-computed, cross-session output. Unlike LearnedPatternOut,
-    this IS rendered in the frontend (Home.svelte, per an explicit
-    product decision to show real theme text on each evidencing
-    session's card) -- see src/api/db.py::list_sessions."""
+    offline-computed, cross-session output. Also rendered in the
+    frontend, same as LearnedPatternOut now is (Home.svelte, per an
+    explicit product decision to show real theme text on each
+    evidencing session's card) -- see src/api/db.py::list_sessions."""
 
     theme: str
     detail: str
@@ -225,15 +233,56 @@ class InsightOut(BaseModel):
 
 class PrivacySettingsOut(BaseModel):
     """Privacy, made real (2026-07-18, see frontend/decisions.md) --
-    GET/POST /privacy/settings. One field today
-    (`cross_session_learning_enabled`); see src/api/db.py's
-    `privacy_settings` table docstring for exactly what it gates."""
+    GET/POST /privacy/settings. See src/api/db.py's `privacy_settings`
+    table docstring for exactly what each field gates.
+    `reflection_prompt_enabled` added 2026-07-19, backlog #207."""
 
     cross_session_learning_enabled: bool
+    reflection_prompt_enabled: bool
 
 
 class SetPrivacySettingsRequest(BaseModel):
     cross_session_learning_enabled: bool
+    reflection_prompt_enabled: bool
+
+
+class SubmitJourneyReflectionRequest(BaseModel):
+    """POST /sessions/{id}/reflection body -- backlog #207."""
+
+    content: str
+
+    @field_validator("content", mode="after")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
+
+
+class SubmitPomFeedbackRequest(BaseModel):
+    """POST /pom/feedback body -- backlog #209. `system`/`statement` are
+    the section label and rendered text the person reacted to (e.g.
+    system="stress", statement="You've been under a lot of pressure
+    lately."); `correction_text` is optional even when feedback is
+    "correct" -- a bare thumbs-down with no explanation is still a
+    valid, "light" reaction."""
+
+    system: str
+    statement: str
+    feedback: Literal["affirm", "correct"]
+    correction_text: Optional[str] = None
+
+    @field_validator("system", "statement", mode="after")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return value
+
+    @field_validator("correction_text", mode="after")
+    @classmethod
+    def _blank_to_none(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value and value.strip() else None
 
 
 class RequestMagicLinkRequest(BaseModel):

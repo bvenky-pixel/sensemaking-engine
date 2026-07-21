@@ -17,11 +17,26 @@ Explicit scope decisions made before implementation:
   MIN_EVIDENCE_SESSIONS is dropped entirely. The model's own ids are
   never trusted uncritically -- a hallucinated or duplicated id must not
   let a genuinely under-evidenced theme slip through.
+
+Insight-triggered conversational callback (2026-07-19, backlog #210,
+see engine/decisions.md): `select_relevant_insight` below is the one
+piece of this module that runs LIVE, inside a turn (called from
+src/response/engine.py::run_response_generator) -- everything else here
+stays offline-only. Deliberately mechanical, not a second LLM call:
+same "grounded word-overlap over invented ML" discipline as
+src/pom/engine.py's own _is_evidence_grounded, chosen over genuine
+semantic/embedding matching per the founder's own explicit direction
+(confirmed over the "most-recently-computed insight" alternative,
+despite Retrieval/Need State Inference elsewhere in this codebase both
+being deliberately "label-only, not filtering" by prior design choice --
+this is a narrower, single-purpose selection, not a general relevance-
+filtering system).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import List, Optional, Tuple
 
 from pydantic import ValidationError
@@ -30,8 +45,56 @@ from src.instrumentation.usage import AttemptRecord, UsageTracker, default_track
 from src.insight.prompt import build_messages
 from src.insight.schema import MIN_EVIDENCE_SESSIONS, Insight, InsightBatch
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
+from src.state.world_state import WorldState
 
 TEMPERATURE = 0.15  # low: this is assessment/classification, not creative generation
+
+_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _words(text: str) -> set:
+    return set(_WORD_RE.findall(text.lower()))
+
+
+def _render_state_content(state: WorldState) -> str:
+    """Plain text blob of what THIS Journey has actually said so far,
+    for mechanical word-overlap matching only (see
+    select_relevant_insight) -- not a user-facing rendering. Duplicated
+    rendering, same category as src/pom/engine.py's own
+    _render_entity_text: small, per-package rendering helpers are
+    deliberately duplicated across engine packages in this codebase
+    rather than imported."""
+    parts = [f.content for f in state.facts]
+    parts += [c.content for c in state.claims]
+    parts += [g.content for g in state.goals]
+    parts += [d.content for d in state.decisions]
+    parts += [e.name for e in state.entities]
+    return " ".join(parts)
+
+
+def select_relevant_insight(insights: List[Insight], state: WorldState) -> Optional[Insight]:
+    """Insight-triggered conversational callback (2026-07-19, backlog
+    #210) -- scores each Insight's theme+detail against what THIS
+    Journey has actually said so far (this turn's own WorldState) by
+    shared-word overlap, and returns the single highest-scoring one.
+    Returns None when there's nothing to select from, or when every
+    insight has zero real word overlap with this conversation -- a
+    callback referencing something with no genuine connection to what's
+    being discussed would read as a non sequitur, worse than saying
+    nothing. Ties broken by list order (whichever insight comes first in
+    `insights`, itself already ordered by src.api.db.get_insights) --
+    never re-sorted or randomized."""
+    if not insights:
+        return None
+    content_words = _words(_render_state_content(state))
+    if not content_words:
+        return None
+    scored = [
+        (insight, len(_words(f"{insight.theme} {insight.detail}") & content_words))
+        for insight in insights
+    ]
+    best_insight, best_score = max(scored, key=lambda pair: pair[1])
+    return best_insight if best_score > 0 else None
 
 
 class InsightEngineError(Exception):

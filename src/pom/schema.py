@@ -5,17 +5,17 @@ Operating Model"). Of the vision's nine POM systems, one (Behavioral
 Pattern System) already shipped as Layer 2 Learning
 (src/learning/engine.py). This module covers the other eight.
 
-**Explicit caveat, stated up front**: the founder's original vision
-documents (`Confidant_Personal_Operation_Model.docx` and friends) are
-not present in this repository -- they were shared earlier in this
+**Formulation confirmed by the founder (2026-07-19, backlog #291,
+see engine/decisions.md)**: the founder's original vision documents
+(`Confidant_Personal_Operation_Model.docx` and friends) were never
+committed to this repository -- they were shared earlier in this
 project's history as uploaded context, not committed files. The exact
-operationalization of Motivation/Narrative below therefore uses the
-STANDARD, textbook versions of the two named frameworks (Self-
-Determination Theory's autonomy/competence/relatedness; Narrative
-Identity Theory's redemption/contamination sequences), not necessarily
-the founder's own specific formulation. Flagged here, and in
-engine/decisions.md, for the founder to verify/correct against the
-actual source document.
+operationalization of Motivation/Narrative below uses the STANDARD,
+textbook versions of the two named frameworks (Self-Determination
+Theory's autonomy/competence/relatedness; Narrative Identity Theory's
+redemption/contamination sequences). Asked the founder directly whether
+this matches their original intent for these two systems -- confirmed
+yes, no changes needed.
 
 The user explicitly chose to build all eight systems now, overriding
 this project's own default caution (recommended scoping to just Belief
@@ -57,6 +57,22 @@ from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
+# Caps how many of this account's own sessions feed POM's aggregation
+# (src/api/db.py::get_aggregated_knowledge_for_pom) -- most-recently-
+# updated sessions win. Added 2026-07-19, backlog #272: POM's aggregation
+# was uncapped (all-history) until now, on the reasoning that a standing
+# profile benefits from every session, not a recency-capped sample; the
+# founder explicitly chose to cap it instead now that POM is per-account
+# (see engine/decisions.md "POM: recency cap added to aggregation"),
+# overriding that original reasoning. Deliberately duplicated from (not
+# imported from) src/insight/schema.py's own MAX_SESSIONS_FOR_INSIGHT,
+# same "small constants duplicated across engine packages" convention
+# this module's own MIN_BEHAVIORAL_EVIDENCE precedent (src/pom/engine.py)
+# already follows -- same value, but POM and Insight Engine may want to
+# tune this independently later, and nothing here couples them. Honest
+# first guess, not empirically calibrated (see backlog #292).
+MAX_SESSIONS_FOR_POM = 30
+
 # --- Mechanical systems (no LLM call) ---
 
 
@@ -88,8 +104,9 @@ class IdentitySystem(BaseModel):
 
 class MotivationSystem(BaseModel):
     """Self-Determination Theory's three core dimensions (Deci & Ryan) --
-    see this module's own caveat above: this is the standard textbook
-    formulation, not necessarily the founder's own operationalization."""
+    the standard textbook formulation, confirmed by the founder as
+    matching their intent (see this module's own docstring above,
+    backlog #291)."""
 
     autonomy: ConfidenceLevel = "unclear"
     autonomy_evidence: List[str] = Field(default_factory=list)
@@ -114,7 +131,7 @@ NarrativeArc = Literal["redemptive", "contamination", "stable", "unclear"]
 
 class NarrativeSystem(BaseModel):
     """Narrative Identity Theory's two classic sequence types (McAdams) --
-    same textbook-not-founder's-own-spec caveat as MotivationSystem."""
+    same founder-confirmed formulation as MotivationSystem (backlog #291)."""
 
     arc: NarrativeArc = "unclear"
     summary: str = ""
@@ -147,7 +164,21 @@ class InferredPOMBatch(BaseModel):
 class PersonalOperatingModel(BaseModel):
     """The full, eight-system POM -- mechanical systems computed in
     Python, the other six from one LLM call (InferredPOMBatch), combined
-    here into one object. See src/pom/engine.py::compute_personal_operating_model."""
+    here into one object. See src/pom/engine.py::compute_personal_operating_model.
+
+    `computed_at` (added 2026-07-19, backlog #271, see engine/decisions.md
+    "Learning/POM: surface computed_at staleness signal"): defaults to
+    "" -- src/pom/engine.py never sets this itself (same as every other
+    field here, it has no notion of when it's being persisted); the real
+    timestamp is stored in the `personal_operating_model` table's own
+    `computed_at` column (already written by
+    src/api/db.py::replace_personal_operating_model on every offline
+    computation) and attached back onto this model by
+    src/api/db.py::get_personal_operating_model after parsing the stored
+    JSON blob, so the frontend can show when this was last computed
+    rather than presenting it as always-current. Defaulted rather than
+    required so no existing construction site (tests, engine code) needs
+    to change, same precedent as Judgment v3's four new fields."""
 
     belief: BeliefSystem = Field(default_factory=BeliefSystem)
     relationship: RelationshipSystem = Field(default_factory=RelationshipSystem)
@@ -157,3 +188,4 @@ class PersonalOperatingModel(BaseModel):
     stress: StressSystem = Field(default_factory=StressSystem)
     narrative: NarrativeSystem = Field(default_factory=NarrativeSystem)
     theory_of_mind: TheoryOfMindSystem = Field(default_factory=TheoryOfMindSystem)
+    computed_at: str = ""

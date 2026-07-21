@@ -8,6 +8,7 @@ import * as api from '../lib/api.js';
 // component test's own boundary.
 vi.mock('../lib/api.js', () => ({
   getPersonalOperatingModel: vi.fn(),
+  submitPomFeedback: vi.fn(),
 }));
 
 const EMPTY_POM = {
@@ -26,6 +27,7 @@ const EMPTY_POM = {
 };
 
 const POPULATED_POM = {
+  computed_at: '2026-07-19T00:00:00',
   belief: { beliefs: ['Believes hard work should be rewarded with recognition.'] },
   relationship: { relationships: ['Manager -- role is manager; has final say on transfers.'] },
   identity: { self_concept: 'Sees themselves as someone who values independence at work.', evidence: ['said so directly'] },
@@ -101,6 +103,33 @@ describe('PersonalOperatingModel', () => {
     expect(queryByText(/moderate/i)).toBeNull();
     expect(queryByText(/unclear/i)).toBeNull();
     expect(queryByText(/redemptive/i)).toBeNull();
+  });
+
+  it('shows when this was last computed (backlog #271, computed_at staleness signal)', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue(POPULATED_POM);
+    const { findByText } = render(PersonalOperatingModel);
+
+    expect(await findByText(/Last updated/)).toBeTruthy();
+  });
+
+  it('omits the last-updated line when computed_at is empty (e.g. a stale fixture)', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue({ ...POPULATED_POM, computed_at: '' });
+    const { queryByText, getByText } = render(PersonalOperatingModel);
+
+    await waitFor(() => getByText("What you've told me you believe"));
+    expect(queryByText(/Last updated/)).toBeNull();
+  });
+
+  it('renders the affirm/correct affordance next to every populated statement', async () => {
+    api.getPersonalOperatingModel.mockResolvedValue(POPULATED_POM);
+    const { getByText, getAllByText } = render(PersonalOperatingModel);
+
+    await waitFor(() => getByText("What you've told me you believe"));
+    // One "Sounds right"/"Not quite" pair per rendered statement (belief,
+    // relationship, identity, autonomy, relatedness, learning_style,
+    // stress, narrative, theory_of_mind = 9 statements in POPULATED_POM).
+    expect(getAllByText('Sounds right').length).toBe(9);
+    expect(getAllByText('Not quite').length).toBe(9);
   });
 
   it('omits a system entirely when it has nothing grounded, even if others are populated', async () => {

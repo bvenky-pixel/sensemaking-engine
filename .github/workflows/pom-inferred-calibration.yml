@@ -1,0 +1,42 @@
+name: POM inferred-systems calibration
+
+# Manual only -- each run makes 6 real, billable calls (one per scenario
+# in scripts/run_pom_inferred_calibration.py) to the configured LLM
+# provider. See that script's module docstring for why this exists: the
+# six LLM-inferred POM systems (Identity, Motivation, Learning Style,
+# Stress, Narrative, Theory of Mind) shipped as a fully tested MECHANISM
+# (one call, one schema, engine-level grounding enforcement) with zero
+# live data on whether the actual inference prompt produces genuinely
+# useful, well-grounded assessments, or defaults to "unclear" even when
+# a real signal is present (backlog #292).
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  calibration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run POM inferred-systems calibration
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_pom_inferred_calibration.py

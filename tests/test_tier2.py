@@ -140,18 +140,43 @@ def test_signature_is_deterministic_for_the_same_pool():
     )
 
 
-def test_signature_changes_when_a_new_candidate_is_added():
+def test_signature_changes_when_a_new_thread_candidate_is_added():
     """The core Tier 2 design fix (see engine/decisions.md "Tier 2
-    design" Q1): a NEW item arriving must change the signature, not
-    just a change to an already-cited item."""
+    design" Q1, narrowed 2026-07-19 by backlog #295): a NEW thread-kind
+    item (goal/decision/uncertainty) arriving must change the signature,
+    not just a change to an already-cited item."""
+    state = WorldState(turn_count=1)
+    state.goals.append(Goal(content="A goal.", status="active", provenance=Provenance(source="interpretation", first_seen=1, last_updated=1)))
+    sig_before = compute_tier2_grounding_signature(select_tier2_candidates(state), state)
+
+    state.goals.append(Goal(content="A second, new goal.", status="active", provenance=Provenance(source="interpretation", first_seen=1, last_updated=1)))
+    sig_after = compute_tier2_grounding_signature(select_tier2_candidates(state), state)
+
+    assert sig_before != sig_after
+
+
+def test_signature_is_unaffected_by_a_new_detail_candidate():
+    """Backlog #295 (2026-07-19, see engine/decisions.md "Understanding:
+    Tier 2 recompute gated to thread-item status changes only"): a live
+    walkthrough found the ORIGINAL full-pool signature fired on nearly
+    every turn because ordinary fact/claim/entity accumulation changed
+    the hash just as much as a real thread transition -- detail kinds
+    are now excluded from the signature entirely, so a new fact must
+    NOT change it, even though it's still a real, included candidate
+    (see select_tier2_candidates, unaffected by this narrowing)."""
     state = WorldState(turn_count=1)
     state.facts.append(Fact(content="A fact.", provenance=Provenance(source="interpretation", first_seen=1, last_updated=1)))
     sig_before = compute_tier2_grounding_signature(select_tier2_candidates(state), state)
 
     state.facts.append(Fact(content="A second, new fact.", provenance=Provenance(source="interpretation", first_seen=1, last_updated=1)))
-    sig_after = compute_tier2_grounding_signature(select_tier2_candidates(state), state)
+    candidates_after = select_tier2_candidates(state)
+    sig_after = compute_tier2_grounding_signature(candidates_after, state)
 
-    assert sig_before != sig_after
+    assert sig_before == sig_after
+    # The new fact is still a real candidate Tier 2 would see once a
+    # recompute is triggered by something else -- it's just not what
+    # triggers the recompute itself.
+    assert len(candidates_after) == 2
 
 
 def test_signature_changes_when_a_pooled_items_status_changes_with_text_unchanged():

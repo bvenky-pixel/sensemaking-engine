@@ -11,16 +11,17 @@ WorldState's own now-id-bearing Fact/Claim/Goal/Decision objects rather
 than re-synthesized by an LLM call each time.
 
 Two tiers, by design (see src/understanding/schema.py):
-- Tier 1 (this round): a pure, deterministic template over WorldState's
-  raw knowledge items -- zero LLM calls, same discipline as
-  src/executor/engine.py::build_clarity_brief.
-- Tier 2 (deferred -- see the plan file this round shipped from and its
-  own "Deferred design -- Tier 2" section): LLM-synthesized statements
-  (declarative uncertainty, values-level inference) that need real
-  synthesis beyond raw content. The schema already accommodates it
-  (UnderstandingState.tier2, tier2_grounding_signature) so adding it
-  later needs no further schema migration -- tier2 simply stays empty
-  until that round ships.
+- Tier 1: a pure, deterministic template over WorldState's raw
+  knowledge items -- zero LLM calls, same discipline as
+  src/executor/engine.py::build_clarity_brief. See
+  src/understanding/engine.py.
+- Tier 2 (shipped -- see engine/decisions.md "Tier 2 design" and
+  engine/specs/understanding-specification-v1.md): LLM-synthesized
+  statements that connect multiple Tier 1 candidates into a genuine
+  synthesis none of them says alone. Conditional (most turns skip the
+  LLM call -- see should_recompute_tier2) and non-blocking (any
+  failure leaves WorldState unchanged rather than aborting the turn).
+  See src/understanding/tier2_engine.py.
 """
 
 from __future__ import annotations

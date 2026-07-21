@@ -28,6 +28,8 @@ vi.mock('../lib/api.js', async (importOriginal) => {
     deleteSession: vi.fn(),
     getBookmark: vi.fn(),
     setBookmark: vi.fn(),
+    getPrivacySettings: vi.fn(),
+    submitJourneyReflection: vi.fn(),
     ApiError: actual.ApiError,
     getAuthStatus: vi.fn(),
     requestMagicLink: vi.fn(),
@@ -43,6 +45,10 @@ describe('Journey overflow menu', () => {
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
     api.openStageStream.mockReturnValue(vi.fn());
     // Bookmark/delete require login (2026-07-18, see
     // frontend/decisions.md) -- every test below exercises the
@@ -154,12 +160,122 @@ describe('Journey overflow menu', () => {
   });
 });
 
+// Journey-close reflection question (2026-07-19, backlog #207) -- opt-in
+// via Settings, shown at the "winds down" moment instead of navigating
+// home immediately, once a Journey with real content is left.
+describe('Journey-close reflection question', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getMessages.mockResolvedValue([{ role: 'user', content: 'I want to move teams.', created_at: '' }]);
+    api.openStageStream.mockReturnValue(vi.fn());
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+  });
+
+  it('does not show the prompt when reflection_prompt_enabled is off', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    const onBack = vi.fn();
+    const { getByText, queryByText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    await waitFor(() => getByText('I want to move teams.'));
+    await fireEvent.click(getByText('← Home'));
+
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+    expect(queryByText('Before you go -- anything about this conversation you\'d want to remember or reflect on?')).toBeNull();
+  });
+
+  it('shows the prompt and does not navigate home until skipped', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: true,
+    });
+    const onBack = vi.fn();
+    const { getByText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    await waitFor(() => getByText('I want to move teams.'));
+    await waitFor(() => expect(api.getPrivacySettings).toHaveBeenCalled());
+    await fireEvent.click(getByText('← Home'));
+
+    await waitFor(() => {
+      expect(getByText('Before you go -- anything about this conversation you\'d want to remember or reflect on?')).toBeTruthy();
+    });
+    expect(onBack).not.toHaveBeenCalled();
+
+    await fireEvent.click(getByText('Skip'));
+
+    expect(onBack).toHaveBeenCalled();
+    expect(api.submitJourneyReflection).not.toHaveBeenCalled();
+  });
+
+  it('submits the reflection and navigates home', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: true,
+    });
+    api.submitJourneyReflection.mockResolvedValue(undefined);
+    const onBack = vi.fn();
+    const { getByText, getByPlaceholderText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    await waitFor(() => getByText('I want to move teams.'));
+    // onMount fetches privacy settings AFTER messages/bookmark resolve --
+    // wait for that specific call, not just the earlier message render,
+    // or handleBack can run against reflectionPromptEnabled's still-false
+    // default and skip the prompt entirely.
+    await waitFor(() => expect(api.getPrivacySettings).toHaveBeenCalled());
+    await fireEvent.click(getByText('← Home'));
+
+    const textarea = await waitFor(() => getByPlaceholderText('Optional -- write as much or as little as you\'d like.'));
+    await fireEvent.input(textarea, { target: { value: 'This was a hard conversation to have.' } });
+    await fireEvent.click(getByText('Share and leave'));
+
+    await waitFor(() => {
+      expect(api.submitJourneyReflection).toHaveBeenCalledWith('s1', 'This was a hard conversation to have.');
+      expect(onBack).toHaveBeenCalled();
+    });
+  });
+
+  it('still navigates home if the reflection submission fails', async () => {
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: true,
+    });
+    api.submitJourneyReflection.mockRejectedValue(new Error('network error'));
+    const onBack = vi.fn();
+    const { getByText, getByPlaceholderText } = render(Journey, { props: { sessionId: 's1', onBack } });
+
+    await waitFor(() => getByText('I want to move teams.'));
+    // onMount fetches privacy settings AFTER messages/bookmark resolve --
+    // wait for that specific call, not just the earlier message render,
+    // or handleBack can run against reflectionPromptEnabled's still-false
+    // default and skip the prompt entirely.
+    await waitFor(() => expect(api.getPrivacySettings).toHaveBeenCalled());
+    await fireEvent.click(getByText('← Home'));
+
+    const textarea = await waitFor(() => getByPlaceholderText('Optional -- write as much or as little as you\'d like.'));
+    await fireEvent.input(textarea, { target: { value: 'Anything.' } });
+    await fireEvent.click(getByText('Share and leave'));
+
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+  });
+});
+
 describe('Journey: only populated after a real message is shared', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
   });
 
   it('deletes an empty Journey when backing out without sending anything', async () => {
@@ -206,6 +322,10 @@ describe('Journey: response limit reached', () => {
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
     api.openStageStream.mockReturnValue(vi.fn());
   });
 
@@ -261,6 +381,10 @@ describe('Journey overflow menu: signed out', () => {
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
     api.openStageStream.mockReturnValue(vi.fn());
     authState.checked = true;
     authState.authenticated = false;
@@ -317,6 +441,10 @@ describe('Journey proximity login nudge', () => {
     api.getClarityBrief.mockResolvedValue(null);
     api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
     api.openStageStream.mockReturnValue(vi.fn());
   });
 

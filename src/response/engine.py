@@ -29,6 +29,8 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
+from src.insight.engine import select_relevant_insight
+from src.insight.schema import Insight
 from src.instrumentation.usage import AttemptRecord, UsageTracker, default_tracker
 from src.judgment.schema import Judgment
 from src.llm.providers import ProviderCallError, call_provider, resolve_provider_chain
@@ -57,6 +59,7 @@ def run_response_generator(
     tracker: Optional[UsageTracker] = None,
     mode: Optional[str] = None,
     pom: Optional[PersonalOperatingModel] = None,
+    insights: Optional[List[Insight]] = None,
 ) -> Response:
     """
     Calls an LLM to produce a Response from the given WorldState, Judgment,
@@ -90,13 +93,26 @@ def run_response_generator(
     Vent/Strategize/Commit/Explore's POM-seeding clause should fire this
     turn (see src/orchestrator/modes.py::_should_seed_pom); every other
     mode ignores it.
+
+    insights: this account's own computed Insights (2026-07-19, backlog
+    #210, see engine/decisions.md "POM: Insight-triggered conversational
+    callback"), or None/empty for an anonymous caller or an account with
+    none computed yet. Resolved to a single relevant-or-None Insight via
+    src.insight.engine.select_relevant_insight (mechanical word-overlap
+    against THIS turn's own `state`, not an LLM call), then handed to
+    response_mode_focus_note, which only ever surfaces it on turn_count
+    == 1 (the first turn of a brand-new Journey).
     """
     world_state_json = state.model_dump_json(indent=2, exclude=PROMPT_EXCLUDED_FIELDS)
     judgment_json = judgment.model_dump_json(indent=2)
     planner_json = planner.model_dump_json(indent=2)
+    # Only ever matters on turn 1 (see response_mode_focus_note's own
+    # turn_count == 1 gate) -- skip the word-overlap scan entirely on
+    # every later turn of a Journey rather than redoing pointless work.
+    relevant_insight = select_relevant_insight(insights or [], state) if state.turn_count == 1 else None
     system_prompt, messages = build_messages(
         world_state_json, judgment_json, planner_json,
-        response_mode_focus_note(mode, state.turn_count, pom),
+        response_mode_focus_note(mode, state.turn_count, pom, relevant_insight),
     )
     schema = Response.model_json_schema()
     tracker = tracker or default_tracker

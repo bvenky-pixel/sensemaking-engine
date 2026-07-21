@@ -88,6 +88,28 @@ One more table, added for Privacy, made real (see frontend/decisions.md):
   per-account on both sides rather than one global switch every
   account shared.
 
+  **Second column added 2026-07-19** (backlog #207, see
+  engine/decisions.md): `reflection_prompt_enabled` -- opt-IN (defaults
+  `False`, unlike `cross_session_learning_enabled`'s opt-out default),
+  gates whether Journey.svelte shows its Journey-close reflection
+  prompt. A sibling `journey_reflections` table (`session_id`,
+  `user_id`, `content`, `created_at`) holds the actual submitted
+  answers -- read by `get_reflections_for_pom`, folded into
+  `get_aggregated_knowledge_for_pom`'s own aggregated_content as its own
+  labeled line.
+
+One more table, added for the light affirm/correct affordance on POM's
+"You" section (2026-07-19, backlog #209, see engine/decisions.md):
+`pom_field_feedback` (`user_id`, `system`, `statement`, `feedback` --
+`'affirm'`/`'correct'` -- `correction_text`, `created_at`). No opt-in
+toggle of its own: the affordance only ever appears on POM content
+already gated behind login, same as the GET /personal-operating-model
+endpoint it lives alongside. Read by `get_pom_feedback_for_pom`, folded
+into `get_aggregated_knowledge_for_pom`'s aggregated_content as its own
+labeled lines -- same "feed it as evidence text, let the next inference
+weigh it" treatment `journey_reflections` gets, confirmed with the
+founder over a hard-pin/override alternative (see decisions.md).
+
 Three more tables, added for basic auth (2026-07-18, see
 frontend/decisions.md "Auth, the low-friction way" and engine/decisions.md):
 this is the "revisit if/when multi-user support exists" moment the
@@ -176,7 +198,7 @@ from src.instrumentation.usage import AttemptRecord, LLMUsage
 from src.judgment.engine import compute_stagnation_signals
 from src.learning.engine import Pattern
 from src.orchestrator.schema import TurnResult
-from src.pom.schema import PersonalOperatingModel
+from src.pom.schema import MAX_SESSIONS_FOR_POM, PersonalOperatingModel
 from src.state.world_state import Entity, WorldState
 
 # Deployment (see .github/workflows/deploy.yml, fly.toml) mounts a
@@ -259,6 +281,28 @@ CREATE TABLE IF NOT EXISTS personal_operating_model (
 CREATE TABLE IF NOT EXISTS privacy_settings (
     user_id TEXT PRIMARY KEY,
     cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1,
+    reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS journey_reflections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS pom_field_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    system TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    feedback TEXT NOT NULL CHECK (feedback IN ('affirm', 'correct')),
+    correction_text TEXT,
+    created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -416,8 +460,19 @@ def init_db(db_path: Optional[Path] = None) -> None:
             conn.execute(
                 "CREATE TABLE privacy_settings ("
                 "user_id TEXT PRIMARY KEY, cross_session_learning_enabled INTEGER NOT NULL DEFAULT 1, "
+                "reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0, "
                 "FOREIGN KEY (user_id) REFERENCES users(id))"
             )
+        # Journey-close reflection question (2026-07-19, backlog #207,
+        # see engine/decisions.md) -- purely additive (a per-account row
+        # already exists post-migration above, or doesn't exist yet
+        # either way), same "try ALTER TABLE, ignore if the column
+        # already exists" pattern as magic_links.return_session_id above
+        # -- no data to migrate, just a new column with a real default.
+        try:
+            conn.execute("ALTER TABLE privacy_settings ADD COLUMN reflection_prompt_enabled INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         # POM made per-user (2026-07-18, basic auth follow-up, see
         # engine/decisions.md "POM made per-user") -- `personal_operating_model`
         # was a genuine "id INTEGER PRIMARY KEY CHECK (id = 1)" global
@@ -1051,14 +1106,23 @@ def get_learned_patterns(user_id: str) -> List[LearnedPatternOut]:
     "Learning made per-account") -- returns None-equivalent empty list
     until scripts/run_learning.py has computed THIS account's own
     patterns at least once; never another account's, same "POM made
-    per-user" precedent."""
+    per-user" precedent.
+
+    `computed_at` (added 2026-07-19, backlog #269): `learned_patterns`
+    has stored this on every row since the table was first created (see
+    replace_learned_patterns above), but it was never selected/returned
+    until now -- lets the frontend show when Learning was last computed
+    rather than presenting it as always-current."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT pattern_type, detail, evidence_count FROM learned_patterns "
+            "SELECT pattern_type, detail, evidence_count, computed_at FROM learned_patterns "
             "WHERE user_id = ? ORDER BY id ASC",
             (user_id,),
         ).fetchall()
-    return [LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2]) for r in rows]
+    return [
+        LearnedPatternOut(pattern_type=r[0], detail=r[1], evidence_count=r[2], computed_at=r[3])
+        for r in rows
+    ]
 
 
 def get_session_texts_for_insights(user_id: str) -> List[Tuple[str, str, str]]:
@@ -1078,12 +1142,47 @@ def get_session_texts_for_insights(user_id: str) -> List[Tuple[str, str, str]]:
     surface_complaint/primary_problem pair from). Capped at
     MAX_SESSIONS_FOR_INSIGHT most-recently-updated sessions -- now a
     genuine per-account recency cap, same cost/latency reasoning as
-    src/insight/schema.py's docstring."""
+    src/insight/schema.py's docstring.
+
+    Also always includes any session that's currently evidence for one
+    of this account's existing Insights, even if it's aged out of that
+    recency window (2026-07-19, backlog #293, see engine/decisions.md
+    "Insight Engine: keep re-offering existing evidence sessions across
+    runs"). Without this, an Insight's evidence session silently
+    rotating out of the top-N window meant the NEXT run's single LLM
+    call never even saw it again -- replace_insights would then
+    truncate-and-replace with whatever that run found, deleting a still-
+    true Insight for no reason connected to the person's actual
+    situation, just recency-window churn. This doesn't merge or dedupe
+    themes across runs (that remains backlog #293's own still-open,
+    deeper question) -- it only ensures the SAME single LLM call this
+    run still gets a chance to see and re-cite evidence it relied on
+    last time, using the existing, unmodified grounding logic
+    (_enforce_grounding in src/insight/engine.py) to decide fresh each
+    run whether the theme still holds."""
     with _connect() as conn:
+        recent_ids = [
+            row[0] for row in conn.execute(
+                "SELECT id FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (user_id, MAX_SESSIONS_FOR_INSIGHT),
+            ).fetchall()
+        ]
+        evidence_ids = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT insight_sessions.session_id FROM insight_sessions "
+                "JOIN insights ON insights.id = insight_sessions.insight_id "
+                "WHERE insights.user_id = ?",
+                (user_id,),
+            ).fetchall()
+        ]
+        candidate_ids = list(dict.fromkeys(recent_ids + evidence_ids))
+        if not candidate_ids:
+            return []
+        placeholders = ",".join("?" * len(candidate_ids))
         rows = conn.execute(
-            "SELECT id, world_state_json, debug_json FROM sessions "
-            "WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
-            (user_id, MAX_SESSIONS_FOR_INSIGHT),
+            f"SELECT id, world_state_json, debug_json FROM sessions "
+            f"WHERE user_id = ? AND id IN ({placeholders}) ORDER BY updated_at DESC",
+            (user_id, *candidate_ids),
         ).fetchall()
     texts: List[Tuple[str, str, str]] = []
     for session_id, world_state_json, debug_json in rows:
@@ -1154,10 +1253,7 @@ def get_insights(user_id: str) -> List[InsightOut]:
 def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str], List[Entity], str]:
     """
     POM made per-user (2026-07-18, see engine/decisions.md "POM made
-    per-user") -- reads every session OWNED BY THIS ACCOUNT (uncapped
-    within that scope, same as get_all_sessions_raw's own "POM is an
-    all-history model, not a recency-capped sample" reasoning, just no
-    longer all-history across every account). An anonymous-owned
+    per-user") -- reads sessions OWNED BY THIS ACCOUNT. An anonymous-owned
     session (never claimed via login) is correctly excluded -- POM only
     ever reflects a real, standing account's own claimed history, never
     a browser that hasn't signed up. Aggregates into what
@@ -1168,13 +1264,28 @@ def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str]
     decisions, entities, emotional signals) for the one LLM call that
     infers the other six systems.
 
+    Capped at MAX_SESSIONS_FOR_POM most-recently-updated sessions
+    (added 2026-07-19, backlog #272, see engine/decisions.md "POM:
+    recency cap added to aggregation") -- this used to be genuinely
+    uncapped within the per-account scope (POM treated as an
+    all-history model, same reasoning get_all_sessions_raw's docstring
+    above still records for its own, different, migration-only use
+    case), on the theory that a standing profile benefits from every
+    session. The founder explicitly chose to cap it instead, now that
+    POM is per-account, mirroring get_session_texts_for_insights' own
+    MAX_SESSIONS_FOR_INSIGHT-style cap and its cost/latency reasoning --
+    an account with a very long history no longer sends unbounded
+    session text through the one POM LLM call.
+
     Read-only, used only by scripts/run_pom_computation.py -- this
     module has no opinion on POM itself, same separation as
     get_session_texts_for_insights above.
     """
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT world_state_json FROM sessions WHERE user_id = ?", (user_id,)
+            "SELECT world_state_json FROM sessions WHERE user_id = ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (user_id, MAX_SESSIONS_FOR_POM),
         ).fetchall()
 
     claims: List[str] = []
@@ -1198,6 +1309,22 @@ def get_aggregated_knowledge_for_pom(user_id: str) -> Tuple[List[str], List[str]
             lines.append(f"Entity: {entity.name}" + (f" -- {attr_text} {rel_text}".rstrip() if attr_text or rel_text else ""))
         for signal in state.emotional_signal_items:
             lines.append(f"Emotional signal: {signal.emotion} (intensity={signal.intensity}, source={signal.source})")
+
+    # Journey-close reflection question (2026-07-19, backlog #207) --
+    # this account's own free-text reflection answers, same "surface
+    # everything already known" treatment as every other content type
+    # above: appended as its own labeled line so the LLM inference can
+    # draw on it like any other WorldState content, not folded into
+    # claims/assumptions (a reflection is a direct first-person
+    # self-report, not an extracted Claim/Assumption).
+    lines += [f"Reflection: {r}" for r in get_reflections_for_pom(user_id)]
+
+    # Light affirm/correct affordance (2026-07-19, backlog #209) --
+    # this account's own reactions to previously-rendered POM
+    # statements, already rendered as full evidence sentences by
+    # get_pom_feedback_for_pom, appended verbatim (no extra label
+    # prefix needed, unlike the lines above).
+    lines += get_pom_feedback_for_pom(user_id)
 
     aggregated_content = "\n".join(lines)
     return claims, assumptions, entities, aggregated_content
@@ -1235,14 +1362,28 @@ def get_personal_operating_model(user_id: str) -> Optional[PersonalOperatingMode
     """Returns None until scripts/run_pom_computation.py has computed
     THIS account's own POM at least once -- a brand-new account
     correctly has no POM yet, not an error state, and never inherits
-    another account's (see engine/decisions.md "POM made per-user")."""
+    another account's (see engine/decisions.md "POM made per-user").
+
+    `computed_at` (added 2026-07-19, backlog #271): `personal_operating_model`
+    has stored this since the table was first created (see
+    replace_personal_operating_model above), but it was never attached
+    to the returned model until now. Unlike `learned_patterns`,
+    PersonalOperatingModel is stored/read back as one whole JSON blob
+    (see GET /personal-operating-model's own docstring in
+    src/api/server.py for why it has no separate "Out" mirror type), so
+    the real column value can't just be one more field in the SELECT --
+    it's attached after parsing, overwriting whatever
+    `PersonalOperatingModel.computed_at` default (`""`) the stored JSON
+    itself carries."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT pom_json FROM personal_operating_model WHERE user_id = ?", (user_id,)
+            "SELECT pom_json, computed_at FROM personal_operating_model WHERE user_id = ?",
+            (user_id,),
         ).fetchone()
     if row is None:
         return None
-    return PersonalOperatingModel.model_validate_json(row[0])
+    pom = PersonalOperatingModel.model_validate_json(row[0])
+    return pom.model_copy(update={"computed_at": row[1]})
 
 
 # Privacy, made real (2026-07-18, see frontend/decisions.md): the first
@@ -1279,6 +1420,106 @@ def set_cross_session_learning_enabled(user_id: str, enabled: bool) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET cross_session_learning_enabled = excluded.cross_session_learning_enabled",
             (user_id, 1 if enabled else 0),
         )
+
+
+def get_reflection_prompt_enabled(user_id: str) -> bool:
+    """Journey-close reflection question (2026-07-19, backlog #207, see
+    engine/decisions.md) -- opt-IN, unlike cross_session_learning_enabled's
+    opt-out default: defaults to False when no row exists yet for this
+    account. Being asked a reflection question at the end of every
+    Journey is an interruption a person should deliberately choose, not
+    something that's on by default the way background pattern-learning
+    is."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT reflection_prompt_enabled FROM privacy_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return bool(row[0]) if row else False
+
+
+def set_reflection_prompt_enabled(user_id: str, enabled: bool) -> None:
+    """Same upsert pattern as set_cross_session_learning_enabled."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO privacy_settings (user_id, reflection_prompt_enabled) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET reflection_prompt_enabled = excluded.reflection_prompt_enabled",
+            (user_id, 1 if enabled else 0),
+        )
+
+
+def save_journey_reflection(session_id: str, user_id: str, content: str) -> None:
+    """Journey-close reflection question (2026-07-19, backlog #207) --
+    one free-text answer per Journey-close prompt. Never gated here on
+    reflection_prompt_enabled/cross_session_learning_enabled -- the
+    caller (src/api/server.py) already checked both before accepting
+    the submission; this is a plain append, same as append_message."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO journey_reflections (session_id, user_id, content, created_at) VALUES (?, ?, ?, ?)",
+            (session_id, user_id, content, _now()),
+        )
+
+
+def get_reflections_for_pom(user_id: str) -> List[str]:
+    """Read side for get_aggregated_knowledge_for_pom below -- every
+    reflection answer THIS account has ever submitted, oldest first.
+    Not scoped by whether cross_session_learning_enabled is currently
+    True: the caller (scripts/run_pom_computation.py) already skips this
+    account's entire computation when learning is off, so a reflection
+    submitted while it was on is correctly still usable once it's back
+    on, same as every other already-extracted WorldState content."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT content FROM journey_reflections WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def save_pom_feedback(
+    user_id: str, system: str, statement: str, feedback: str, correction_text: Optional[str] = None,
+) -> None:
+    """Light affirm/correct affordance on POM's "You" section (2026-07-19,
+    backlog #209) -- one reaction to one rendered POM statement. Never
+    gated here on cross_session_learning_enabled: the caller (src/api/
+    server.py) only ever renders this affordance on already-fetched POM
+    content, so if that content is showing, feedback about it is fair to
+    accept, same "plain append, no re-gating" treatment as
+    save_journey_reflection."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO pom_field_feedback (user_id, system, statement, feedback, correction_text, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, system, statement, feedback, correction_text, _now()),
+        )
+
+
+def get_pom_feedback_for_pom(user_id: str) -> List[str]:
+    """Read side for get_aggregated_knowledge_for_pom below -- every
+    piece of affirm/correct feedback THIS account has ever given about
+    its own POM, oldest first, rendered as plain-language evidence lines
+    for the next LLM inference to weigh (2026-07-19, backlog #209,
+    confirmed with the founder over a hard-pin/override alternative --
+    see engine/decisions.md). An affirmation restates the original
+    statement as confirmed; a correction surfaces the person's own
+    clarifying text when they gave one, or just flags the original
+    statement as inaccurate when they didn't."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT system, statement, feedback, correction_text FROM pom_field_feedback "
+            "WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+    lines = []
+    for system, statement, feedback, correction_text in rows:
+        if feedback == "affirm":
+            lines.append(f"User confirmed this is accurate about themselves ({system}): {statement}")
+        elif correction_text:
+            lines.append(f"User said this was inaccurate about themselves ({system}) and clarified: {correction_text}")
+        else:
+            lines.append(f"User said this was inaccurate about themselves ({system}): {statement}")
+    return lines
 
 
 def _rows_for_session_ids(conn: sqlite3.Connection, table: str, session_ids: List[str]) -> List[dict]:
@@ -1367,6 +1608,12 @@ def export_all_data(user_id: str) -> dict:
             "SELECT * FROM privacy_settings WHERE user_id = ?", (user_id,)
         ).fetchone()
         privacy_settings_row = dict(privacy_settings_row) if privacy_settings_row else None
+        journey_reflections = [dict(row) for row in conn.execute(
+            "SELECT * FROM journey_reflections WHERE user_id = ?", (user_id,)
+        )]
+        pom_field_feedback = [dict(row) for row in conn.execute(
+            "SELECT * FROM pom_field_feedback WHERE user_id = ?", (user_id,)
+        )]
 
     for session in sessions:
         session["world_state"] = json.loads(session.pop("world_state_json"))
@@ -1388,6 +1635,8 @@ def export_all_data(user_id: str) -> dict:
         "learned_patterns": learned_patterns,
         "personal_operating_model": pom_row,
         "privacy_settings": privacy_settings_row,
+        "journey_reflections": journey_reflections,
+        "pom_field_feedback": pom_field_feedback,
     }
 
 
@@ -1438,6 +1687,15 @@ def reset_all_data(user_id: str) -> None:
         conn.execute("DELETE FROM learned_patterns WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM personal_operating_model WHERE user_id = ?", (user_id,))
+        # Journey-close reflection question (2026-07-19, backlog #207) --
+        # this account's own reflection answers ARE content, same
+        # category as sessions/messages, not a preference like
+        # privacy_settings above -- "forget everything" deletes them.
+        conn.execute("DELETE FROM journey_reflections WHERE user_id = ?", (user_id,))
+        # Light affirm/correct affordance (2026-07-19, backlog #209) --
+        # same content-not-preference treatment as journey_reflections
+        # above.
+        conn.execute("DELETE FROM pom_field_feedback WHERE user_id = ?", (user_id,))
 
 
 def record_llm_usage(session_id: Optional[str], usage: LLMUsage) -> None:
