@@ -11925,3 +11925,45 @@ live-verified in a real browser against a running backend -- this is a
 deterministic, fully unit-tested component behavior change (not a
 visual design change), so that gap is noted plainly rather than
 claimed.
+
+## Frontend IA v2: 5-tab nav reconciled against the three-spaces rule (2026-07-21, backlog #260)
+
+`information-architecture-v1.md` doesn't name "exactly three spaces"
+as arbitrary -- it presents that count as the result of applying its
+own "New Spaces Are Expensive" test until nothing further survived,
+and explicitly walks through and REJECTS a "history browser separate
+from Journeys" as a worked 4th-space example. The pending 5-tab backlog
+cluster (#261-267) asks for exactly that shape (an Activity tab
+relocating Home's own journey list) plus a second new space (a You tab
+promoting POM/Behavioral Patterns out of Settings) -- a genuine
+departure from v1's own reasoning, not a small extension of it. Wrote
+`frontend/specs/information-architecture-v2-tab-nav-proposal.md`
+(discussion draft) working through each of the five proposed tabs
+against v1's own "genuinely distinct question" test rather than
+papering over the conflict with clever reframing.
+
+Findings: Activity and the center Share/Journey action both read as
+consistent extensions of v1's own reasoning (Activity relocates
+existing content rather than adding new; the center action is a
+navigational shortcut, not a browsable space at all) -- only You is a
+first-class departure from v1's explicit goals, defensible on a
+"self-understanding vs. configuration" distinct-question argument, but
+one needing the founder's own sign-off rather than an assumed yes.
+
+**Asked the founder directly: accept all 5 tabs, supersede v1
+(the recommended option) -- confirmed.** Wrote
+`frontend/specs/information-architecture-v2.md`, naming five spaces
+(Home narrowed to pure entry/welcome, Activity as the relocated journey
+list, Journey unchanged, You as promoted self-understanding, Settings
+narrowed further now that You's content is gone) plus the center
+navigation action (explicitly not a sixth space -- a shortcut into
+Journey, carrying none of the "new space" tax). `information-
+architecture-v1.md` marked superseded at its own top, kept in full
+below that marker as the reasoning trail -- same treatment
+`interaction-model-v4.md` gave `interaction-model-v2.md`/`v3.md`. No
+code implied by this entry -- #261-265 (the actual tab shell, Activity,
+You, center action, and revised Home) proceed next now that the
+architecture question is resolved; #267 (sweeping stale
+information-architecture-v1.md references across other frontend specs)
+is scoped for after those actually ship, matching its own "reflect the
+SHIPPED structure" wording.
