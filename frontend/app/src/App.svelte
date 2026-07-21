@@ -1,34 +1,46 @@
 <script>
   // Five spaces (information-architecture-v2.md, superseding v1's three
-  // -- see engine/decisions.md "Frontend IA v2"): Home, Activity,
-  // Journey, You, Settings, plus a center navigation action (starts a
-  // new Journey) that isn't a sixth space. Local state, not a router
-  // library -- still no deep-linking requirement (see
-  // frontend/specs/screen-design-v1.md's own "out of scope" note),
-  // just more screens than the original three.
+  // -- see engine/decisions.md "Frontend IA v2"): originally Home,
+  // Activity, Journey, You, Settings, plus a center navigation action.
+  // Local state, not a router library -- still no deep-linking
+  // requirement (see frontend/specs/screen-design-v1.md's own "out of
+  // scope" note), just more screens than the original three.
   //
-  // `tab` vs `screen` (2026-07-21, backlog #261): `tab` is which of the
-  // four persistent destinations (home/activity/you/settings) is
-  // "underneath" -- it only changes when TabBar's onNavigate fires, so
-  // it stays exactly where it was while a Journey or ModeSelect is open
-  // on top of it. `screen` is what's actually rendered right now
-  // ('tab' meaning "show whichever screen `tab` names", or 'journey'/
-  // 'mode-select' for the two full-screen overlays neither counted
-  // among the five spaces). Backing out of either overlay is just
-  // `screen = 'tab'` -- `tab` was never touched, so this naturally
-  // restores wherever the person actually came from, without needing
-  // its own bookkeeping.
+  // Tab order + Home retirement (2026-07-21, direct founder
+  // instruction, see engine/decisions.md "Tab order: You, Activity, +,
+  // Plans, Settings"): You, Activity, [+], Plans, Settings. Home is no
+  // longer a tab -- its content (BreathingOrb hero + ModePicker,
+  // Home.svelte, unchanged) is now what the center + action opens, AND
+  // what's shown by default on first load, per the founder's own call
+  // ("+ becomes the default and has the home screen"). This also
+  // retires ModeSelect.svelte as a separate screen -- it was a
+  // full-screen wrapper around the exact same ModePicker Home.svelte
+  // already rendered inline, so once that content becomes a normal
+  // named destination (`tab === 'start'`) rather than a modal reached
+  // only via +, the separate overlay (and its own "back" affordance)
+  // has nothing left to do that TabBar navigation doesn't already
+  // cover.
+  //
+  // `tab` vs `screen`: `tab` is which of the five destinations
+  // (start/activity/you/plans/settings) is "underneath" -- it only
+  // changes when TabBar's onNavigate fires, so it stays exactly where
+  // it was while a Journey is open on top of it. `screen` is what's
+  // actually rendered right now ('tab' meaning "show whichever screen
+  // `tab` names", or 'journey' for the one remaining full-screen
+  // overlay). Backing out of a Journey is just `screen = 'tab'` --
+  // `tab` was never touched, so this naturally restores wherever the
+  // person actually came from, without needing its own bookkeeping.
   import { onMount } from 'svelte';
   import Home from './screens/Home.svelte';
   import Activity from './screens/Activity.svelte';
   import Journey from './screens/Journey.svelte';
-  import ModeSelect from './screens/ModeSelect.svelte';
   import You from './screens/You.svelte';
+  import Plans from './screens/Plans.svelte';
   import Settings from './screens/Settings.svelte';
   import TabBar from './components/TabBar.svelte';
   import { checkAuth, consumeMagicLinkFromUrl } from './lib/auth.svelte.js';
 
-  let tab = $state('home');
+  let tab = $state('start');
   let screen = $state('tab');
   let sessionId = $state(null);
 
@@ -68,34 +80,32 @@
     screen = 'tab';
   }
 
+  // Single navigation function for every TabBar button, center action
+  // included -- the center "+" is just `onNavigate('start')` now that
+  // its destination is a normal tab rather than a modal overlay (see
+  // this file's own top docstring).
   function navigateTab(nextTab) {
     tab = nextTab;
     screen = 'tab';
-  }
-
-  // Tab bar's center action (backlog #264) -- starts a new Journey via
-  // the existing Mentor mode-select flow, reachable from every tab.
-  function beginNew() {
-    screen = 'mode-select';
   }
 </script>
 
 <main>
   {#if screen === 'tab'}
     <div class="tab-content">
-      {#if tab === 'home'}
+      {#if tab === 'start'}
         <Home onOpen={openJourney} />
       {:else if tab === 'activity'}
         <Activity onOpen={openJourney} />
       {:else if tab === 'you'}
         <You />
+      {:else if tab === 'plans'}
+        <Plans />
       {:else if tab === 'settings'}
         <Settings />
       {/if}
     </div>
-    <TabBar active={tab} onNavigate={navigateTab} onBeginNew={beginNew} />
-  {:else if screen === 'mode-select'}
-    <ModeSelect onOpen={openJourney} onBack={backToTab} />
+    <TabBar active={tab} onNavigate={navigateTab} />
   {:else if screen === 'journey'}
     <Journey {sessionId} onBack={backToTab} />
   {/if}

@@ -15,6 +15,35 @@ twice more, in the open, in the proposal doc this supersedes-note
 points to), Settings' own minimalism, and the general navigation
 philosophy.
 
+**Amendment (2026-07-21, direct founder instruction — see
+`engine/decisions.md` "Tab order: You, Activity, +, Plans, Settings"):**
+the tab bar actually shipped as **You, Activity, [+], Plans, Settings**,
+not the Home/Activity/[+]/You/Settings order "The Five Spaces" below
+describes. Two changes to the space list itself, not just the order:
+
+- **Home is retired as a persistent tab.** Its content (`Home.svelte`
+  — BreathingOrb hero, ZenQuote, ModePicker — unchanged) is now BOTH
+  the app's default screen on first load AND what the center + action
+  opens from anywhere, merging what were previously two separate things
+  (a tab-bar destination and a full-screen ModeSelect overlay reached
+  only via +) into one. `screens/ModeSelect.svelte` was deleted as a
+  result — there was nothing left for a separate overlay to do once its
+  content and Home's became the same destination.
+- **Plans is a new placeholder space**, reachable via its own tab.
+  Nothing behind it yet — a plain "coming soon" message
+  (`screens/Plans.svelte`), pending the actual design work backlog #266
+  scoped ("Plans" / transformation plans) but never started.
+
+The sections below ("The Five Spaces" through "Why Five, Not Three")
+describe the ORIGINAL five-tab design as written and are left as the
+reasoning trail for Activity/Journey/You/Settings, all of which are
+still accurate — only Home's status as a listed tab and the space count
+(still five, just a different five: Activity, Journey, You, Plans,
+Settings, with Home's content living inside the center action rather
+than counted separately) have changed. Read "Home" below as historical
+context for why Activity split off from it, not as current tab-bar
+fact.
+
 ---
 
 ## Purpose

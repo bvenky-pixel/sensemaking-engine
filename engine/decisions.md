@@ -12067,3 +12067,77 @@ Verified: 118 frontend tests (`TabBar.test.js`, `Activity.test.js`,
 rewritten `Home.test.js`, `You.test.js`, edited `Settings.test.js`/
 `ModeSelect.test.js`), `npm run build` clean; full `pytest` 576 passed
 (no Python touched this round, run for safety only).
+
+## Tab order: You, Activity, +, Plans, Settings (2026-07-21, direct founder instruction)
+
+Direct instruction, no ambiguity to reconcile against a standing
+principle this time (unlike backlog #260's own founder-confirmation
+round): "You - Activity - + - Plans - Settings this is the order of
+tabs I want... build the [Plans] screen for now with a coming soon
+message." Two real design questions this DID require resolving, since
+the instruction only specified the five slots, not what happens to
+Home (which the previous round's tab list had included) or what a
+first-time visitor lands on now that Home isn't a listed tab:
+
+**Asked the founder directly** (see the three-option AskUserQuestion in
+this session): Activity as the new default (keeps a no-login-wall
+landing per this app's own "an invitation, not a form" principle), You
+as the new default (matches it being leftmost, but puts a login wall on
+first launch -- a real conflict with that same principle), or keep Home
+as an unlisted landing screen with no tab of its own.
+
+**Founder's actual answer, more elegant than any of the three offered:
+"+ becomes the default and has the home screen."** Rather than picking
+one of the three options, this merges what were two separate things --
+a tab-bar destination (the old "Home" tab) and a modal overlay reached
+only via the center action (`ModeSelect.svelte`) -- into one. The
+center + action and the app's default landing screen now show the
+IDENTICAL content (`Home.svelte`, unchanged: BreathingOrb hero,
+ZenQuote, ModePicker), reached two different ways (default load, or
+tapping + from any other tab). This also resolves the login-wall
+conflict for free: the merged screen carries no auth gate (never did),
+so it's safe as both the default AND reachable from every tab.
+
+**Implementation.** `App.svelte`'s `tab` enum changes from
+`home/activity/you/settings` to `start/activity/you/plans/settings`,
+default `tab = $state('start')` (was `'home'`). `screen`'s `mode-select`
+value is retired entirely -- `ModeSelect.svelte` had nothing left to do
+once its content and the default/tab-'start' content became the same
+thing, so it and its test were deleted rather than kept as a
+now-pointless second wrapper around `ModePicker.svelte`. `TabBar.svelte`
+reordered (You, Activity, [+], Plans, Settings) with a new `Plans`
+button; the center action changed from a distinct `onBeginNew` prop to
+plain `onNavigate('start')`, since it's now just another destination in
+`active`/`aria-current` terms, not a one-way action -- added a subtle
+active-state ring (`box-shadow` accent outline) to the center circle for
+exactly this reason, the one visual addition beyond reordering.
+`Home.svelte` itself is content-unchanged, docstring updated to explain
+its new dual reach path. New `screens/Plans.svelte`: a bare "Coming
+soon." message, no functionality -- backlog #266 (the actual Plans
+design) remains unstarted; this only claims the tab's spot honestly,
+per this app's own "no report of what isn't real yet" discipline.
+
+Swept now-stale `ModeSelect.svelte` references while deleting it:
+`ModePicker.svelte`'s own docstring (used to describe ModeSelect as a
+live sibling caller), `Journey.svelte`'s completion-tracking comment,
+and `tests/setup.js`'s matchMedia comment (also fixed an unrelated
+already-stale claim there, "Home has no dedicated test file yet" --
+`Home.test.js` has existed since backlog #265). Added a dated amendment
+section to `information-architecture-v2.md` rather than rewriting its
+"Five Spaces" body -- Activity/Journey/You/Settings descriptions there
+are all still accurate; only Home's tab status and the space list
+itself needed a correction, left as an amendment pointing back at the
+original text as reasoning trail (same pattern as v1's own supersession
+banner).
+
+Verified: 117 frontend tests (net -1 from dropping `ModeSelect.test.js`'s
+3, adding `Plans.test.js`'s 1, `TabBar.test.js` gaining 1 for the new
+active-center-action case), `npm run build` clean; full `pytest` 576
+passed (no Python touched). Live-verified against a running backend
+with Playwright: tab order renders exactly You/Activity/+/Plans/
+Settings; default load shows the merged start screen with the center
+action's own `aria-current="page"`; Plans shows the coming-soon message
+and nothing else; tapping + from Activity opens the same start content
+with no back button and TabBar still visible; starting and completing a
+real Journey from there, then backing out, correctly returns to the
+start screen with the center action re-marked active.

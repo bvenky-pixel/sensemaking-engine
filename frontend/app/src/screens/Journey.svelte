@@ -289,8 +289,8 @@
 
   // Only populated after a real message is shared (2026-07-18, see
   // frontend/decisions.md): createSession fires the moment a mode is
-  // picked (ModeSelect.svelte/Home.svelte's own choose()/chooseMode()),
-  // before a single word has been typed -- direct founder feedback that
+  // picked (Home.svelte's own chooseMode()), before a single word has
+  // been typed -- direct founder feedback that
   // backing out of that empty Journey without sending anything
   // shouldn't leave it behind. db.py::list_sessions already hides any
   // session with zero messages from Home's own list (defense in depth,

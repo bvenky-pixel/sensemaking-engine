@@ -18,6 +18,15 @@
   // just be the same affordance twice. Signing in still matters, but
   // that's Settings' own gate to prompt, not Home's -- Home's job is
   // now singular: get a person into a Journey.
+  //
+  // No longer a labeled tab (2026-07-21, direct founder instruction,
+  // see engine/decisions.md "Tab order: You, Activity, +, Plans,
+  // Settings"): this exact component is now what the tab bar's center
+  // + action opens, and also what App.svelte shows by default on first
+  // load (`tab = $state('start')`) -- nothing in this file changed for
+  // that, since it was already the closest thing this app had to a
+  // "start something new" screen; only which App.svelte state value
+  // mounts it changed.
   import { fade } from 'svelte/transition';
   import { createSession } from '../lib/api.js';
   import BreathingOrb from '../components/BreathingOrb.svelte';

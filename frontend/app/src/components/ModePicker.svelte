@@ -1,14 +1,16 @@
 <script>
-  // Shared mode-card list -- extracted from screens/ModeSelect.svelte
-  // (2026-07-18, see frontend/decisions.md "Home hero: orb + inline
-  // modes") once Home needed the identical picker inline for
-  // journey-less accounts, not just ModeSelect's own full screen.
-  // Fetches GET /modes itself (same "thin reflection of backend truth"
-  // principle every other mode-facing screen already follows) --
-  // callers only provide `onChoose`; session creation and navigation
-  // stay the caller's own concern (Home creates+opens directly,
-  // ModeSelect still goes through its own choose() before calling
-  // onOpen).
+  // Shared mode-card list -- originally extracted from a separate
+  // screens/ModeSelect.svelte (2026-07-18, see frontend/decisions.md
+  // "Home hero: orb + inline modes") once Home needed the identical
+  // picker inline for journey-less accounts, not just ModeSelect's own
+  // full screen. ModeSelect.svelte itself was later retired entirely
+  // (2026-07-21, see engine/decisions.md "Tab order: You, Activity, +,
+  // Plans, Settings") once its content and Home's became the same
+  // destination -- this component is now only ever mounted from
+  // Home.svelte. Fetches GET /modes itself (same "thin reflection of
+  // backend truth" principle every other mode-facing screen already
+  // follows) -- callers only provide `onChoose`; session creation and
+  // navigation stay the caller's own concern.
   import { onMount } from 'svelte';
   import { fly } from 'svelte/transition';
   import { getModes } from '../lib/api.js';
