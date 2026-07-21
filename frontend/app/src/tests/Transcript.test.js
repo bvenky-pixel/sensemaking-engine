@@ -96,3 +96,58 @@ describe('Transcript', () => {
     expect(getByText('The MBA').closest('button')).toBeDisabled();
   });
 });
+
+// Only the last exchange visible by default, older turns reachable
+// (2026-07-21, backlog #237, see engine/decisions.md): a collapse/
+// expand affordance, not a fixed-height scrollable pane.
+describe('Transcript: last-exchange-only collapse', () => {
+  const OLDER_TURN = [
+    { role: 'user', content: 'My boss is not willing to grant me the move to the product team.', created_at: '' },
+    { role: 'assistant', content: 'What has your boss said about it directly?', created_at: '' },
+  ];
+  const LAST_TURN = [
+    { role: 'user', content: 'He keeps side stepping the conversation.', created_at: '' },
+    { role: 'assistant', content: 'What do you think is behind the side stepping?', created_at: '' },
+  ];
+
+  it('hides everything before the last exchange behind a "Show earlier" toggle by default', () => {
+    const { getByText, queryByText } = render(Transcript, {
+      props: { messages: [...OLDER_TURN, ...LAST_TURN], onOptionSelect: vi.fn(), disabled: false },
+    });
+
+    expect(queryByText('What has your boss said about it directly?')).toBeNull();
+    expect(getByText('He keeps side stepping the conversation.')).toBeTruthy();
+    expect(getByText('What do you think is behind the side stepping?')).toBeTruthy();
+    expect(getByText('Show earlier in this Journey')).toBeTruthy();
+  });
+
+  it('reveals the older turn when "Show earlier" is tapped, and stays open', async () => {
+    const { getByText, queryByText } = render(Transcript, {
+      props: { messages: [...OLDER_TURN, ...LAST_TURN], onOptionSelect: vi.fn(), disabled: false },
+    });
+
+    await fireEvent.click(getByText('Show earlier in this Journey'));
+
+    expect(getByText('What has your boss said about it directly?')).toBeTruthy();
+    expect(queryByText('Show earlier in this Journey')).toBeNull();
+  });
+
+  it('shows no toggle when the whole conversation is only one exchange', () => {
+    const { queryByText } = render(Transcript, {
+      props: { messages: LAST_TURN, onOptionSelect: vi.fn(), disabled: false },
+    });
+
+    expect(queryByText('Show earlier in this Journey')).toBeNull();
+  });
+
+  it('treats a mid-flight lone user message (no reply yet) as its own last exchange', () => {
+    const messages = [...OLDER_TURN, { role: 'user', content: 'Sending a new message.', created_at: '' }];
+    const { getByText, queryByText } = render(Transcript, {
+      props: { messages, onOptionSelect: vi.fn(), disabled: false },
+    });
+
+    expect(getByText('Sending a new message.')).toBeTruthy();
+    expect(queryByText('What has your boss said about it directly?')).toBeNull();
+    expect(getByText('Show earlier in this Journey')).toBeTruthy();
+  });
+});

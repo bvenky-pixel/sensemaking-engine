@@ -11880,3 +11880,48 @@ just noting the closure):**
 No code change -- this was a research-only audit. Nothing found
 warranted reopening; the two genuinely resolved-by-other-work items are
 recorded here so this doc doesn't keep listing them as open elsewhere.
+
+## Frontend: only the last exchange visible by default, older turns reachable (2026-07-21, backlog #237)
+
+`engine/specs/latency-northstar-v1.md` flagged this as needing a real
+interaction-design decision before implementation, not just a reorder
+(fixed-height scrollable pane vs. a collapse/expand affordance) --
+asked the founder directly; **collapse/expand affordance chosen** (the
+recommended option), specifically to keep the app's existing "one
+continuously scrolling flow, no fixed inner scroll panes" principle
+(`Journey.svelte`'s own `.scroll-fade` comment) intact rather than
+introducing the app's first nested scroll region for this one screen.
+
+`Transcript.svelte` now finds the start of the "last exchange" (the
+most recent user message and everything from that point on -- normally
+just its one assistant reply, but also correctly covers the mid-flight
+case where a user message has been sent and nothing has answered it
+yet) and renders only that by default. Everything earlier sits behind a
+plain `.link-button`-styled "Show earlier in this Journey" toggle;
+tapping it reveals the rest inline in the same continuous page scroll
+-- nothing new architecturally, just more content in the same flow.
+`showEarlier` is un-persisted component state: defaults closed on every
+fresh open of a Journey, but once opened within one visit it stays open
+rather than silently re-collapsing as further turns arrive. Recomputed
+from `messages` on every render (not frozen at mount), so a freshly-
+sent turn is always what's shown.
+
+Response v3's own "only the LAST message's options are ever live" rule
+(`onOptionSelect`) is unaffected -- `showOptions` is now passed
+explicitly per message (true only for the last message in the visible
+last-exchange slice) rather than compared against the full array's own
+length, same behavior, cleaner plumbing via a `{#snippet messageRow}`
+shared between the collapsed and visible render paths.
+
+Verified: four new tests in `Transcript.test.js` (hidden-by-default,
+reveal-and-stays-open, no-toggle-for-a-single-exchange, mid-flight lone
+user message correctly treated as its own last exchange) plus all 5
+pre-existing Transcript tests still passing unchanged (the options-
+visibility test's "earlier message with options gets hidden" case now
+exercises the collapse path too, not just the array-length check it
+used before). Full suite: `npm test` 111 passed, `npm run build` green;
+`pytest` unaffected (576 passed, no Python touched this round). Not
+live-verified in a real browser against a running backend -- this is a
+deterministic, fully unit-tested component behavior change (not a
+visual design change), so that gap is noted plainly rather than
+claimed.
