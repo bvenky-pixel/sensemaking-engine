@@ -1,0 +1,41 @@
+name: Planner/Response calibration
+
+# Manual only -- each run makes real, billable calls through the full
+# pipeline (Interpretation, Judgment, Planner, Response per turn -- up
+# to 3 turns per case, 5 cases) to the configured LLM provider. See
+# scripts/run_planner_response_calibration.py's module docstring for why
+# this exists: neither Planner nor Response has ever had a structured,
+# case-ID-tracked evaluation round (backlog #222, #223) -- every prior
+# fix to either stage was driven by direct user complaints or ad hoc log
+# greps, never a repeatable, named-case round.
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  calibration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Planner/Response calibration
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+          CONFIDANT_TRACK_USAGE: "1"
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          python scripts/run_planner_response_calibration.py
