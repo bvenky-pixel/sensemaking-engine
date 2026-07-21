@@ -49,16 +49,19 @@
   // note above is no longer accurate for a signed-in visitor -- it now
   // shows the real, signed-in email and a Log out control.
   //
-  // POM surfaced to users (2026-07-18, see frontend/decisions.md): a
-  // third section, "You" -- PersonalOperatingModel.svelte is fully
-  // self-contained (fetches its own data, renders its own
-  // .setting-section card), so it's mounted here exactly like a fourth
-  // sibling, not merged into Privacy/Account's own markup.
+  // You tab (2026-07-21, backlog #263, see information-architecture-v2.md,
+  // engine/decisions.md "Frontend IA v2"): PersonalOperatingModel.svelte/
+  // BehavioralPatterns.svelte (formerly a third and fourth sibling
+  // section here) are now their own top-level screen, You.svelte --
+  // Settings goes back to exactly Privacy + Account, smaller than
+  // before, more aligned with this doc's own "kept deliberately small"
+  // goal, not less.
   //
-  // Learning surfaced to users (2026-07-18, see frontend/decisions.md
-  // "Learning surfaced to users") -- BehavioralPatterns.svelte is the
-  // same self-contained shape, mounted as a fifth sibling right after
-  // PersonalOperatingModel.
+  // No more onBack/back button -- Settings is now a persistent tab bar
+  // destination (backlog #261) reached by tapping the "Settings" tab
+  // from anywhere, the same as Home/Activity/You are; "back" doesn't
+  // mean anything for a top-level tab the way it did when Settings was
+  // a one-off screen reached via a single link.
   import { onMount } from 'svelte';
   import {
     getPrivacySettings,
@@ -70,10 +73,6 @@
   import { getReduceMotionOverride, setReduceMotionOverride, applyReduceMotionAttribute } from '../lib/motionPreference.js';
   import { authState, logout } from '../lib/auth.svelte.js';
   import LoginGate from '../components/LoginGate.svelte';
-  import PersonalOperatingModel from '../components/PersonalOperatingModel.svelte';
-  import BehavioralPatterns from '../components/BehavioralPatterns.svelte';
-
-  let { onBack } = $props();
 
   let loggingOut = $state(false);
 
@@ -172,8 +171,6 @@
 </script>
 
 <div class="settings">
-  <button type="button" class="back" onclick={onBack}>&larr; Home</button>
-
   <p class="display">Settings</p>
 
   {#if !authState.checked}
@@ -282,18 +279,10 @@
         </button>
       </div>
     </section>
-
-    <PersonalOperatingModel />
-    <BehavioralPatterns />
   {/if}
 </div>
 
 <style>
-  .back {
-    display: block;
-    margin-bottom: var(--space-3);
-  }
-
   .display {
     margin: 0 0 var(--space-4);
   }

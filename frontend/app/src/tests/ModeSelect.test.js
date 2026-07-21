@@ -54,13 +54,13 @@ describe('ModeSelect', () => {
     });
   });
 
-  it('calls onBack when the Home link is clicked', async () => {
+  it('calls onBack when the Back link is clicked', async () => {
     api.getModes.mockResolvedValue(MODES);
     const onBack = vi.fn();
 
     const { getByText } = render(ModeSelect, { props: { onOpen: vi.fn(), onBack } });
 
-    await fireEvent.click(getByText('← Home'));
+    await fireEvent.click(getByText('← Back'));
     expect(onBack).toHaveBeenCalled();
   });
 });

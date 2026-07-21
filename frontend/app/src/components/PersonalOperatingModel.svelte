@@ -4,13 +4,18 @@
   // (src/pom/schema.py, engine/decisions.md "Personal Operating
   // Model") has existed as a backend concept since that round, but
   // GET /personal-operating-model had zero frontend consumers until
-  // now. Lives inside Settings as a third section ("You") rather than
-  // a new screen -- information-architecture-v1.md treats Home/Journey/
-  // Settings as exhaustive and requires a real justification for a 4th
-  // space, which nothing here clears; this also matches the founder's
-  // own framing of the eventual goal as "surface POM without
-  // intimidating," which argues for folding it into an existing,
-  // already-understood space rather than a new dashboard-like one.
+  // now.
+  //
+  // Moved to its own You tab (2026-07-21, backlog #263, see
+  // information-architecture-v2.md and engine/decisions.md "Frontend
+  // IA v2") -- originally lived inside Settings as a third section,
+  // back when information-architecture-v1.md treated Home/Journey/
+  // Settings as exhaustive and required real justification for a 4th
+  // space; the founder's own sign-off on IA v2 concluded "who am I
+  // becoming" is a genuinely distinct question from "change my
+  // settings," clearing that bar. This component itself is unaffected
+  // by the move -- it's mounted from You.svelte now instead of
+  // Settings.svelte, nothing about its own rendering changed.
   //
   // Same "no raw backend vocabulary" discipline Understanding.svelte
   // already established for Clarity Brief/Tier 2 content (see that

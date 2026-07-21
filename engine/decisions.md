@@ -11967,3 +11967,103 @@ architecture question is resolved; #267 (sweeping stale
 information-architecture-v1.md references across other frontend specs)
 is scoped for after those actually ship, matching its own "reflect the
 SHIPPED structure" wording.
+
+## Frontend IA v2 shipped: TabBar, Activity, You, center action, revised Home (2026-07-21, backlog #261-265)
+
+Implements the five-space structure `information-architecture-v2.md`
+named. New `components/TabBar.svelte`: four persistent destinations
+(Home/Activity/You/Settings, plain text labels, no icons -- matching
+the app's established all-text convention) plus a visually distinct
+center "+" action that starts a new Journey rather than a fifth
+destination -- consistent with v2's own "not a sixth space" framing.
+First width-based `@media` rule in the codebase (640px, an honest
+first-guess breakpoint, not empirically validated): fixed to the
+viewport bottom on mobile, a plain static top row on desktop. Never
+rendered during Journey/ModeSelect -- both already have their own back
+navigation, and showing TabBar underneath would be competing chrome
+during the one moment "navigation should never interrupt" matters most.
+
+`App.svelte` rewritten around a `tab` vs `screen` state split: `tab`
+tracks which of the four persistent destinations is "underneath"
+(changes only via TabBar's `onNavigate`); `screen` tracks what's
+actually rendered right now (`'tab'`, or the full-screen `'journey'`/
+`'mode-select'` overlays). Backing out of either overlay is just
+`screen = 'tab'` -- `tab` was never touched while the overlay was open,
+so this naturally restores wherever the person actually came from
+(Home, Activity, You, or Settings) with no separate `previousTab`
+bookkeeping needed. Considered and rejected: always returning to
+Activity (loses context for someone who tapped + from You/Settings),
+explicit `previousTab` tracking (redundant once `tab` already does the
+job passively).
+
+New `screens/Activity.svelte`: the journey list, filters, bookmark
+toggle, and Journey-completion login nudge extracted verbatim from the
+old Home.svelte -- three distinct empty states (no Journeys at all,
+none in the current bookmark/time-period filter) rather than one
+generic message, since "tap + below to begin" is only the right copy
+for the genuinely-empty case. Deliberately has no "+ Begin something
+new" button of its own now that the center tab action covers it.
+
+`screens/Home.svelte` rewritten drastically smaller now that Activity
+owns the journey list: the hero (BreathingOrb, ZenQuote, ModePicker)
+renders unconditionally instead of the old conditional collapse (big
+hero only when `sessions.length === 0`) -- that branch became dead
+complexity once Activity took over the list entirely, a simplification
+the split enabled rather than something bolted on separately. Bottom
+Settings/Log-in links removed -- redundant with the persistent TabBar.
+
+New `screens/You.svelte`: `PersonalOperatingModel.svelte` and
+`BehavioralPatterns.svelte` moved here wholesale from Settings.svelte,
+gated behind the same `LoginGate` pattern Settings already used for
+signed-out visitors. Neither component's own rendering changed --only
+which screen mounts them did.
+
+`screens/Settings.svelte` narrowed to match: POM/Behavioral Patterns
+mounts and the `onBack` prop/back button removed ("back" meant
+something as a one-off reachable-only-from-Home screen; it means
+nothing now that Settings is a top-level tab reached directly from
+TabBar). `screens/ModeSelect.svelte`'s back label changed from
+"← Home" to the deliberately generic "← Back", since it's now reachable
+from any tab's center action, not only from Home.
+
+Verified live against a real running backend (`uvicorn` serving the
+built `dist/` via `src/api/server.py`'s existing `StaticFiles` mount --
+sidesteps `vite.config.js`'s dev proxy, which only forwards `/sessions`,
+not `/modes`/`/auth/*`; a pre-existing gap, not touched here) with
+Playwright/chromium: Home shows the always-on hero with TabBar active
+on Home; tapping Activity/You/Settings renders each correctly (Activity's
+genuine empty state, You's/Settings' signed-out login gates); the center
+"+" opens ModeSelect with "← Back" (not "← Home"); starting and then
+backing out of a real (non-empty) Journey correctly restores the
+originating tab (`aria-current="page"` back on Home) with no TabBar
+visible during the Journey itself; desktop viewport (1280px) confirmed
+the TabBar renders `position: static` beneath the mode cards rather than
+fixed to the viewport.
+
+**Found, not fixed here (pre-existing, unrelated to this round):**
+backing out of a genuinely EMPTY anonymous Journey throws unhandled --
+`Journey.svelte`'s `handleBack` awaits `deleteSession(sessionId)` for
+the empty case, but `DELETE /sessions/{id}` is gated behind
+`require_user` (`src/api/server.py`), so an anonymous visitor who opens
+and immediately abandons an empty Journey gets a 401 that aborts
+`handleBack` before `onBack()` ever fires, trapping them on the screen.
+Reproducible today regardless of this round's changes (Journey.svelte
+itself untouched here) -- flagging for a future backlog item rather
+than fixing opportunistically inside an unrelated navigation change.
+
+Also fixed as part of #267 (spec/comment sweep for the shipped
+structure): `screen-design-v1.md`'s "three sanctioned screens" framing
+(an old DISCUSSION DRAFT that predates both this IA change and the
+later visual redesign) annotated as historical rather than rewritten
+wholesale; `PersonalOperatingModel.svelte`'s own docstring, which
+claimed it "lives inside Settings... rather than a new screen" per
+v1's since-superseded exhaustiveness rule, corrected to describe its
+actual current home (You.svelte). Left `frontend-engineering-
+architecture-v1.md`'s citation of `information-architecture-v1.md`
+alone -- it cites a principle ("state scoped to a Journey") v2 restates
+unchanged, not a screen-count claim, so it isn't actually wrong.
+
+Verified: 118 frontend tests (`TabBar.test.js`, `Activity.test.js`,
+rewritten `Home.test.js`, `You.test.js`, edited `Settings.test.js`/
+`ModeSelect.test.js`), `npm run build` clean; full `pytest` 576 passed
+(no Python touched this round, run for safety only).

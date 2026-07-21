@@ -22,13 +22,12 @@ import { authState } from '../lib/auth.svelte.js';
 // to real mock functions rather than undefined. `authState` itself is
 // a real, shared module -- NOT mocked -- since it's plain reactive
 // state, not a network boundary; tests set it directly instead.
-// POM surfaced to users (2026-07-18, see frontend/decisions.md):
-// getPersonalOperatingModel mocked too, since Settings now mounts
-// PersonalOperatingModel.svelte as a third section whenever signed in.
-// Learning surfaced to users (2026-07-18, see frontend/decisions.md
-// "Learning surfaced to users"): getBehavioralPatterns mocked too,
-// since Settings now mounts BehavioralPatterns.svelte as a fourth
-// section whenever signed in.
+//
+// You tab (2026-07-21, backlog #263, see engine/decisions.md "Frontend
+// IA v2"): PersonalOperatingModel.svelte/BehavioralPatterns.svelte (and
+// their getPersonalOperatingModel/getBehavioralPatterns mocks) moved
+// out of this file to You.test.js along with the components
+// themselves -- Settings no longer mounts either.
 vi.mock('../lib/api.js', () => ({
   getPrivacySettings: vi.fn(),
   setCrossSessionLearningEnabled: vi.fn(),
@@ -39,8 +38,6 @@ vi.mock('../lib/api.js', () => ({
   requestMagicLink: vi.fn(),
   verifyMagicLink: vi.fn(),
   logout: vi.fn(),
-  getPersonalOperatingModel: vi.fn(),
-  getBehavioralPatterns: vi.fn(),
 }));
 
 describe('Settings', () => {
@@ -51,12 +48,6 @@ describe('Settings', () => {
       cross_session_learning_enabled: true,
       reflection_prompt_enabled: false,
     });
-    // Default: no POM computed yet -- PersonalOperatingModel.test.js
-    // covers its own populated/empty states directly.
-    api.getPersonalOperatingModel.mockResolvedValue(null);
-    // Default: no patterns computed yet -- BehavioralPatterns.test.js
-    // covers its own populated/empty states directly.
-    api.getBehavioralPatterns.mockResolvedValue([]);
     // Every existing test below exercises the signed-in screen -- see
     // the new describe block further down for the signed-out gate
     // itself. Reset explicitly rather than relying on a previous
@@ -73,7 +64,7 @@ describe('Settings', () => {
       reflection_prompt_enabled: false,
     });
 
-    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+    const { getByRole } = render(Settings, { props: {} });
 
     await waitFor(() => {
       expect(getByRole('switch', { name: 'Learn across Journeys' }).getAttribute('aria-checked')).toBe('false');
@@ -90,7 +81,7 @@ describe('Settings', () => {
       reflection_prompt_enabled: false,
     });
 
-    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+    const { getByRole } = render(Settings, { props: {} });
 
     const toggle = await waitFor(() => getByRole('switch', { name: 'Learn across Journeys' }));
     expect(toggle.getAttribute('aria-checked')).toBe('true');
@@ -114,7 +105,7 @@ describe('Settings', () => {
       reflection_prompt_enabled: false,
     });
 
-    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+    const { getByRole } = render(Settings, { props: {} });
 
     const toggle = await waitFor(() => getByRole('switch', { name: 'Learn across Journeys' }));
     await fireEvent.click(toggle);
@@ -128,7 +119,7 @@ describe('Settings', () => {
       reflection_prompt_enabled: false,
     });
 
-    const { queryByRole } = render(Settings, { props: { onBack: () => {} } });
+    const { queryByRole } = render(Settings, { props: {} });
 
     await waitFor(() => expect(api.getPrivacySettings).toHaveBeenCalled());
     expect(queryByRole('switch', { name: 'Ask a reflection question when I finish a Journey' })).toBeNull();
@@ -144,7 +135,7 @@ describe('Settings', () => {
       reflection_prompt_enabled: true,
     });
 
-    const { getByRole } = render(Settings, { props: { onBack: () => {} } });
+    const { getByRole } = render(Settings, { props: {} });
 
     const toggle = await waitFor(() =>
       getByRole('switch', { name: 'Ask a reflection question when I finish a Journey' })
@@ -158,7 +149,7 @@ describe('Settings', () => {
   });
 
   it('asks for confirmation before forgetting everything, and does nothing on Cancel', async () => {
-    const { getByText, queryByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByText, queryByText } = render(Settings, { props: {} });
 
     await waitFor(() => getByText('Forget everything'));
     await fireEvent.click(getByText('Forget everything'));
@@ -175,7 +166,7 @@ describe('Settings', () => {
   it('calls resetAllData after confirming Forget everything', async () => {
     api.resetAllData.mockResolvedValue(undefined);
 
-    const { getByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByText } = render(Settings, { props: {} });
 
     await waitFor(() => getByText('Forget everything'));
     await fireEvent.click(getByText('Forget everything'));
@@ -190,7 +181,7 @@ describe('Settings', () => {
     const blob = new Blob(['{}'], { type: 'application/json' });
     api.exportPrivacyData.mockResolvedValue(blob);
 
-    const { getByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByText } = render(Settings, { props: {} });
 
     await waitFor(() => getByText('Export your data'));
     await fireEvent.click(getByText('Export your data'));
@@ -203,7 +194,7 @@ describe('Settings', () => {
   it('shows the signed-in email and logs out via the API', async () => {
     api.logout.mockResolvedValue(undefined);
 
-    const { getByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByText } = render(Settings, { props: {} });
 
     await waitFor(() => getByText('person@example.com'));
     await fireEvent.click(getByText('Log out'));
@@ -226,7 +217,7 @@ describe('Settings: signed out', () => {
   });
 
   it('shows a login prompt instead of Privacy/Account content', async () => {
-    const { getByText, queryByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByText, queryByText } = render(Settings, { props: {} });
 
     await waitFor(() => getByText('Log in to access Settings and Privacy controls.'));
     expect(queryByText('Learn across Journeys')).toBeNull();
@@ -239,7 +230,7 @@ describe('Settings: signed out', () => {
   it('requests a magic link from the login gate', async () => {
     api.requestMagicLink.mockResolvedValue({ sent: true });
 
-    const { getByPlaceholderText, getByText } = render(Settings, { props: { onBack: () => {} } });
+    const { getByPlaceholderText, getByText } = render(Settings, { props: {} });
 
     const emailInput = await waitFor(() => getByPlaceholderText('you@example.com'));
     await fireEvent.input(emailInput, { target: { value: 'me@example.com' } });

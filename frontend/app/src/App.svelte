@@ -1,16 +1,35 @@
 <script>
-  // Three sanctioned spaces (information-architecture-v1.md): Home,
-  // Journey, Settings. Local state, not a router library -- three
-  // screens with no deep-linking requirement don't need one yet (see
-  // frontend/specs/screen-design-v1.md's own "out of scope" note).
+  // Five spaces (information-architecture-v2.md, superseding v1's three
+  // -- see engine/decisions.md "Frontend IA v2"): Home, Activity,
+  // Journey, You, Settings, plus a center navigation action (starts a
+  // new Journey) that isn't a sixth space. Local state, not a router
+  // library -- still no deep-linking requirement (see
+  // frontend/specs/screen-design-v1.md's own "out of scope" note),
+  // just more screens than the original three.
+  //
+  // `tab` vs `screen` (2026-07-21, backlog #261): `tab` is which of the
+  // four persistent destinations (home/activity/you/settings) is
+  // "underneath" -- it only changes when TabBar's onNavigate fires, so
+  // it stays exactly where it was while a Journey or ModeSelect is open
+  // on top of it. `screen` is what's actually rendered right now
+  // ('tab' meaning "show whichever screen `tab` names", or 'journey'/
+  // 'mode-select' for the two full-screen overlays neither counted
+  // among the five spaces). Backing out of either overlay is just
+  // `screen = 'tab'` -- `tab` was never touched, so this naturally
+  // restores wherever the person actually came from, without needing
+  // its own bookkeeping.
   import { onMount } from 'svelte';
   import Home from './screens/Home.svelte';
+  import Activity from './screens/Activity.svelte';
   import Journey from './screens/Journey.svelte';
   import ModeSelect from './screens/ModeSelect.svelte';
+  import You from './screens/You.svelte';
   import Settings from './screens/Settings.svelte';
+  import TabBar from './components/TabBar.svelte';
   import { checkAuth, consumeMagicLinkFromUrl } from './lib/auth.svelte.js';
 
-  let screen = $state('home');
+  let tab = $state('home');
+  let screen = $state('tab');
   let sessionId = $state(null);
 
   // Basic auth (2026-07-18, see frontend/decisions.md "Auth, the
@@ -44,33 +63,53 @@
     screen = 'journey';
   }
 
-  function goHome() {
-    screen = 'home';
+  function backToTab() {
     sessionId = null;
+    screen = 'tab';
   }
 
-  function openSettings() {
-    screen = 'settings';
+  function navigateTab(nextTab) {
+    tab = nextTab;
+    screen = 'tab';
   }
 
-  // Counseling modes (see engine/decisions.md): "+ Begin something new"
-  // on Home no longer creates a session directly -- it goes through a
-  // mode-select step first, which creates the session itself (with the
-  // chosen mode) and hands back here via the same onOpen callback Home
-  // already uses.
+  // Tab bar's center action (backlog #264) -- starts a new Journey via
+  // the existing Mentor mode-select flow, reachable from every tab.
   function beginNew() {
     screen = 'mode-select';
   }
 </script>
 
 <main>
-  {#if screen === 'home'}
-    <Home onOpen={openJourney} onSettings={openSettings} onBeginNew={beginNew} />
+  {#if screen === 'tab'}
+    <div class="tab-content">
+      {#if tab === 'home'}
+        <Home onOpen={openJourney} />
+      {:else if tab === 'activity'}
+        <Activity onOpen={openJourney} />
+      {:else if tab === 'you'}
+        <You />
+      {:else if tab === 'settings'}
+        <Settings />
+      {/if}
+    </div>
+    <TabBar active={tab} onNavigate={navigateTab} onBeginNew={beginNew} />
   {:else if screen === 'mode-select'}
-    <ModeSelect onOpen={openJourney} onBack={goHome} />
+    <ModeSelect onOpen={openJourney} onBack={backToTab} />
   {:else if screen === 'journey'}
-    <Journey {sessionId} onBack={goHome} />
-  {:else if screen === 'settings'}
-    <Settings onBack={goHome} />
+    <Journey {sessionId} onBack={backToTab} />
   {/if}
 </main>
+
+<style>
+  /* Mobile: TabBar.svelte's own bar is `position: fixed` to the bottom
+     of the viewport at this same breakpoint -- extra bottom padding
+     here keeps real tab content from sitting underneath it. Desktop:
+     TabBar is a plain top row (`position: static`), so no extra
+     padding is needed there. */
+  @media (max-width: 639px) {
+    .tab-content {
+      padding-bottom: 72px;
+    }
+  }
+</style>

@@ -1,29 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import Home from '../screens/Home.svelte';
 import * as api from '../lib/api.js';
-import { authState } from '../lib/auth.svelte.js';
-import { loginNudgeState, markJourneyCompleted } from '../lib/loginNudge.svelte.js';
 
-// Home: time period + mode filtering (2026-07-18, see
-// frontend/decisions.md) -- the first dedicated test file for
-// Home.svelte, scoped to the new filtering logic specifically (period
-// toggle + counts, mode filter chips, the two composing and resetting
-// correctly on period change). Mocking lib/api.js (rather than fetch)
-// matches every other screen test's own boundary.
-//
-// Auth, the low-friction way (2026-07-18): getAuthStatus/requestMagicLink/
-// verifyMagicLink/logout are mocked too since lib/auth.svelte.js (which
-// Home now imports) calls them.
+// Home, narrowed (2026-07-21, backlog #265, see
+// information-architecture-v2.md, engine/decisions.md "Frontend IA
+// v2"): the journey list, filtering, bookmarking, and completion nudge
+// all moved to Activity.svelte (see Activity.test.js for that
+// coverage) -- Home is now purely the entry/welcome hero, always
+// shown, with a single job: get a person into a Journey.
 vi.mock('../lib/api.js', () => ({
-  listSessions: vi.fn(),
-  setBookmark: vi.fn(),
   createSession: vi.fn(),
   getModes: vi.fn(),
-  getAuthStatus: vi.fn(),
-  requestMagicLink: vi.fn(),
-  verifyMagicLink: vi.fn(),
-  logout: vi.fn(),
 }));
 
 const MODES = [
@@ -31,386 +19,27 @@ const MODES = [
   { id: 'strategize', label: 'Strategize', description: 'Lay out real choices.' },
 ];
 
-// A fixed "now" (a Wednesday, comfortably mid-week/mid-month/mid-year)
-// so period boundaries are unambiguous regardless of what day this
-// suite actually runs on -- real calendar math (Monday-start weeks,
-// variable month lengths) has genuine edge cases near period
-// boundaries that would make fixture dates flaky without pinning the
-// clock.
-const NOW = new Date('2026-07-15T12:00:00Z');
-
-const SESSIONS = [
-  // Within the current week (Mon 2026-07-13 or later).
-  { id: 's-week', preview_text: 'This week journey', updated_at: '2026-07-15T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: 'vent' },
-  // Within the current month but before the current week.
-  { id: 's-month', preview_text: 'This month journey', updated_at: '2026-07-05T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: 'strategize' },
-  // Within the current year but before the current month.
-  { id: 's-year', preview_text: 'This year journey', updated_at: '2026-03-01T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: 'vent' },
-  // Older than a year -- only "All time" should include it.
-  { id: 's-old', preview_text: 'Old journey', updated_at: '2024-01-01T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: null },
-];
-
-describe('Home: time period + mode filtering', () => {
+describe('Home', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
     vi.clearAllMocks();
     api.getModes.mockResolvedValue(MODES);
-    // None of the filtering tests below care about auth state --
-    // signed-out is the default a fresh visitor actually gets. See the
-    // dedicated "Home: bookmark requires login" describe block further
-    // down for the login-gating behavior itself.
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('always shows the mode picker, with no journey list or filters', async () => {
+    const { getByText, queryByRole } = render(Home, { props: { onOpen: vi.fn() } });
+
+    await waitFor(() => expect(getByText('Pick what fits right now.')).toBeTruthy());
+    expect(queryByRole('button', { name: 'All time filter' })).toBeNull();
   });
 
-  it('shows every Journey under All time, the default', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByText } = render(Home, { props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() } });
+  it('creates a session and calls onOpen when a mode is chosen', async () => {
+    api.createSession.mockResolvedValue({ id: 'new-session' });
+    const onOpen = vi.fn();
+    const { getByText } = render(Home, { props: { onOpen } });
 
-    await waitFor(() => {
-      expect(getByText('This week journey')).toBeTruthy();
-      expect(getByText('This month journey')).toBeTruthy();
-      expect(getByText('This year journey')).toBeTruthy();
-      expect(getByText('Old journey')).toBeTruthy();
-    });
-  });
+    await fireEvent.click(await waitFor(() => getByText('Vent')));
 
-  it('shows a count next to each time period', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByRole } = render(Home, { props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() } });
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'This week filter' }).textContent).toContain('1');
-      expect(getByRole('button', { name: 'This month filter' }).textContent).toContain('2');
-      expect(getByRole('button', { name: 'This year filter' }).textContent).toContain('3');
-      expect(getByRole('button', { name: 'All time filter' }).textContent).toContain('4');
-    });
-  });
-
-  it('filters to only this week when This week is selected', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByRole, getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('Old journey'));
-    await fireEvent.click(getByRole('button', { name: 'This week filter' }));
-
-    await waitFor(() => {
-      expect(getByText('This week journey')).toBeTruthy();
-      expect(queryByText('This month journey')).toBeNull();
-      expect(queryByText('This year journey')).toBeNull();
-      expect(queryByText('Old journey')).toBeNull();
-    });
-  });
-
-  it('shows a mode filter chip row scoped to modes present in the selected period, and filters on click', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByRole, getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('Old journey'));
-    // This year -> s-week (vent), s-month (strategize), s-year (vent):
-    // two distinct modes, so the chip row appears.
-    await fireEvent.click(getByRole('button', { name: 'This year filter' }));
-    await waitFor(() => {
-      expect(getByText('Vent')).toBeTruthy();
-      expect(getByText('Strategize')).toBeTruthy();
-    });
-
-    await fireEvent.click(getByText('Strategize'));
-
-    await waitFor(() => {
-      expect(getByText('This month journey')).toBeTruthy();
-      expect(queryByText('This week journey')).toBeNull();
-      expect(queryByText('This year journey')).toBeNull();
-    });
-  });
-
-  it('resets the mode filter when the time period changes', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByRole, getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('Old journey'));
-    await fireEvent.click(getByRole('button', { name: 'This year filter' }));
-    await waitFor(() => getByText('Strategize'));
-    await fireEvent.click(getByText('Strategize'));
-    // Isolated to This month journey (the only strategize one) --
-    // confirms the filter actually applied before testing the reset.
-    await waitFor(() => expect(queryByText('This week journey')).toBeNull());
-
-    // If the mode filter carried over uncleared, This week would show
-    // nothing (This week journey is 'vent', not 'strategize').
-    await fireEvent.click(getByRole('button', { name: 'This week filter' }));
-
-    await waitFor(() => {
-      expect(getByText('This week journey')).toBeTruthy();
-    });
-  });
-
-  it('shows a contextual empty message when the selected period has no Journeys', async () => {
-    api.listSessions.mockResolvedValue([SESSIONS[3]]); // only the old one
-    const { getByRole, getByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('Old journey'));
-    await fireEvent.click(getByRole('button', { name: 'This week filter' }));
-
-    await waitFor(() => {
-      expect(getByText('No Journeys in this time period.')).toBeTruthy();
-    });
-  });
-
-  it('gives a Journey with a mode a colored left edge, and leaves a mode-less one plain', async () => {
-    api.listSessions.mockResolvedValue(SESSIONS);
-    const { getByText } = render(Home, { props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() } });
-
-    await waitFor(() => getByText('Old journey'));
-
-    const modedCard = getByText('This week journey').closest('button.journey-card');
-    expect(modedCard.getAttribute('style') ?? '').toContain('--mode-tint');
-
-    const modelessCard = getByText('Old journey').closest('button.journey-card');
-    expect(modelessCard.getAttribute('style') ?? '').not.toContain('--mode-tint');
-  });
-});
-
-// Auth, the low-friction way (2026-07-18, see frontend/decisions.md):
-// direct founder follow-up -- bookmarking is a login-required action,
-// and a "Log in" link sits at the bottom of Home "in line with
-// Settings" so a person doesn't have to detour through Settings first
-// to find where to log in.
-describe('Home: bookmark requires login, and a Log in link at the bottom', () => {
-  const ONE_SESSION = [
-    { id: 's1', preview_text: 'A single journey', updated_at: '2026-07-15T10:00:00Z', bookmarked: false, has_stagnation_signal: false, mode: null },
-  ];
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    vi.clearAllMocks();
-    api.getModes.mockResolvedValue(MODES);
-    api.listSessions.mockResolvedValue(ONE_SESSION);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('shows a Log in link at the bottom when signed out, and none when signed in', async () => {
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
-    const { getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('Settings'));
-    expect(getByText('Log in')).toBeTruthy();
-
-    authState.authenticated = true;
-    authState.email = 'person@example.com';
-    await waitFor(() => expect(queryByText('Log in')).toBeNull());
-  });
-
-  it('shows a login prompt instead of toggling the bookmark when signed out', async () => {
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
-    const { getByLabelText, getByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    const star = await waitFor(() => getByLabelText('Bookmark this Journey'));
-    await fireEvent.click(star);
-
-    await waitFor(() => getByText('Log in to bookmark Journeys.'));
-    expect(api.setBookmark).not.toHaveBeenCalled();
-  });
-
-  it('actually toggles the bookmark when signed in', async () => {
-    authState.checked = true;
-    authState.authenticated = true;
-    authState.email = 'person@example.com';
-    api.setBookmark.mockResolvedValue({ bookmarked: true });
-    const { getByLabelText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    const star = await waitFor(() => getByLabelText('Bookmark this Journey'));
-    await fireEvent.click(star);
-
-    await waitFor(() => expect(api.setBookmark).toHaveBeenCalledWith('s1', true));
-  });
-});
-
-// Two earlier login nudges (2026-07-18, see frontend/decisions.md) --
-// the Journey-completion half of it. loginNudgeState is a real,
-// module-level singleton (see loginNudge.svelte.js's own docstring for
-// why), so each test drives it directly via markJourneyCompleted the
-// same way Journey.svelte's handleBack does, rather than mocking the
-// module.
-describe('Home: Journey-completion login nudge', () => {
-  const NO_SESSIONS = [];
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    vi.clearAllMocks();
-    localStorage.clear();
-    loginNudgeState.pending = false;
-    loginNudgeState.sessionId = null;
-    api.getModes.mockResolvedValue(MODES);
-    api.listSessions.mockResolvedValue(NO_SESSIONS);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('shows the nudge once a Journey has just completed, signed out', async () => {
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
-    markJourneyCompleted('s1');
-
-    const { getByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
-  });
-
-  it('never shows the nudge when already signed in', async () => {
-    authState.checked = true;
-    authState.authenticated = true;
-    authState.email = 'person@example.com';
-    markJourneyCompleted('s1');
-
-    const { queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => expect(api.listSessions).toHaveBeenCalled());
-    expect(queryByText(/Want to keep that accessible everywhere/)).toBeNull();
-  });
-
-  it('dismissing the nudge hides it without calling the API', async () => {
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
-    markJourneyCompleted('s1');
-
-    const { getByText, getByLabelText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
-    await fireEvent.click(getByLabelText('Dismiss'));
-
-    expect(queryByText(/Want to keep that accessible everywhere/)).toBeNull();
-    expect(api.requestMagicLink).not.toHaveBeenCalled();
-  });
-
-  it('tapping Sign in reveals the login gate, carrying the completed Journey id', async () => {
-    authState.checked = true;
-    authState.authenticated = false;
-    authState.email = null;
-    markJourneyCompleted('s1');
-    api.requestMagicLink.mockResolvedValue({ sent: true });
-
-    const { getByText, getByPlaceholderText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText(/Want to keep that accessible everywhere/));
-    await fireEvent.click(getByText('Sign in'));
-    await fireEvent.input(await waitFor(() => getByPlaceholderText('you@example.com')), {
-      target: { value: 'me@example.com' },
-    });
-    await fireEvent.click(getByText('Send me a login link'));
-
-    await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
-  });
-});
-
-// Backlog #255 (see engine/decisions.md "Frontend: richer stagnation
-// wording sourced from Judgment's own stagnation_notes"): the aside
-// should prefer the real stagnation_note text when present, and only
-// fall back to the old fixed generic phrase when has_stagnation_signal
-// is true but stagnation_note is null (e.g. Judgment's own notes came
-// back empty that turn even though the mechanical WorldState check
-// found something).
-describe('Home: stagnation aside prefers real Judgment wording', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    vi.clearAllMocks();
-    api.getModes.mockResolvedValue(MODES);
-    authState.checked = true;
-    authState.authenticated = true;
-    authState.email = 'me@example.com';
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('renders the real stagnation_note text when present', async () => {
-    api.listSessions.mockResolvedValue([
-      {
-        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
-        bookmarked: false, has_stagnation_signal: true,
-        stagnation_note: 'You have not moved on this decision in several turns.', mode: null,
-      },
-    ]);
-
-    const { getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('You have not moved on this decision in several turns.'));
-    expect(queryByText("There's more to think through here.")).toBeNull();
-  });
-
-  it('falls back to the fixed generic phrase when has_stagnation_signal is true but stagnation_note is null', async () => {
-    api.listSessions.mockResolvedValue([
-      {
-        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
-        bookmarked: false, has_stagnation_signal: true, stagnation_note: null, mode: null,
-      },
-    ]);
-
-    const { getByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText("There's more to think through here."));
-  });
-
-  it('renders neither aside when has_stagnation_signal is false and stagnation_note is null', async () => {
-    api.listSessions.mockResolvedValue([
-      {
-        id: 's1', preview_text: 'A Journey', updated_at: '2026-07-15T10:00:00Z',
-        bookmarked: false, has_stagnation_signal: false, stagnation_note: null, mode: null,
-      },
-    ]);
-
-    const { getByText, queryByText } = render(Home, {
-      props: { onOpen: vi.fn(), onSettings: vi.fn(), onBeginNew: vi.fn() },
-    });
-
-    await waitFor(() => getByText('A Journey'));
-    expect(queryByText("There's more to think through here.")).toBeNull();
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith('vent'));
+    expect(onOpen).toHaveBeenCalledWith('new-session');
   });
 });

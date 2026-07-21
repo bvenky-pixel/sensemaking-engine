@@ -24,6 +24,22 @@ directly contradict v4:
 
 Pending your sign-off before implementation begins.
 
+**Note (2026-07-21, backlog #267):** the "three sanctioned screens"
+framing above is now historical. `information-architecture-v2.md`
+supersedes `information-architecture-v1.md`'s three-spaces count with
+five (Home, Activity, Journey, You, Settings) plus a center navigation
+action, reached via a persistent `TabBar.svelte`; see
+`engine/decisions.md`'s "Frontend IA v2" entries for the reasoning.
+Screens 1-3 below (Home, Journey, Settings) describe an early
+DISCUSSION-DRAFT design that predates both the later visual redesign
+(Headspace-inspired tokens, BreathingOrb, ZenQuote — see
+`product-experience-v1.md`'s own superseded-in-part note) and this IA
+change, so treat the concrete screen descriptions below as historical
+reasoning, not the shipped design. Activity (past-Journeys list,
+extracted from Home) and You (Personal Operating Model + Behavioral
+Patterns, extracted from Settings) are new screens this draft never
+anticipated and have no write-up here.
+
 ---
 
 ## Stack
