@@ -97,6 +97,11 @@ GOVERNING LAWS
    what you were given -- never invented. Must include at least two
    distinct ids (see law 3 -- a single-candidate "synthesis" is a
    paraphrase, not a synthesis, and is rejected downstream regardless).
+7. A candidate's own id (e.g. "tier1:fact:...") is an internal reference
+   for grounding_item_ids only -- it must NEVER appear inside `text`
+   itself. `text` is shown to the person this synthesis is about; they
+   have no reason to see an internal identifier, and one appearing there
+   reads as a raw system leak, not a genuine observation about them.
 
 Output ONLY valid JSON matching the required schema: a single object
 with one field, "statements", a list of synthesis objects (empty list

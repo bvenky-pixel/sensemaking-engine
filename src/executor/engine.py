@@ -33,8 +33,14 @@ silently guessed at call time:
                        using this instead of raw WorldState.unknowns
                        avoids re-doing that filtering ourselves, which
                        would be a new judgment call, not a template)
-- decisions         <- WorldState.decisions (every currently tracked
-                       decision's content, as-is)
+- decisions         <- WorldState.decisions, filtered to status "open" or
+                       "deferred" only (see _BRIEF_DECISION_STATUSES below
+                       -- unlike Tier 1's own _DECISION_VISIBLE_STATUSES,
+                       the brief's "In play"/"weighing as an option"
+                       framing is only true of a decision still actually
+                       being weighed; Tier 1 is a complete historical
+                       record and deliberately keeps "resolved" visible,
+                       but this template isn't that)
 
 Sparse-by-default holds here the same way it does throughout the
 Sensemaking Engine: an empty section is a structural consequence of an
@@ -105,6 +111,12 @@ def _word_overlap(text: str, reference: str) -> float:
 # src/state/builder.py's UNKNOWN_RESOLUTION_OVERLAP_THRESHOLD).
 _SITUATION_ECHO_THRESHOLD = 0.6
 
+# The brief's "In play" section reads as "you're weighing X as an
+# option" -- only true while a decision is still actually open or
+# deferred. "resolved"/"expired" decisions must not linger here forever
+# (see module docstring's `decisions` mapping entry).
+_BRIEF_DECISION_STATUSES = {"open", "deferred"}
+
 
 def build_clarity_brief(
     state: WorldState, judgment: Judgment, planner: Planner, last_user_message: str = "",
@@ -125,7 +137,9 @@ def build_clarity_brief(
         current_direction=to_second_person(planner.desired_outcome),
         remaining_unknowns=[to_second_person(item) for item in judgment.open_unknowns],
         decisions=[
-            f"You're weighing {to_second_person(d.content)} as an option." for d in state.decisions
+            f"You're weighing {to_second_person(d.content)} as an option."
+            for d in state.decisions
+            if d.status in _BRIEF_DECISION_STATUSES
         ],
     )
 

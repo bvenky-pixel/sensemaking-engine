@@ -112,6 +112,28 @@ def test_build_clarity_brief_keeps_situation_when_no_last_user_message_given():
     assert brief.situation == "You want to move to the Product team."
 
 
+def test_build_clarity_brief_excludes_resolved_and_expired_decisions():
+    """Regression test: build_clarity_brief used to render state.decisions
+    with no status filter at all, so a resolved or expired decision never
+    left the "In play" section -- it just accumulated there forever
+    alongside genuinely open ones. Only "open"/"deferred" belong here;
+    "resolved"/"expired" no longer read as something still being weighed."""
+    state = WorldState(
+        decisions=[
+            Decision(content="Still open option", status="open"),
+            Decision(content="Deferred option", status="deferred"),
+            Decision(content="Already resolved option", status="resolved"),
+            Decision(content="Expired option", status="expired"),
+        ],
+    )
+    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
+
+    assert brief.decisions == [
+        "You're weighing Still open option as an option.",
+        "You're weighing Deferred option as an option.",
+    ]
+
+
 def test_build_clarity_brief_never_touches_judgment_key_blockers_or_active_decisions():
     """The template is a specific, documented mapping -- confirms fields
     NOT in the mapping (key_blockers, active_decisions, contradictions)
