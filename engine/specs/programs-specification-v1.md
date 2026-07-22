@@ -103,14 +103,122 @@ framework. The engineering pattern (`type id -> dict of type-specific
 content`) does not need to be invented; it needs to be applied to a new
 kind of "type."
 
-Two worked stage sequences, inferred from the founder's own examples
-(NOT yet founder-confirmed -- flagged as an Open Question below):
+**Decided (founder/CPO, 2026-07-22): three worked stage sequences,
+confirmed after a full revision pass.** The original two-sequence draft
+(Decision, Confidence) is superseded below -- both were reworked, and
+Career Transition's sequence (previously undrafted, despite being named
+as a worked example throughout this spec) is now specified for the
+first time.
 
-- **Decision Program**: Frame the decision -> Explore options -> Test
-  assumptions -> Decide -> Commit -> Review outcome.
-- **Confidence Program**: Identify the avoided situation -> Design a
-  small experiment -> Attempt it -> Reflect -> Repeat with a harder
-  experiment.
+- **Decision Program**: Frame Decision -> Explore Options -> Reduce
+  Uncertainty -> Decide -> Live the Decision -> Review Outcome.
+  The original draft's "Test Assumptions" and "Commit" stages are both
+  gone. "Test Assumptions" is replaced by the deliberately broader
+  "Reduce Uncertainty" -- founder's own framing: assumption-testing is
+  one narrow way to reduce uncertainty, but experiments, conversations,
+  research, and observation all belong in this stage too. "Commit" is
+  cut entirely, not renamed -- founder's own diagnosis: it didn't
+  represent a distinct state transition ("Decide to leave job. Decision
+  made. The commitment is implicit."). "Live the Decision" is the real
+  addition in its place: the decision has entered reality (accepted the
+  new role, had the difficult conversation, moved cities) -- only once
+  that's true can Review Outcome evaluate actual consequences rather
+  than a still-hypothetical choice. Founder's own framing for the whole
+  arc: "Thinking -> Investigation -> Choice -> Reality -> Reflection...
+  much closer to life."
+- **Confidence Program**: Identify the Edge -> Take the First Step ->
+  Build Evidence -> Expand the Edge -> Internalize the Change. Founder's
+  own diagnosis of the original draft: "mechanically correct but
+  emotionally weak... describing the intervention, not the
+  transformation" -- a training-plan analogy shouldn't read as "Run,
+  Run Again, Run Again, Run Again." The repeated-attempt structure the
+  original draft put at the WHOLE-PROGRAM level (a bare "Repeat" stage)
+  moves down into "Expand the Edge" specifically -- that stage may
+  itself repeat many times as the person takes on harder versions of
+  the same challenge, but the Program as a whole still has a real
+  ending: "Internalize the Change" asks the key question ("Do I now see
+  myself differently?") and the Program can actually complete. See
+  "Every Program Must Be Completable," below -- this fix is the direct
+  answer to that principle for this Program type specifically.
+- **Career Transition Program**: Understand Current Reality -> Define
+  What You Want Next -> Explore Possible Paths -> Validate Options ->
+  Make the Transition -> Settle Into the New Reality. Founder's own
+  framing for why this needs to sit above job-board mechanics ("that's
+  LinkedIn. Confidant should operate at a higher level"): "Understand
+  Current Reality" probes what's actually wrong (burnout, a manager, the
+  industry, the role, identity -- not just "I want a new job"); "Define
+  What You Want Next" is named as the stage most people skip entirely,
+  since knowing what you dislike isn't the same as knowing what you
+  want; "Settle Into the New Reality" is the closing stage precisely
+  because early transition discomfort is otherwise easy to misread --
+  the Program's job here is helping the person tell adjustment
+  discomfort apart from a genuine mismatch, not just marking "moved"
+  and closing the file.
+
+---
+
+Stage Phases: Discovery / Action / Integration
+
+**A real structural addition on top of the three sequences above, not
+just naming polish** -- founder's own framing: "the bigger structural
+recommendation... not names, not counts, the stage architecture
+itself." Every stage across every Program Type belongs to one of three
+PHASES:
+
+| Phase | Goal | Examples across the three types above |
+|---|---|---|
+| Discovery | Understand | Frame Decision; Understand Current Reality; Identify the Edge |
+| Action | Generate reality | Reduce Uncertainty, Live the Decision; Validate Options, Make the Transition; Take the First Step, Build Evidence, Expand the Edge |
+| Integration | Convert experience into learning | Review Outcome; Settle Into the New Reality; Internalize the Change |
+
+Every stage above classifies cleanly into one of these three except
+one: Decision Program's "Decide" stage itself -- the choice-point
+between Discovery and Action, arguably belonging to neither. This spec
+tentatively classifies "Decide" as the last Discovery stage (the
+decision is made, but not yet real), on the reasoning that "Action" per
+this table's own definition means GENERATING reality, and a decision
+made but not yet acted on hasn't done that yet -- but this one
+classification is worth the founder's explicit confirmation rather than
+silently assumed correct along with everything else here.
+
+**Why this matters beyond labeling** (founder's own reasoning, worth
+preserving verbatim): "eventually Claude can reason about stage
+transitions more intelligently. Instead of: Decision Program, Stage 4.
+You know: Decision Program, Integration Phase. This becomes useful
+across all future programs." Concretely: `program_context` (see
+"Threading Program Context Into a Turn," below) can name the PHASE
+generically ("This Journey is in the Integration phase of an active
+Program") in addition to the type-specific stage name -- meaning
+Planner/Response prompt guidance can eventually be written once, per
+phase, and apply across every current and future Program Type, rather
+than needing bespoke guidance rewritten for each new type's own stage
+names. This spec does not propose building phase-conditioned prompt
+behavior in v1 (see "Deliberately Out of Scope for v1," below) -- the
+phase taxonomy is specified now because retrofitting it onto stage data
+that didn't carry it from the start would be real rework later, not
+because phase-aware prompting itself needs to ship this round.
+
+**Data model implication**: `programs.stage` (see Data Model, below)
+stores a stage ID string (e.g. `"reduce_uncertainty"`), not the phase --
+phase is looked up from a new `PROGRAM_TYPE_STAGES` dict (`{program_type:
+[{"id", "label", "phase"}, ...]}`), the same "don't persist what can be
+derived" discipline this spec already applies to Program "history"
+above, and the same `type id -> dict of type-specific content` shape
+already proven by `PLANNER_MODE_FOCUS`.
+
+---
+
+Every Program Must Be Completable
+
+New, explicit design principle, stated because it changed the Confidence
+Program's own redesign above and should constrain every future Program
+Type too. Founder's own framing: "I think every Program should be
+completable. Otherwise the Plans tab becomes a graveyard of perpetual
+processes." A Program Type whose stage sequence has no real Integration-
+phase ending (the original Confidence draft's bare "Repeat" was exactly
+this failure) is a design defect, not a stylistic choice -- any future
+Program Type added to `PROGRAM_TYPE_STAGES` must end in a genuine
+Integration-phase stage, the same way these three now do.
 
 ---
 
@@ -129,8 +237,11 @@ CREATE TABLE IF NOT EXISTS programs (
     title TEXT NOT NULL,            -- e.g. "Career Move" (the specific
                                      -- instance, not the type's own name)
     status TEXT NOT NULL DEFAULT 'active',  -- active | completed | archived
-    stage TEXT NOT NULL,            -- current stage within program_type's
-                                     -- own stage sequence
+    stage TEXT NOT NULL,            -- stage id within program_type's own
+                                     -- PROGRAM_TYPE_STAGES sequence (e.g.
+                                     -- "reduce_uncertainty") -- phase
+                                     -- (discovery/action/integration) is
+                                     -- looked up from that dict, not stored
     progress_summary TEXT NOT NULL DEFAULT '',  -- prose, NOT a percentage
                                      -- -- see "No Progress Bars" below
     created_at TEXT NOT NULL,
@@ -266,11 +377,16 @@ plumbing pattern exactly: `mode` is already threaded through
 `planner_mode_focus_note`/`response_mode_focus_note` as a pre-resolved
 string parameter into `build_messages` (see `src/planner/prompt.py`,
 `src/response/prompt.py`). A `program_context: str` parameter follows
-the identical shape -- built once (e.g. "This Journey is part of an
-active Decision Program ('Career Move'), currently at the 'Explore
-options' stage. Two experiments logged: [...]. Last review: [...]"),
-passed alongside `mode`, requiring no change to either prompt-building
-function's own contract beyond one more optional string.
+the identical shape -- built once (e.g. "This is part of an ongoing
+thread called 'Career Move,' currently at the 'Reduce Uncertainty'
+stage (Action phase). Two experiments logged: [...]. Last review:
+[...]"), passed alongside `mode`, requiring no change to either
+prompt-building function's own contract beyond one more optional
+string. Naming both the stage AND its phase here, rather than the stage
+alone, is exactly the payoff described in "Stage Phases," above -- it
+costs nothing extra to include today, and positions future phase-
+conditioned prompt guidance to slot in without touching this threading
+mechanism again.
 
 ---
 
@@ -341,23 +457,25 @@ Decided (founder/CPO, 2026-07-22)
 
 Open Questions
 
-1. **Stage sequences.** The two worked examples above (Decision,
-   Confidence) are this spec's own inference from the founder's memo,
-   NOT yet founder-confirmed. Under active discussion now -- see the
-   conversation following this spec for the live revision pass, same
-   rigor as Priority 4's per-mode framework table.
+All prior open questions are now resolved (see Decided sections
+throughout this document). One narrow item remains, deliberately kept
+open rather than force-closed:
+
+1. **"Decide" stage's phase classification** (Decision Program). This
+   spec tentatively classifies it as Discovery-phase (see "Stage
+   Phases," above) on the reasoning that Action means generating
+   reality and a decision not yet acted on hasn't done that -- but this
+   is this spec's own tentative call, not yet explicitly confirmed the
+   way the rest of the phase table was. Low-stakes to leave open:
+   `PROGRAM_TYPE_STAGES`' `phase` value for this one stage is a one-line
+   change whenever it's confirmed, and nothing else in the rollout below
+   depends on it being resolved first.
 
 ---
 
 Rollout
 
-1. Confirm the stage sequences (Open Question 1) with the founder before
-   writing schema code -- `programs.stage` and the per-type stage-name
-   dictionaries are the one remaining piece of content this spec needs
-   before implementation, now that every architectural fork (login,
-   recommendation mechanism, mode orthogonality, progress_summary
-   authorship, naming, stage display) is decided above.
-2. Build the data model (`programs`, `program_experiments`,
+1. Build the data model (`programs`, `program_experiments`,
    `program_reviews`, `sessions.program_id`) and CRUD API endpoints
    (`POST/GET /programs`, `GET /programs/{id}`, status transitions),
    mirroring existing endpoint conventions in `src/api/server.py`.
