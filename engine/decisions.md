@@ -12300,3 +12300,58 @@ readable against its pale background.
 
 Verified: 120 frontend tests (3 new), `npm run build` clean, full
 `pytest` 576 passed (no Python touched).
+
+## Clarity Brief during the wait (2026-07-22, backlog #236)
+
+Picking up the latency backlog (#233-236, all `[pending]` since the
+north-star doc that scoped them). Started with #236 specifically
+because `engine/specs/latency-northstar-v1.md`'s own "Frontend-only
+mitigations" section already fully specified it as **"zero backend
+change, zero new latency cost"** -- the lowest-risk item of the four,
+worth shipping first rather than picked arbitrarily.
+
+**The fix, exactly as scoped**: `Journey.svelte` previously rendered
+`<Understanding>` (which renders the Clarity Brief) below the Composer,
+at the very bottom of the screen. `Understanding`'s `brief` prop is
+already fully populated from the END of the PREVIOUS turn by the time
+`sending` flips true on the NEXT one (`refreshBrief()` runs at
+`onMount` and again after every completed send) -- nothing about it
+depends on the in-flight turn finishing. Its low position meant it sat
+below the (disabled-while-sending) Composer, easy to miss during
+exactly the ~40-50s wait (per the north-star doc's own measured
+baseline) when it's the one thing actually worth reading instead of
+watching the orb animate. Moved to render immediately after the
+orb-companion/stage-label block, before the Composer -- unconditionally
+(not only while `sending`), so there's no layout jump the instant a
+send starts or finishes.
+
+**Also fixed while touching orb-adjacent styling**: `Understanding.svelte`'s
+own `.orb-signature` dot and card list-marker dots were the one spot
+missed in the accent-color-picker round earlier this session -- still a
+fixed peach-to-coral gradient (`#FFD4BE`) rather than `color-mix()`
+against `var(--accent)` like `BreathingOrb`/`AmbientPresence` got. Fixed
+to match, so the orb's "voice" markers scattered through the Clarity
+Brief now also re-tint with whichever accent theme is chosen.
+
+**Verification, and its real limits in this sandbox**: this environment
+has no `OPENROUTER_API_KEY` available, so a genuine two-turn
+conversation (real Judgment/Planner output populating a real brief,
+then observing it during a real second-turn wait) isn't runnable here
+end-to-end. Rather than fabricate that check, verified what's actually
+verifiable: a new Vitest case in `Journey.test.js` renders with a
+mocked (but realistic-shaped) Clarity Brief already present, holds
+`sending` at `true` via a never-resolving `sendMessage` mock, and
+asserts via `compareDocumentPosition` that the Understanding region
+precedes the Composer's `<textarea>` in DOM source order -- which is
+what actually determines visual order for this normal-flow, non-
+absolutely-positioned markup (this is the thing a live Playwright pixel
+check would otherwise confirm, substituted honestly rather than
+skipped or faked). Separately live-verified against the running app
+with Playwright that starting a Journey, sending, and hitting the
+expected `OPENROUTER_API_KEY`-missing failure produces no console
+errors and no broken/empty Understanding region in its new position
+(the `{#if brief || tier2?.length}` guard correctly renders nothing
+until a real brief exists).
+
+Verified: 121 frontend tests (1 new), `npm run build` clean, full
+`pytest` 576 passed (no Python touched).

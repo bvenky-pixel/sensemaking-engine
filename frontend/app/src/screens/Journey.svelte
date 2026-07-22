@@ -458,6 +458,22 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Clarity Brief during the wait, not after (2026-07-22, backlog
+       #236, see engine/specs/latency-northstar-v1.md's own "Frontend-
+       only mitigations" #1): moved from below the Composer to right
+       after the orb -- zero backend change, since `brief` is already
+       fully computed from the END of the PREVIOUS turn the moment this
+       screen mounts (refreshBrief() at onMount, and again after every
+       completed send). It used to sit below the (disabled-while-
+       sending) Composer, easy to miss during the exact moment -- a
+       ~40-50s wait per the north-star doc's own measured baseline --
+       when it's the one thing actually worth reading instead of
+       watching the orb animate. Rendered in the same position whether
+       `sending` is true or not, not conditionally moved, so there's no
+       layout jump the instant a send starts or finishes. -->
+  <Understanding {brief} {tier2} {deepeningClarityNote} />
+
   {#if responseLimitReached}
     <div class="limit-gate card" in:fade={{ duration: 220 }}>
       <LoginGate
@@ -493,8 +509,6 @@
     {/if}
     <Composer disabled={sending} onSend={handleSend} />
   {/if}
-
-  <Understanding {brief} {tier2} {deepeningClarityNote} />
   {/if}
 </div>
 

@@ -521,3 +521,69 @@ describe('Journey proximity login nudge', () => {
     await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
   });
 });
+
+// Clarity Brief during the wait, not after (2026-07-22, backlog #236,
+// see engine/decisions.md "Clarity Brief during the wait" and
+// engine/specs/latency-northstar-v1.md's own "Frontend-only
+// mitigations" #1) -- Understanding moved from below the Composer to
+// right after the orb-companion, so it's the thing a person sees during
+// a long `sending` wait instead of only after. jsdom doesn't do real
+// layout, so this can't check pixel position (that's what the earlier
+// live Playwright verification round covered) -- it checks DOM SOURCE
+// order instead, via compareDocumentPosition, which is what actually
+// determines visual order for this normal-flow, non-absolutely-
+// positioned markup.
+describe('Journey: Clarity Brief position during the wait', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getMessages.mockResolvedValue([{ role: 'user', content: 'I keep putting off a hard conversation.', created_at: '' }]);
+    api.getClarityBrief.mockResolvedValue({
+      situation: 'Weighing whether to raise a workload concern with a manager.',
+      current_direction: 'Leaning toward having the conversation soon.',
+      key_insights: ['The delay itself is adding stress.'],
+      remaining_unknowns: [],
+      decisions: [],
+      secondary_issues: [],
+      stagnation_notes: [],
+    });
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    api.openStageStream.mockReturnValue(vi.fn());
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+  });
+
+  it('renders the Clarity Brief before the Composer in DOM order while a turn is sending', async () => {
+    // Never resolves within the test -- holds `sending` at true so the
+    // in-flight layout (the exact moment this backlog item is about)
+    // is what gets asserted against, not the settled-afterward one.
+    api.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { getByText, getByPlaceholderText, container } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Weighing whether to raise a workload concern/));
+
+    const composer = getByPlaceholderText("What's on your mind?");
+    await fireEvent.input(composer, { target: { value: 'And I know putting it off only makes it worse.' } });
+    await fireEvent.click(getByText('Share this'));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
+
+    const understandingRegion = container.querySelector('[aria-label="What we understand so far"]');
+    const composerTextarea = container.querySelector('textarea');
+    expect(understandingRegion).toBeTruthy();
+    expect(composerTextarea).toBeTruthy();
+    // DOCUMENT_POSITION_FOLLOWING on composerTextarea (relative to
+    // understandingRegion) means understandingRegion comes first in
+    // source order -- i.e. Composer, not Understanding.
+    const position = understandingRegion.compareDocumentPosition(composerTextarea);
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
