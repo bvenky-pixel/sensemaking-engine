@@ -1,0 +1,62 @@
+name: Tier2 background verification
+
+# Manual only -- live proof for backlog #235 ("Tier2 moved off the
+# critical path", see engine/decisions.md) that POST /sessions/{id}/messages
+# no longer blocks the response on Tier2's LLM call. Starts the real MVP
+# API server (same pattern as api-smoketest.yml) and runs
+# scripts/verify_tier2_background.py against it with a real
+# OPENROUTER_API_KEY -- this can't be exercised by
+# worldstate-walkthrough.yml, which calls run_turn directly and never
+# goes through src/api/server.py's background-task wiring at all.
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start the API server
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONFIDANT_TRACK_USAGE: "1"
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          nohup python3 -m uvicorn src.api.server:app --host 127.0.0.1 --port 8000 \
+            > server.log 2>&1 &
+          echo "server_pid=$!" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 20); do
+            if curl -s -o /dev/null http://127.0.0.1:8000/; then
+              echo "Server is up."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Verify Tier2 completes off the response critical path
+        run: python3 scripts/verify_tier2_background.py
+
+      - name: Server log (always shown for debugging)
+        if: always()
+        run: cat server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: kill "$server_pid" 2>/dev/null || true
