@@ -12355,3 +12355,58 @@ until a real brief exists).
 
 Verified: 121 frontend tests (1 new), `npm run build` clean, full
 `pytest` 576 passed (no Python touched).
+
+## Switch shared reasoning tier's primary to Gemini 2.5 Flash Lite (2026-07-22, backlog #234)
+
+Continuing the latency backlog after #236. #234 asked to evaluate
+faster (not just cheaper) models per stage. Dispatched
+`worldstate-walkthrough.yml` against the same 11-turn career-decision
+transcript the North Star baseline itself uses
+(`engine/specs/latency-northstar-v1.md`), with `openrouter_model:
+google/gemini-2.5-flash-lite` forced across every stage (GitHub Actions
+run `29886121679`) -- Flash Lite was already an approved, currently-
+deployed production model (the shared reasoning tier's existing
+fallback), so this required no new model authorization, only a
+decision about promoting it to primary.
+
+**Turn 10** (the same turn number the North Star baseline itself
+reports, for a clean comparison):
+
+| Stage | Qwen3-32B (baseline) | Gemini 2.5 Flash Lite |
+|---|---|---|
+| Interpretation | 11.7 s | 2.1 s |
+| Judgment | 13.8 s | 6.3 s |
+| Tier2 | 14.0 s | 8.5 s |
+| Planner | 8.5 s | 3.2 s |
+| Response | 4.9 s (deepseek-chat) | 3.6 s |
+| **Turn total** | **53.0 s** | **23.6 s** |
+
+The other three turns retrievable from that run's log (GitHub only
+returns the tail of very long job logs, so only turns 8, 9, 11 besides
+10 were reachable) landed in the same 19-25s range, so turn 10 wasn't a
+fluke. Reliability was clean: 55/55 calls succeeded, 11/11 turns
+completed (the baseline run had one dropped Interpretation call).
+
+Reported the numbers plainly rather than silently repinning production
+(per this session's standing discipline, and CLAUDE.md's requirement to
+ask before changing the model default). Founder's decision: switch
+Gemini 2.5 Flash Lite to primary for every shared-reasoning-tier
+component (Interpretation, Tier2, Judgment, Planner, Insight, POM),
+keep Response on `deepseek/deepseek-chat` unchanged. Implemented by
+reversing `_SHARED_REASONING_CHAIN` in `src/llm/providers.py` --
+`["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]` -- so Qwen3-32B
+becomes the fallback instead of the primary. No `fly.toml` change
+needed (it doesn't pin `OPENROUTER_MODEL`, by design, so this map is
+already what production reads). Updated `tests/test_llm_providers.py`'s
+chain-order assertions and fallback-behavior tests to match.
+
+**What this measurement did NOT cover**: response quality/compliance.
+This was a speed-and-reliability comparison only -- Qwen3-32B's
+per-field compliance was never directly re-validated against Flash
+Lite's. Worth a calibration pass (same discipline as
+`has_knowledge_correction`'s calibration campaign) if output quality
+regresses in practice; nothing in this round suggested it would, but
+nothing confirmed it wouldn't either.
+
+Verified: `pytest tests/test_llm_providers.py` (25/25) and full suite
+(576/576) green after the swap.

@@ -66,14 +66,24 @@ str-returning signature with `_resolve_model_chain` returning an
 ordered `List[str]`:
 
 - Shared reasoning tier (Interpretation, Tier2, Judgment, Planner,
-  Insight, POM) -- `qwen/qwen3-32b` PRIMARY ($0.08 in / $0.28 out per
-  1M, cheaper than the prior `google/gemini-2.5-flash-lite` pin on both
-  axes), with `google/gemini-2.5-flash-lite` ($0.10/$0.40) as FALLBACK
-  if Qwen3-32B's call fails for any reason (unreachable, timeout,
-  malformed response -- anything `call_openrouter` already surfaces as
-  `ProviderCallError`). Qwen3 is routed through third-party inference
-  providers on OpenRouter rather than a direct-from-lab route, so a
-  fallback here is a real reliability hedge, not a formality.
+  Insight, POM) -- `google/gemini-2.5-flash-lite` PRIMARY ($0.10/$0.40),
+  with `qwen/qwen3-32b` ($0.08 in / $0.28 out) as FALLBACK if Flash
+  Lite's call fails for any reason (unreachable, timeout, malformed
+  response -- anything `call_openrouter` already surfaces as
+  `ProviderCallError`). REVERSED (2026-07-22, see engine/decisions.md
+  "Switch shared reasoning tier's primary to Gemini 2.5 Flash Lite") from
+  the prior Qwen3-32B-primary ordering: Qwen3 was cheaper per-token, but
+  a live-dispatch latency comparison on the same 11-turn transcript
+  (same turn 10 the North Star baseline itself measures) showed Flash
+  Lite completing that turn's 5 stages in 23.6s against Qwen3's 53.0s --
+  roughly half, and consistently so across the other 3 turns pulled from
+  that run too. Flash Lite was already the trusted fallback in
+  production before this swap, so this is a reordering of an
+  already-approved chain, not the introduction of a new model. Quality
+  was not re-validated as part of this latency measurement -- only
+  speed and reliability (55/55 calls succeeded in the comparison run,
+  vs. Qwen3's one dropped Interpretation call in the baseline run) --
+  worth another calibration pass if response quality regresses.
 - Response -- `deepseek/deepseek-chat` (DeepSeek V3, $0.20 in / $0.80
   out), replacing `openai/gpt-4.1-mini` ($0.40/$1.60) -- half the price
   on both axes, chosen specifically (not just "the cheapest option")
@@ -176,7 +186,7 @@ def _first_env(*names: str) -> Optional[str]:
 # through to _FALLBACK_CHAIN below like any other unmapped component.
 # Values are ORDERED chains -- call_openrouter tries each model in turn,
 # only raising ProviderCallError once every model in the chain has failed.
-_SHARED_REASONING_CHAIN = ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]
+_SHARED_REASONING_CHAIN = ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]
 
 _DEFAULT_COMPONENT_MODELS = {
     "Interpretation": _SHARED_REASONING_CHAIN,
