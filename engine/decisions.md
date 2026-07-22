@@ -12631,7 +12631,7 @@ event) -- full `pytest` 597/597. 2 new frontend tests
 clean replacement by the real message with no duplicate. Full `npm
 test` 123/123, `npm run build` clean.
 
-**Not yet live-verified**: a new script/workflow
+**Not live-dispatched this round**: a new script/workflow
 (`scripts/verify_response_streaming.py`, `.github/workflows/response-streaming-verify.yml`)
 is written and locally sanity-checked (fails cleanly on the expected
 missing-`OPENROUTER_API_KEY` error, same as every other local check
@@ -12640,8 +12640,12 @@ real `{"token": ...}` events arrive, concatenate to exactly the final
 `response_text`, and all precede the `"response"` stage event -- the
 one thing no mocked test above can confirm: that OpenRouter's actual
 streaming response shape matches what `_consume_openrouter_stream`
-assumes. Dispatching it requires the same one-time workflow-file-only
+assumes. Dispatching it would require the same one-time workflow-file-only
 push to `main` #235's verification workflow needed (GitHub won't
 dispatch a `workflow_dispatch` workflow via the API until its file
-exists on the default branch) -- not done yet this round, pending
-confirmation.
+exists on the default branch); asking again this round was declined, so
+this stays committed and ready but undispatched -- the 18 backend + 2
+frontend tests (which mock OpenRouter's documented streaming shape
+directly, including the usage-only final chunk and `[DONE]` sentinel)
+are the coverage this ships with. Real-world confirmation of the exact
+wire format remains a real, open gap until someone runs it.
