@@ -170,6 +170,15 @@ class ClarityBriefResponse(BaseModel):
     decisions: List[str]
     rendered_markdown: str
 
+    # v2 (added 2026-07-22, see engine/decisions.md and
+    # clarity-brief-specification-v1.md "The Eight Sections") -- four new
+    # ClarityBrief fields (src/executor/schema.py), exposed the same
+    # direct way as the five above.
+    known_facts: List[str] = []
+    competing_priorities: List[str] = []
+    contradictions: List[str] = []
+    emerging_patterns: List[str] = []
+
     # Added for the real frontend's "quiet discovery" moment (see
     # frontend/specs/screen-design-v1.md, frontend/decisions.md "Build
     # the real Confidant frontend") -- NOT part of Executor's own fixed

@@ -6,8 +6,7 @@ import { authState, checkAuth, consumeMagicLinkFromUrl, sendLoginLink, logout } 
 // low-friction way") -- lib/auth.svelte.js is the one shared reactive
 // store App.svelte/Settings.svelte/Journey.svelte all read from; tested
 // directly here (no component render needed) the same way
-// deepeningClarity.test.js/honestFailure.test.js test their own plain
-// lib modules.
+// honestFailure.test.js tests its own plain lib module.
 vi.mock('../lib/api.js', () => ({
   getAuthStatus: vi.fn(),
   requestMagicLink: vi.fn(),

@@ -77,15 +77,52 @@
   // voiced and unvoiced text. ui-label headings stay upright on
   // purpose -- they're navigation chrome, not the orb's own words, and
   // that contrast is what makes the voiced content read as content.
-  let { brief, tier2 = [], deepeningClarityNote } = $props();
+  //
+  // Clarity Brief v2 (2026-07-22, see engine/decisions.md and
+  // clarity-brief-specification-v1.md "The Eight Sections"): three new
+  // cards below (known_facts, competing_priorities, contradictions),
+  // same settled-card treatment as key_insights/decisions -- each is a
+  // curated Judgment/Executor conclusion, not open/pending content.
+  // `brief.emerging_patterns` deliberately does NOT get a fourth new
+  // card of its own, even though it's now a named ClarityBrief field --
+  // it's the exact same tier2 content "Putting it together" already
+  // renders (the spec's own "reframe, not new build" framing), and this
+  // component keeps sourcing that card from the separate `tier2` prop
+  // rather than `brief.emerging_patterns` for one structural reason:
+  // Tier 2 computes and this component renders it even with NO Clarity
+  // Brief yet (`brief` can be null while `tier2` is populated -- see
+  // this file's own test suite,
+  // "renders tier2 content even when there is no clarity brief yet").
+  // Switching the source to `brief.emerging_patterns` would silently
+  // drop that case. Adding a second, brief-sourced card for the same
+  // content would recreate the exact "two adjacent panels both claiming
+  // to be the current understanding" problem this spec explicitly
+  // named as the reason to fold Tier 2 into the Brief in the first
+  // place -- so the existing tier2-prop card stays the ONE home for
+  // this content, unchanged.
+  //
+  // `whatChanged` (new, replaces the old client-side
+  // `deepeningClarityNote` prop) is computed SERVER-SIDE now
+  // (src/executor/engine.py::diff_clarity_briefs, per the spec's own
+  // "Decided" section -- "not a presentation concern, a product
+  // intelligence concern") and can be a real, multi-item list, not a
+  // single generic sentence -- rendered as its own small list inside
+  // the callout rather than one flat sentence.
+  let { brief, tier2 = [], whatChanged = [] } = $props();
 </script>
 
 {#if brief || tier2?.length}
   <div class="understanding-region" aria-label="What we understand so far">
     <div class="orb-signature" aria-hidden="true"></div>
 
-    {#if deepeningClarityNote}
-      <p class="voice callout">{deepeningClarityNote}</p>
+    {#if whatChanged?.length}
+      <div class="voice callout">
+        <ul>
+          {#each whatChanged as change}
+            <li>{change}</li>
+          {/each}
+        </ul>
+      </div>
     {/if}
 
     {#if brief?.situation || brief?.current_direction}
@@ -111,6 +148,17 @@
       </section>
     {/if}
 
+    {#if brief?.known_facts?.length}
+      <section class="card card-settled card-secondary" aria-label="What I know" transition:fade={{ duration: 320 }}>
+        <p class="ui-label">What I know</p>
+        <ul>
+          {#each brief.known_facts as fact}
+            <li>{fact}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
     {#if tier2?.length}
       <section class="card card-settled card-secondary" aria-label="Putting it together" transition:fade={{ duration: 320 }}>
         <p class="ui-label">Putting it together</p>
@@ -128,6 +176,28 @@
         <ul>
           {#each brief.remaining_unknowns as unknown}
             <li>{unknown}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if brief?.competing_priorities?.length}
+      <section class="card card-settled card-secondary" aria-label="Pulling you in different directions" transition:fade={{ duration: 320 }}>
+        <p class="ui-label">Pulling you in different directions</p>
+        <ul>
+          {#each brief.competing_priorities as priority}
+            <li>{priority}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if brief?.contradictions?.length}
+      <section class="card card-settled card-secondary" aria-label="Worth a second look" transition:fade={{ duration: 320 }}>
+        <p class="ui-label">Worth a second look</p>
+        <ul>
+          {#each brief.contradictions as contradiction}
+            <li>{contradiction}</li>
           {/each}
         </ul>
       </section>
@@ -242,5 +312,37 @@
     padding: var(--space-2) var(--space-3);
     background: color-mix(in srgb, var(--accent-2) 10%, transparent);
     border-radius: var(--radius-sm);
+  }
+
+  /* what_changed (server-computed, see script comment above) can be a
+     real multi-item list now, not one flat sentence -- same italic
+     voice as everything else in this region, but its own marker color
+     (matches .callout's own accent-2, not the orb-signature gradient
+     dot the .card lists use) so it still reads as its own distinct
+     kind of note. */
+  .callout ul {
+    list-style: none;
+    margin: 0;
+    padding-left: var(--space-3);
+  }
+
+  .callout li {
+    font-style: italic;
+    position: relative;
+  }
+
+  .callout li + li {
+    margin-top: var(--space-1);
+  }
+
+  .callout li::before {
+    content: '';
+    position: absolute;
+    left: -17px;
+    top: 0.55em;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-2);
   }
 </style>

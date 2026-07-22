@@ -12933,3 +12933,51 @@ new Brief sections (`known_facts`, `competing_priorities`,
 frontend; that's Rollout step 3, tracked separately. Live-dispatch
 verification against the 11-turn walkthrough transcript (Rollout step
 4) also still pending.
+
+**Rollout step 3 -- `ClarityBriefResponse` + `Understanding.svelte`.**
+`known_facts`, `competing_priorities`, `contradictions`,
+`emerging_patterns` added to `ClarityBriefResponse` (`src/api/schema.py`)
+-- previously silently dropped from the JSON response even though
+`build_clarity_brief` already computed them, since Pydantic ignores
+extra kwargs not declared on the target model. `Understanding.svelte`
+gains three new settled cards, jargon-free headings matching this
+component's existing "no raw backend vocabulary" discipline: "What I
+know" (`known_facts`), "Pulling you in different directions"
+(`competing_priorities`), "Worth a second look" (`contradictions`).
+`emerging_patterns` deliberately does NOT get a fourth new card --
+documented directly in the component: it's the same tier2 content
+already rendered as "Putting it together," and this component's own
+test suite requires that card to keep working even when there's no
+Clarity Brief yet (`brief` can be null while `tier2` is populated,
+since Tier 2 computes independently of a completed Judgment/Planner
+pass) -- switching its source to `brief.emerging_patterns` would
+silently break that case, and adding a second card for the same
+content would recreate the exact "two panels both claiming to be the
+current understanding" problem the spec named as the reason to fold
+Tier 2 into the Brief in the first place.
+
+The client-side `deepeningClarityNote` mechanism
+(`frontend/app/src/lib/deepeningClarity.js`, a count-based diff against
+the in-memory previous brief) is retired entirely, not just unused --
+`Understanding.svelte` now takes a `whatChanged: string[]` prop sourced
+directly from the new server-computed `ClarityBriefResponse.what_changed`
+(previous rollout step), rendered as its own small list inside the
+existing `.callout` treatment rather than one flat sentence.
+`Journey.svelte`'s `refreshBrief()` simplified to match (no longer
+computes anything itself, just reads `next.what_changed`).
+`deepeningClarity.js` and its dedicated test file deleted.
+
+Tests: `tests/Understanding.test.js` updated (whatChanged prop, list
+rendering) plus 6 new tests for the three new cards (renders + omits-
+when-empty, each). Full frontend suite 126/126, full `pytest` 631/631.
+
+Verification note: confirmed via `Understanding.svelte`'s own component
+test suite (`@testing-library/svelte`, which mounts and renders real
+DOM, not a shallow mock) that all three new cards and the
+`whatChanged` list render with real content and the correct headings.
+Did NOT complete a full click-through Playwright pass of the live app
+(Home's mode picker didn't render under a quick route-stubbed
+smoke-check, an unrelated pre-existing wiring gap in the test harness
+setup, not this change) -- noted explicitly rather than silently
+skipped, since this is the one verification step short of this
+round's usual full end-to-end visual check.

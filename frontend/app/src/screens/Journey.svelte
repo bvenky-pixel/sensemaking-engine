@@ -15,7 +15,6 @@
     ApiError,
   } from '../lib/api.js';
   import { honestFailureMessage } from '../lib/honestFailure.js';
-  import { noteDeepeningClarity } from '../lib/deepeningClarity.js';
   import Transcript from '../components/Transcript.svelte';
   import Composer from '../components/Composer.svelte';
   import AmbientPresence from '../components/AmbientPresence.svelte';
@@ -99,7 +98,12 @@
       ? [...messages, { role: 'assistant', content: streamingText, created_at: '', options: [] }]
       : messages,
   );
-  let deepeningClarityNote = $state('');
+  // Server-computed now (2026-07-22, see engine/decisions.md and
+  // clarity-brief-specification-v1.md "Decided" section) --
+  // src/executor/engine.py::diff_clarity_briefs, not a client-side diff
+  // against the previous in-memory `brief` (that mechanism,
+  // lib/deepeningClarity.js, is superseded, not just unused, by this).
+  let whatChanged = $state([]);
   // Incremented once per real backend stage-completion event during a
   // turn (see AmbientPresence.svelte, engine/decisions.md "Major
   // update" Part 5) -- a plain counter, not the stage names themselves,
@@ -147,10 +151,9 @@
   let submittingReflection = $state(false);
 
   async function refreshBrief() {
-    const previous = brief;
     const next = await getClarityBrief(sessionId);
     if (next) {
-      deepeningClarityNote = noteDeepeningClarity(previous, next);
+      whatChanged = next.what_changed || [];
       brief = next;
     }
   }
@@ -559,7 +562,7 @@
       <span class="chevron" aria-hidden="true">{understandingExpanded ? '▾' : '▸'}</span>
     </button>
     {#if understandingExpanded}
-      <Understanding {brief} {tier2} {deepeningClarityNote} />
+      <Understanding {brief} {tier2} {whatChanged} />
     {/if}
   {/if}
   {/if}
