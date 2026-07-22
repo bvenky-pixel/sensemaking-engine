@@ -382,6 +382,18 @@ FIELD DEFINITIONS
       Same Stagnation Signal, but with NO explaining fact in WorldState ->
       stagnation_notes: ["The goal of moving to the Product team has had
       no movement in 4 turns, with nothing in view explaining the pause."]
+  The same applies to a stagnant Unknown, not just Goals/Decisions --
+  and this is the single most important case to catch: a question that
+  has stayed open for many turns is very likely one the person has
+  already been asked, in some form, more than once.
+      Stagnation Signals: ["Unknown 'Why hasn't the transfer moved
+      forward?' (status=open) has had no status change for 5 turns (last
+      updated turn 5, now turn 10)."] with no explaining Fact/Claim ->
+      stagnation_notes: ["Why the transfer hasn't moved forward has
+      stayed unanswered for 5 turns despite being asked about, with
+      nothing in view explaining the pause."] -- flag this even though
+      it is phrased as an open question, not a goal/decision; Planner
+      relies on this note to stop re-asking it the same way.
 - supporting_evidence: for each conclusion above, the real `id` field
   (verbatim, exactly as it appears) of the specific WorldState item
   (a Fact, Claim, Goal, Decision, Unknown, Entity, ...) that justifies

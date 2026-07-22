@@ -74,13 +74,25 @@ def compute_stagnation_signals(
     elsewhere in this codebase: models don't reliably self-track things
     they should get right mechanically.
 
-    Scoped to Goals with status="active" and Decisions with status="open"
-    only -- a paused/completed/abandoned Goal or a resolved/deferred/
-    expired Decision isn't neglected, it's already been accounted for
-    (a "deferred" Decision in particular is an already-acknowledged
-    postponement, not an oversight). Items with no provenance (e.g.
-    constructed directly, bypassing update_state) are skipped rather than
-    treated as stagnant by default.
+    Scoped to Goals with status="active", Decisions with status="open",
+    and Unknowns with status="open" -- a paused/completed/abandoned Goal,
+    a resolved/deferred/expired Decision, or a resolved Unknown isn't
+    neglected, it's already been accounted for (a "deferred" Decision in
+    particular is an already-acknowledged postponement, not an
+    oversight). Items with no provenance (e.g. constructed directly,
+    bypassing update_state) are skipped rather than treated as stagnant
+    by default.
+
+    Unknowns added 2026-07-22 (direct founder feedback: conversation
+    responses felt "repetitive... asked the same questions again and
+    again") -- this function previously covered Goals/Decisions only,
+    leaving the exact pool Planner draws questions_to_explore from
+    (Judgment.open_unknowns, sourced from WorldState.unknowns) with no
+    mechanical staleness signal at all. An Unknown that survives many
+    turns without resolving is the direct, most common mechanical cause
+    of a person feeling asked the same question repeatedly -- it belongs
+    in this signal set for exactly the same reason a stalled Goal or
+    Decision already did.
 
     Returns plain-language fact strings for Judgment to reason over as
     input -- NOT a conclusion. Judgment decides which of these, if any,
@@ -106,6 +118,16 @@ def compute_stagnation_signals(
             signals.append(
                 f"Decision {decision.content!r} (status=open) has had no status change for "
                 f"{gap} turns (last updated turn {decision.provenance.last_updated}, now turn "
+                f"{state.turn_count})."
+            )
+    for unknown in state.unknowns:
+        if unknown.status != "open" or unknown.provenance is None:
+            continue
+        gap = state.turn_count - unknown.provenance.last_updated
+        if gap >= threshold:
+            signals.append(
+                f"Unknown {unknown.content!r} (status=open) has had no status change for "
+                f"{gap} turns (last updated turn {unknown.provenance.last_updated}, now turn "
                 f"{state.turn_count})."
             )
     return signals

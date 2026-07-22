@@ -67,6 +67,18 @@ def main() -> int:
     state = WorldState()
     failures = 0
     tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
+    # Repetition report (2026-07-22, direct founder feedback: conversations
+    # felt "repetitive... asked the same questions again and again") --
+    # collected turn-by-turn so a live dispatch can produce a compact,
+    # cross-turn summary at the very end of the log. This exists because
+    # GitHub Actions' get_job_logs truncates to roughly the last ~5000
+    # lines, which loses the early turns of an 11-turn transcript's own
+    # full per-turn dumps above -- printing this summary LAST (after
+    # everything else, including the usage summary) is what survives
+    # truncation regardless of transcript length. Printing-only, same
+    # "no behavior touched" precedent as the Tier 2 candidate-pool print
+    # added for backlog #289.
+    turn_summaries = []
 
     # Counseling modes (see engine/decisions.md): optional, env-set so a
     # dispatch of this script (or the GH Actions workflow wrapping it)
@@ -166,6 +178,14 @@ def main() -> int:
         else:
             print("[options] (none)")
 
+        turn_summaries.append({
+            "turn": i,
+            "stagnation_notes": list(result.judgment.stagnation_notes),
+            "conversational_strategy": result.planner.conversational_strategy,
+            "questions_to_explore": list(result.planner.questions_to_explore),
+            "response_text": result.response.response_text,
+        })
+
         if is_tracking_enabled():
             print_turn_summary(tracker.since(turn_start), tracker.outcomes_since(outcome_start))
 
@@ -240,6 +260,25 @@ def main() -> int:
                 f"  - {component}: {stats['successes']}/{stats['attempts']} succeeded "
                 f"({comp_rate_str})"
             )
+
+    # Repetition report (see turn_summaries' own comment above) -- printed
+    # LAST, deliberately, so it survives GitHub Actions log truncation
+    # even when the usage summary above also prints. Read down
+    # questions_to_explore and response_text across turns: the same
+    # open_unknown/question reappearing turn after turn with no
+    # conversational_strategy shift is exactly the "going in circles"
+    # pattern this round's prompt changes (Planner's mandatory
+    # stagnation_notes rule, the new Unknown stagnation signal) are meant
+    # to stop -- this section is what makes that pattern (or its absence)
+    # visible across the FULL transcript, not just whichever turns
+    # survived truncation.
+    print(f"\n{'=' * 70}\nREPETITION REPORT (per turn: stagnation notes, strategy, questions, response)")
+    for summary in turn_summaries:
+        print(f"\n-- Turn {summary['turn']} --")
+        print(f"  stagnation_notes: {summary['stagnation_notes'] or '(none)'}")
+        print(f"  conversational_strategy: {summary['conversational_strategy']!r}")
+        print(f"  questions_to_explore: {summary['questions_to_explore'] or '(none)'}")
+        print(f"  response_text: {summary['response_text']!r}")
 
     return 1 if failures else 0
 
