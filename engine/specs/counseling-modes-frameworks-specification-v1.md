@@ -133,19 +133,21 @@ Non-Goals
 
 ---
 
+Decided (founder/CPO, 2026-07-22)
+
+- **Pilot scope: Strategize and Realign, not all six.** Confirmed
+  founder decision, matching this spec's own recommendation: Strategize
+  because its framework (Options -> Tradeoffs -> Decision) is the most
+  structurally different from today's prompt and thus the best test of
+  whether the shared schema holds up; Realign because it's the mode
+  most likely to reveal whether `success_criterion` is actually a
+  useful, checkable field or just a nice-sounding addition, and because
+  it's the mode the founder's own memo already flagged as growing more
+  powerful once POM matures.
+
 Open Questions
 
-1. **Pilot scope.** Start with all six at once, or pilot two (the memo
-   itself flags Explore as "where you currently have the most
-   opportunity" and Realign as the mode with a clear future POM
-   dependency) before rolling out the rest? Recommend piloting
-   Strategize and Realign first: Strategize because its framework
-   (Options -> Tradeoffs -> Decision) is the most structurally different
-   from today's prompt and thus the best test of whether the shared
-   schema holds up; Realign because it's the mode most likely to reveal
-   whether `success_criterion` is actually a useful, checkable field or
-   just a nice-sounding addition.
-2. **How is "the user should be able to identify the mode from behavior
+1. **How is "the user should be able to identify the mode from behavior
    alone" actually tested?** This needs an evaluation method, not just
    a prompt rewrite -- e.g. a blind read-through of live-dispatched
    transcripts (mode names stripped) asking a reviewer to guess the
@@ -153,7 +155,7 @@ Open Questions
    verification discipline but new as a formal test design. Worth
    scoping explicitly rather than assuming the prompt rewrite alone
    proves itself.
-3. **Does `success_criterion` get surfaced to the user at all**, or
+2. **Does `success_criterion` get surfaced to the user at all**, or
    does it stay a private Planner field Response never voices (matching
    every other Planner field's "private plan, never spoken directly"
    status)? Recommend staying private for v1, consistent with Planner's
@@ -167,8 +169,8 @@ Rollout
    prompt guidance for what it should contain (mirrors how `active_lens`
    was added on top of the original v1 spec once Synthesis needed it --
    same incremental-field precedent).
-2. Rewrite `PLANNER_MODE_FOCUS`/`RESPONSE_MODE_FOCUS` for the two pilot
-   modes (Open Question 1) to the sharper framework language in the
+2. Rewrite `PLANNER_MODE_FOCUS`/`RESPONSE_MODE_FOCUS` for Strategize and
+   Realign (the decided pilot) to the sharper framework language in the
    table above -- explicit stage names (e.g. Strategize's prompt should
    name "Options -> Tradeoffs -> Decision" as its own internal structure,
    not just describe the goal in prose).
@@ -178,7 +180,7 @@ Rollout
    WorldState, run through two different modes, actually produce
    visibly different Planner output -- the sharpest test of whether
    this is real behavioral differentiation or still just flavor text.
-4. Resolve Open Question 2 (the blind-mode-identification test) and run
+4. Resolve Open Question 1 (the blind-mode-identification test) and run
    it against the pilot before declaring the pilot successful.
 5. Roll out to the remaining four modes only after the pilot's live
    verification actually shows distinct behavior, not on schedule.

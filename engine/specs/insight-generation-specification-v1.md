@@ -47,22 +47,68 @@ Nothing to build here. Both example insight types the memo names as
 real gap is that they don't reach the Clarity Brief yet -- addressed in
 that spec, not this one.
 
-### Tier B -- Cross-session, offline (Insight Engine / Learning's job)
+### Tier B -- Cross-session, offline (Learning + Insight Engine, as TWO LAYERS)
 
-| Insight type | Status |
-|---|---|
-| Recurring avoidance patterns | Closest existing analog: `src/learning/` already detects recurring behavioral patterns from `behavioral_events`, gated behind `MIN_EVIDENCE` (currently being calibrated -- task #213, in progress). "Avoidance" is not a currently-named pattern CATEGORY in Learning's vocabulary; this spec proposes adding it as one. |
-| Decision-making tendencies | New pattern category for Learning, same mechanism, same evidence-gating -- not a new engine. |
-| Repeated tradeoff patterns | New pattern category for Learning OR Insight Engine's cross-session themes (`src/insight/schema.py::Theme`, `MIN_EVIDENCE_SESSIONS = 2`) -- whichever already tracks decision/tradeoff-shaped content is the right home; this spec does not yet resolve which (see Open Questions). |
+**Decided (founder/CPO, 2026-07-22)**: Tier B is not "pick one of
+Learning or Insight Engine per pattern type" (this spec's own earlier
+draft framed it that way and that framing is now superseded). It is two
+layers with an explicit dependency between them:
 
-**Nothing in Tier B requires a new detection mechanism.** Learning
-already has: a `behavioral_events` stream, a `MIN_EVIDENCE`-style
-gate before a pattern is reported, and a live frontend surface (You
-tab). Insight Engine already has: cross-session `Theme`s, each requiring
-`MIN_EVIDENCE_SESSIONS = 2` and citing real `evidence_session_ids`. The
-work here is adding new named pattern CATEGORIES to whichever of these
-two already-evidence-disciplined systems is the right fit -- not
-building new plumbing.
+- **Learning Layer -- durable memory.** Stores raw, recurring,
+  individually-evidenced observations. Founder's own worked examples:
+  "Frequently prioritizes autonomy over compensation," "Often delays
+  decisions until confidence exceeds 80%," "Avoids interpersonal
+  conflict." Each is a single, bounded, evidence-gated claim -- exactly
+  the shape `src/learning/`'s existing `MIN_EVIDENCE`-gated pattern
+  detection already produces. Learning's job stops at storing these as
+  discrete patterns; it does not connect them to each other.
+- **Insight Engine -- interpretation OF Learning's own patterns.**
+  Generates a higher-level observation FROM a set of Learning's already-
+  detected patterns, not from raw session content directly. Founder's
+  worked example: Learning independently stores "Autonomy > Compensation,"
+  "Autonomy > Prestige," and "Autonomy > Security" as three separate
+  patterns; Insight Engine synthesizes those three into "Across six
+  major decisions, autonomy appears to be your strongest recurring
+  decision criterion." A second worked example, a different shape of
+  synthesis entirely: "You often continue gathering information after
+  your preferred option is already apparent" -- a meta-observation about
+  a recurring DECISION-MAKING BEHAVIOR, not a restatement of any single
+  stored pattern.
+
+**This is a real, new dependency, not the status quo.** Confirmed by
+reading the actual code: Insight Engine and Learning today are SIBLINGS,
+not layers -- both independently read raw session/behavioral data
+(`src/retrieval/engine.py` reads `get_learned_patterns`/`get_insights` as
+two parallel, independently-computed outputs, never one feeding the
+other). Making Insight Engine actually consume Learning's stored
+patterns as its own input is new plumbing this spec must call out
+explicitly, not assume already works this way.
+
+| Insight type | Layer | Status |
+|---|---|---|
+| Recurring avoidance patterns | Learning | New pattern category on existing `MIN_EVIDENCE`-gated infrastructure -- not a new mechanism, a new label Learning's existing detection can produce. |
+| Decision-making tendencies (e.g. "delays until >80% confidence") | Learning | Same -- new category, same mechanism. |
+| Repeated tradeoff patterns, RAW form (e.g. "Autonomy > Compensation") | Learning | New category -- each individual tradeoff comparison is itself a Learning-shaped pattern. |
+| Repeated tradeoff patterns, SYNTHESIZED form (e.g. "autonomy is your strongest recurring decision criterion") | Insight Engine, reading Learning's own stored patterns as input | **New dependency.** Insight Engine's `Theme` generation must be extended to accept Learning's patterns as an input source, not just raw session content. |
+
+**What this means for the build**: three new Learning pattern
+categories (additive, same evidence-gating as every existing category --
+no new mechanism), plus one real architecture change (Insight Engine
+gains a new input path: Learning's own stored patterns, in addition to
+whatever it reads today), plus a new SYNTHESIS step in Insight Engine
+specifically for connecting multiple same-shaped Learning patterns
+(e.g. multiple "X > Y" tradeoff patterns) into one higher-level claim --
+this synthesis step is conceptually close to what Tier 2
+(`src/understanding/tier2_engine.py`) already does within a single
+Journey (connecting two or more Tier 1 candidates into something neither
+states alone), just one layer up, across Journeys instead of across
+WorldState items. Worth building Insight Engine's new synthesis step
+with that existing Tier 2 discipline as the direct model: same "must
+connect two or more inputs in a way that adds real insight, restating
+one input's own content is not synthesis" law, same grounding
+enforcement (never trust the model's own citations of which Learning
+patterns it drew from -- filter post-hoc against real ids, same as Tier
+2's `_enforce_grounding`).
 
 ---
 
@@ -114,26 +160,24 @@ Non-Goals
 
 Open Questions
 
-1. **Where does "repeated tradeoff patterns" live** -- Learning
-   (behavioral, "how do you tend to approach tradeoffs") or Insight
-   Engine (thematic, "this tradeoff shape keeps recurring across
-   Journeys")? These are genuinely different framings of similar
-   content; needs a founder call, not an engineering default.
-2. **Surfacing location.** Tier A insights (contradictions, stalls)
+1. **Surfacing location.** Tier A insights (contradictions, stalls)
    surface in the Clarity Brief (per that spec). Where do Tier B
-   insights surface -- the You tab (alongside POM/behavioral patterns,
-   where Learning already lives), a new dedicated surface, or a
+   insights surface -- Learning's raw patterns presumably stay on the
+   You tab (where they already live), but where do Insight Engine's new
+   SYNTHESIZED cross-pattern observations surface? The You tab alongside
+   the raw patterns they were built from, a new dedicated surface, or a
    conversational callback INTO a live Journey (POM already has a
    precedent for this -- backlog #210, "Insight-triggered conversational
-   callback")? Likely "it depends on the pattern type," but worth an
-   explicit decision per category rather than defaulting all of them to
-   one surface.
-3. **Cadence.** Tier B computation is `workflow_dispatch`-only today
-   (backlog #268, deliberate, not yet revisited). New pattern categories
-   don't change that constraint on their own, but if Priority 2 is meant
-   to feel like a live product capability rather than an occasional
-   backfill, this spec's rollout should be sequenced alongside whatever
-   resolves #268, not independently of it.
+   callback")? Worth an explicit decision rather than defaulting to
+   wherever Learning's output already renders.
+2. **Cadence.** Tier B computation is `workflow_dispatch`-only today
+   (backlog #268, deliberate, not yet revisited). The new Learning ->
+   Insight Engine dependency actually makes this MORE relevant, not
+   less: Insight Engine's new synthesis step needs a fresh run of
+   Learning's own patterns to synthesize FROM, so the two computations
+   likely need to run in a defined order (Learning, then Insight Engine)
+   rather than independently on their own separate schedules as today --
+   worth resolving alongside whatever resolves #268, not independently.
 
 ---
 
@@ -141,12 +185,17 @@ Rollout
 
 1. Confirm Tier A requires no new backend work (true today) -- fold its
    visibility gap entirely into the Clarity Brief spec's rollout.
-2. Resolve Open Question 1 (Learning vs. Insight Engine home for
-   tradeoff patterns) before writing any new pattern-category code.
-3. Add "avoidance," "decision-making tendency," and (per Q1's answer)
-   "repeated tradeoff" as named categories to whichever system owns
-   them, same `MIN_EVIDENCE`-gated, evidence-cited shape every existing
-   category already has -- no schema redesign, an additive change.
-4. Live-dispatch calibrate the new categories against real multi-
-   Journey data, same discipline as every existing Learning/Insight
-   Engine calibration round (tasks #289, #292, #293).
+2. Add the new Learning pattern categories (avoidance, decision-making
+   tendency, raw tradeoff comparisons) -- additive, existing
+   `MIN_EVIDENCE` mechanism, no new plumbing.
+3. Build Insight Engine's new input path (reading Learning's own stored
+   patterns, not just raw session content) and its new synthesis step
+   (connecting multiple same-shaped Learning patterns into one higher-
+   level claim), modeled directly on Tier 2's existing synthesis
+   discipline (see above) -- this is the one genuinely new piece of
+   engineering in this whole spec.
+4. Resolve Open Question 1 (surfacing location for Insight Engine's new
+   synthesized observations) before finalizing the frontend surface.
+5. Live-dispatch calibrate the new categories AND the new synthesis step
+   against real multi-Journey data, same discipline as every existing
+   Learning/Insight Engine calibration round (tasks #289, #292, #293).

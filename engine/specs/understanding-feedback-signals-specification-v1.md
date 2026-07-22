@@ -30,34 +30,46 @@ a field) rather than USER-perceived value.
 
 Three Signal Types
 
-### 1. Explicit micro-feedback (new)
+### 1. Explicit micro-feedback -- the Journey End Survey (decided)
 
-The only existing precedent is the Journey-close reflection question
-(backlog #207, `Journey.svelte`'s `showReflectionPrompt` flow) -- an
-opt-in, free-text "anything about this conversation you'd want to
-remember or reflect on?" at the moment a person leaves a Journey. That
-flow already proves the RIGHT pattern for this product: quiet, opt-in,
-appears at a natural transition point, never a modal interrupting a live
-exchange.
+**Decided (founder/CPO, 2026-07-22): Journey-close first, not per-turn.**
+Direct founder rationale, worth preserving verbatim because it's the
+argument, not just the conclusion: "Most teams over-instrument early.
+Per-turn feedback creates noise, fatigue, low signal, clutter. And users
+often can't evaluate a single turn. What they can evaluate: 'Did this
+conversation help me?'" A per-turn reaction affordance (see the earlier
+draft of this section) is explicitly NOT being built in this round --
+not deferred vaguely, ruled out with a stated reason.
 
-**Proposal**: extend that same moment (Journey close), not invent a new
-interruption elsewhere, with a second, equally quiet, equally optional
-question specifically about understanding -- e.g. "Did this conversation
-help you see your situation more clearly?" with a small set of real
-answers (not a 1-5 star rating -- consistent with this product's
-existing "no dashboard chrome, no score" discipline). A person who skips
-the existing reflection question skips this too; this is additive to
-that flow, not a second gate.
+**The Journey End Survey**, extending the existing Journey-close
+reflection flow (backlog #207, `Journey.svelte`'s `showReflectionPrompt`)
+with three concrete questions, founder-specified:
 
-A second, more granular option worth naming even though it's a bigger
-product decision: a light per-response reaction (something in the
-spirit of the existing real choice-button pattern already used for
-`Response.options`) letting a person mark a SPECIFIC turn as "that
-helped" or "that's not quite right," closer to where the misunderstanding
-or the useful moment actually happened rather than only at Journey close.
-This is more instrumentation surface (needs its own storage, its own
-API shape) and more UI surface (a new affordance on every turn) than the
-Journey-close extension -- see Open Questions.
+1. "Did Confidant understand your situation?" -- 1-5
+2. "Did this conversation increase clarity?" -- 1-5
+3. "Did Confidant surface anything important?" -- Yes/No
+
+**This revises this spec's own earlier "no 1-5 rating, consistent with
+this product's no-dashboard-chrome discipline" stance** -- noted
+explicitly rather than silently dropped, since it's a real, deliberate
+reversal of a position this document itself took. The resolution: the
+existing "no score" principle has always meant no score is EVER SHOWN
+BACK to the person about their own conversation -- it has never meant
+"never collect a number." A 1-5 input collected once, quietly, at
+Journey close, and consumed only by the product team (never rendered
+back to the user as a metric about themselves) does not violate that
+principle -- it's the same category of thing as `UsageTracker`'s cost/
+latency numbers, which this product has always collected without ever
+surfacing to the end user. The UI presentation still needs to stay
+consistent with the reflection prompt's existing quiet, opt-in card
+treatment -- three short questions, not a jarring multi-screen survey
+modal -- but the NUMERIC input itself is the founder's own explicit,
+reasoned call, not an oversight to relitigate.
+
+A person who skips the existing free-text reflection question can still
+independently answer (or skip) the Journey End Survey questions --
+these are additive to that flow, not a second gate blocking Journey
+close.
 
 ### 2. Mechanical proxy signals (new, but cheap -- pure WorldState arithmetic)
 
@@ -104,25 +116,32 @@ This spec and `counseling-modes-frameworks-specification-v1.md` are
 designed to compose: that spec proposes a new Planner field,
 `success_criterion`, populated according to the active mode's own
 definition of success (e.g. Strategize: "the decision becomes easier";
-Vent: "the user feels more understood than when they started"). Once
-that field exists, signal type 1 (explicit feedback) can be asked IN
-THOSE TERMS turn-by-turn rather than only as a generic end-of-Journey
-question -- "did this get you closer to [whatever this turn's own
-stated success_criterion was]?" -- which is a sharper, mode-aware
-question than a generic one. This spec does not depend on that field
-existing to ship signal types 2 and 3, but signal type 1's most
-interesting version does.
+Vent: "the user feels more understood than when they started"). Given
+Journey-close-only feedback is now the decided scope (see above), the
+natural composition is NOT turn-by-turn -- it's aggregating the
+Journey's own sequence of `success_criterion` values as background
+context alongside the Journey End Survey's own three answers when this
+gets reported (signal type 3), so a product reviewer can see, e.g.,
+"this Journey's Planner was consistently aiming for X, and the person's
+own end-of-Journey rating was Y" side by side. This spec does not depend
+on that field existing to ship signal types 2 and 3 on their own, but
+this richer cross-reference does.
 
 ---
 
 Non-Goals
 
-- Not an NPS survey product. No periodic "rate us" popups, no email
-  surveys, nothing outside the product's own existing quiet moments.
-- Not a visible score shown back to the user. "Understanding quality"
-  is a product-team-facing metric, the same way `UsageTracker`'s cost/
-  latency numbers are -- never a number a user sees about their own
-  conversation.
+- Not a RECURRING survey product. One Journey End Survey per Journey
+  close, not periodic "rate us" popups or email surveys -- still
+  confined to the product's own existing quiet, natural transition
+  point, not a new interruption pattern layered on top of it.
+- Not a visible score shown back to the user. The 1-5/Yes-No answers
+  the PERSON gives are theirs to give, same as the existing free-text
+  reflection question -- but nothing computed FROM those answers (an
+  aggregate "understanding quality" trend, a per-mode breakdown) is ever
+  rendered back to them as a metric about their own conversation or
+  themselves. That report is product-team-facing only, the same way
+  `UsageTracker`'s cost/latency numbers are.
 - Not a replacement for judgment. These signals inform product
   decisions; they don't automatically gate anything (e.g. this spec
   does NOT propose auto-tuning prompts based on feedback scores -- that
@@ -132,37 +151,36 @@ Non-Goals
 
 Open Questions
 
-1. **Per-turn reaction vs. Journey-close-only.** Per-turn is more
-   granular and catches the exact moment something worked or didn't,
-   but is real new UI surface on every single response, in a product
-   whose whole visual philosophy has been restraint (no icons, minimal
-   chrome). Journey-close-only is cheap and proven (extends #207) but
-   coarse -- a great turn 3 and a bad turn 9 average out to "fine."
-   Recommend starting Journey-close-only and revisiting per-turn only if
-   the coarse signal proves too noisy to act on.
-2. **Does a person's feedback here feed the Personal Operating Model or
+1. **Does a person's feedback here feed the Personal Operating Model or
    Learning** (e.g. "this person tends to find Explore mode more useful
    than Vent") -- a real, valuable connection, but one that expands this
    spec's scope into POM/Learning territory rather than staying a pure
    measurement spec. Recommend treating as a clearly-labeled FUTURE
    consideration, not in this round.
-3. **Retention/privacy scope.** Given this product's existing privacy
+2. **Retention/privacy scope.** Given this product's existing privacy
    discipline (export-all, delete-all, per-account scoping enforced
-   everywhere else), explicit feedback text needs the same treatment
-   from day one, not bolted on later -- confirm this is understood as a
-   requirement, not an open question, before implementation.
+   everywhere else), the Journey End Survey's answers need the same
+   treatment from day one, not bolted on later -- confirm this is
+   understood as a requirement, not an open question, before
+   implementation.
 
 ---
 
 Rollout
 
 1. Extend the Journey-close reflection flow (backlog #207) with the
-   second, understanding-specific question -- smallest possible surface,
-   reuses an already-shipped, already-proven UX pattern.
+   three-question Journey End Survey (two 1-5 questions, one Yes/No) --
+   smallest possible surface, reuses an already-shipped, already-proven
+   UX pattern.
 2. Add the four mechanical proxy computations as a new, small module,
    same "deterministic, non-LLM, pure WorldState arithmetic" pattern as
    `compute_stagnation_signals` -- no new LLM calls, no new cost.
 3. Add the aggregate report, mirroring `usage-report.yml`'s existing
-   shape exactly.
-4. Only after Priority 4 ships `success_criterion`: revisit signal type
-   1 to ask the mode-aware version of the question.
+   shape exactly, cross-referencing Journey End Survey answers against
+   the mechanical proxies (e.g. does a low "did this increase clarity"
+   score correlate with a high repetition rate?) -- the first real test
+   of whether the mechanical proxies are honest stand-ins for the
+   explicit signal.
+4. Only after Priority 4 ships `success_criterion`: add the richer
+   cross-reference described above (per-Journey `success_criterion`
+   sequence alongside that Journey's own End Survey answers).

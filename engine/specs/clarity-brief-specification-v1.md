@@ -122,6 +122,25 @@ mirroring how `deepeningClarityNote` already renders as a standalone
 
 ---
 
+Decided (founder/CPO, 2026-07-22)
+
+- **"What changed" diffing is server-side.** Explicit founder framing:
+  "This is not a presentation concern; it's a product intelligence
+  concern." This changes the shape of the work from a frontend JS diff
+  (today's `noteDeepeningClarity`) to a real backend computation: the
+  previous Brief (or its diff-relevant fields) must be PERSISTED per
+  session, and a new deterministic diff step compares it against the
+  current turn's freshly-built Brief every turn. Concretely, this means
+  a new persisted column (e.g. `sessions.previous_brief_json`, same
+  per-session-scalar precedent as `sessions.mode`/`sessions.bookmarked`)
+  and a new Executor-level (not Judgment-level -- this is reorganizing
+  already-decided content, not a new judgment call) diff function,
+  `diff_clarity_briefs(previous, current) -> List[str]`, called from
+  the same call site `build_clarity_brief` already runs from. This also
+  means "what changed" is available identically to ANY future client
+  (mobile app, a future API consumer), not just this one frontend --
+  the reason given for the decision.
+
 Open Questions (for founder/CPO sign-off before implementation)
 
 1. **"Known facts" cap.** How many facts, and ordered how (most
@@ -129,17 +148,10 @@ Open Questions (for founder/CPO sign-off before implementation)
    evidence yet; propose starting at 5 and calibrating from a live
    dispatch, same "first-cut, uncalibrated" discipline as every other
    threshold in this codebase.
-2. **Where does "what changed" diffing live?** Frontend (as today,
-   simple, but re-derives from scratch differently per client) vs.
-   backend (new, requires persisting the previous Brief or its diff-
-   relevant fields, but is the single source of truth across any future
-   client). Recommend backend, given this spec's own "one Journey, one
-   understanding" principle -- but this is a real architecture call, not
-   a style preference.
-3. **Does "what changed recently" get a default-visible slot**, or does
+2. **Does "what changed recently" get a default-visible slot**, or does
    it live inside the collapsed section like everything else? Direct
    product-feel decision, not an engineering one.
-4. **Does Tier 2's existing conditional-recompute gating (`
+3. **Does Tier 2's existing conditional-recompute gating (`
    should_recompute_tier2`, most turns skip the LLM call) still make
    sense once Tier 2 becomes an actual Brief section** rather than an
    optional adjacent card? If "emerging patterns" is now a first-class
@@ -147,7 +159,7 @@ Open Questions (for founder/CPO sign-off before implementation)
    most turns may read as a gap rather than "nothing new to say" --
    worth a product call on whether the conditional cadence needs
    revisiting once usage data exists.
-5. **Naming.** Is "Clarity Brief" still the right name once it's this
+4. **Naming.** Is "Clarity Brief" still the right name once it's this
    much richer, or does the product warrant a new name for the "living
    model" framing specifically? Not an engineering question.
 
