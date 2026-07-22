@@ -393,6 +393,20 @@ class WorldState(BaseModel):
     # to know about or manage this counter.
     turn_count: int = 0
 
+    # Added 2026-07-22 (direct founder feedback: conversations felt
+    # "repetitive... asked the same questions again and again" -- see
+    # engine/decisions.md and src/planner/engine.py's own
+    # apply_repeated_question_filter): a live 11-turn walkthrough dispatch
+    # confirmed Planner's prompt-only mandatory rule against re-selecting
+    # a stagnant question was followed inconsistently -- the exact same
+    # question string recurred verbatim across several turns regardless.
+    # This is pure mechanical bookkeeping (a rolling window of literal
+    # questions_to_explore text Planner has already produced), written
+    # and read only by src/planner/engine.py/src/orchestrator/engine.py --
+    # never reasoned over by any LLM, hence excluded from every prompt
+    # below, same treatment as `understanding`.
+    recent_planner_questions: List[str] = Field(default_factory=list)
+
     # Added 2026-07-12 (see engine/decisions.md "Understanding layer --
     # Journey-scoped identity"): the stable, human-readable layer
     # rendered from this WorldState -- see src/understanding/. An empty
@@ -472,4 +486,7 @@ class WorldState(BaseModel):
 # with). Defined once here, imported by all
 # three engines' `model_dump_json(..., exclude=PROMPT_EXCLUDED_FIELDS)`
 # call, rather than three independently-maintained copies of the same set.
-PROMPT_EXCLUDED_FIELDS = {"understanding", "assumption_items", "inference_items", "emotional_signal_items"}
+PROMPT_EXCLUDED_FIELDS = {
+    "understanding", "assumption_items", "inference_items", "emotional_signal_items",
+    "recent_planner_questions",
+}

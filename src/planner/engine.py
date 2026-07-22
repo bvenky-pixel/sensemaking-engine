@@ -27,7 +27,8 @@ full discussion):
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+import re
+from typing import List, Optional, Tuple
 
 from pydantic import ValidationError
 
@@ -125,3 +126,80 @@ def run_planner(
         return result
 
     raise PlannerError("All configured LLM providers failed: " + "; ".join(failures))
+
+
+# Repeated-question mechanical backstop (2026-07-22, direct founder
+# feedback: conversations felt "repetitive... asked the same questions
+# again and again" -- see engine/decisions.md). The prompt-only mandatory
+# rule added alongside this (src/planner/prompt.py -- don't re-select a
+# question Judgment.stagnation_notes just flagged as stuck) was live-
+# dispatched against the real 11-turn walkthrough transcript BEFORE this
+# function existed: compliance was inconsistent, and one specific
+# question ("What are Sarah's potential reasons for not giving a clear
+# explanation?") recurred VERBATIM in 6 of 11 turns' questions_to_explore
+# regardless of the prompt rule, including turns where Judgment had
+# already flagged it as stagnant. This is the exact "detected but didn't
+# act on it" compliance gap this codebase has hit repeatedly elsewhere
+# (has_risk_signal, has_decision_resolution, grounding_item_ids) -- every
+# prior instance was fixed with mechanical, code-level enforcement
+# backing the prompt, never by wording the prompt harder alone. This is
+# that enforcement, specifically for questions_to_explore.
+#
+# Deliberately NOT keyed off Judgment.stagnation_notes at all -- a plain
+# "was this near-identical question already asked recently" check is
+# simpler, doesn't depend on Judgment's own synthesis correctly flagging
+# the repeat, and catches a repeat Judgment might miss just as well as
+# one it flags.
+_QUESTION_WORD_RE = re.compile(r"[a-z]+")
+
+
+def _question_word_set(text: str) -> set:
+    return set(_QUESTION_WORD_RE.findall(text.lower()))
+
+
+def _question_overlap(a: str, b: str) -> float:
+    """Larger of (shared words / len(a)) and (shared words / len(b)) --
+    catches a reworded near-duplicate AND a shorter question fully
+    contained in a longer one, either direction. Same "first-cut,
+    uncalibrated threshold" status as every other fuzzy-match constant in
+    this codebase (e.g. UNKNOWN_RESOLUTION_OVERLAP_THRESHOLD,
+    _SITUATION_ECHO_THRESHOLD)."""
+    words_a, words_b = _question_word_set(a), _question_word_set(b)
+    if not words_a or not words_b:
+        return 0.0
+    shared = len(words_a & words_b)
+    return max(shared / len(words_a), shared / len(words_b))
+
+
+REPEATED_QUESTION_OVERLAP_THRESHOLD = 0.7
+
+# How many of the most recently-produced questions stay eligible to
+# match against -- unbounded growth would make every turn's filtering
+# slower for no real benefit, and a question asked many turns ago is no
+# longer what's actually driving a "didn't we already ask this" feeling
+# this turn.
+RECENT_QUESTIONS_WINDOW = 20
+
+
+def apply_repeated_question_filter(
+    state: WorldState, planner: Planner
+) -> Tuple[Planner, List[str]]:
+    """
+    Drops any question from planner.questions_to_explore that's a near-
+    duplicate (see REPEATED_QUESTION_OVERLAP_THRESHOLD) of a question
+    already produced in a recent prior turn (state.recent_planner_questions).
+
+    Returns (filtered_planner, updated_recent_questions) -- this function
+    does NOT mutate WorldState itself, matching run_planner's own pure-
+    function contract above; the caller (src/orchestrator/engine.py) is
+    responsible for writing updated_recent_questions back onto
+    state.recent_planner_questions.
+    """
+    seen = state.recent_planner_questions
+    kept = [
+        q for q in planner.questions_to_explore
+        if not any(_question_overlap(q, prior) >= REPEATED_QUESTION_OVERLAP_THRESHOLD for prior in seen)
+    ]
+    filtered_planner = planner.model_copy(update={"questions_to_explore": kept})
+    updated_recent = (seen + kept)[-RECENT_QUESTIONS_WINDOW:]
+    return filtered_planner, updated_recent

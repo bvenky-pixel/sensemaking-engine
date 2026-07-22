@@ -12673,3 +12673,136 @@ all four requests returned 200 (no more ownership 404s), and
 `check_api_smoketest.py`'s own assertions (real `response_text` on both
 turns, at least one accumulated fact in the persisted WorldState) both
 passed. Confirmed closed, not deleted.
+
+## Screen overhaul + repetition fix (2026-07-22)
+
+Direct founder feedback, framed as the new core focus, in two rounds:
+
+1. "the responses feel very repetitive and not progressive enough...
+   I am being asked the same questions again and again which is
+   pointless."
+2. Four follow-up points on the Journey screen: raw content ids visible
+   in the Clarity Brief; the brief itself long/intimidating after a few
+   rounds; unlabeled text below it reading like exposed judgment
+   analysis; the composer sitting below the brief while the latest
+   response is up top ("this screen needs a major overhaul from both a
+   front end and back perspective").
+
+### Backend bugs (points 1-2 of the follow-up)
+
+- `src/executor/engine.py::build_clarity_brief` rendered every
+  `state.decisions` entry unconditionally into the brief's "In play"
+  section -- unlike Tier 1's own `_DECISION_VISIBLE_STATUSES` filter, a
+  resolved/expired decision never left the brief, contributing directly
+  to the "long/intimidating" complaint. Fixed: filtered to
+  `{"open", "deferred"}` (`_BRIEF_DECISION_STATUSES`).
+- Tier2's own prompt showed the model candidate ids right next to their
+  text (`id: tier1:fact:...\nkind: ...\ntext: ...`) with no instruction
+  against echoing an id back into generated prose -- the most likely
+  source of the visible content ids. Added an explicit law to Tier2,
+  Judgment, and Response prompts: internal ids exist for
+  `supporting_evidence`/`grounding_item_ids` only, never allowed in
+  prose a person actually reads.
+
+### Frontend overhaul (points 3-5)
+
+- `secondary_issues`/`stagnation_notes` were the only unframed content
+  in the Understanding panel -- bare `.aside` paragraphs, no card, no
+  `ui-label` heading -- reading as leaked raw judgment analysis. Direct
+  founder call: drop them from the panel entirely rather than reframe;
+  backend still computes/serves both fields, just not surfaced.
+- Composer moved to sit directly under the transcript/orb-companion,
+  reversing backlog #236's "Clarity Brief during the wait" placement
+  (which had put the brief between the latest response and the reply
+  box). The Understanding panel moved below the Composer, collapsed by
+  default behind a "Show what we understand so far" toggle, only
+  mounted once expanded.
+- Verified with the full Vitest suite (123 passing) plus a live
+  Playwright pass against the dev server (stubbed API routes via
+  `page.route`, no real backend/LLM calls) confirming DOM order,
+  collapse/expand behavior, and that the dropped aside text never
+  renders even when present in the response.
+
+### Repetition fix (point 1) -- two rounds, the second driven by live evidence
+
+**Round 1 (prompt-only).** Traced the mechanical cause:
+`compute_stagnation_signals` (src/judgment/engine.py) only tracked
+active Goals and open Decisions -- the exact pool Planner draws
+`questions_to_explore` from (`Judgment.open_unknowns`, sourced from
+`WorldState.unknowns`) had no staleness signal at all. Separately, even
+when `stagnation_notes` DID fire, Planner's prompt only let it "MAY
+inform `resolution_blocker`" -- advisory, never a requirement to change
+strategy. Fixed:
+- `compute_stagnation_signals` now also flags Unknowns with
+  `status="open"` past the turn threshold, mirroring Goal/Decision.
+- Judgment's prompt gained a matching worked example for an
+  Unknown-based signal.
+- Planner's prompt gained a MANDATORY rule: given non-empty
+  `stagnation_notes`, `conversational_strategy` must not be another
+  exploratory pass at the same stuck thread, and `questions_to_explore`
+  must not re-select the flagged `open_unknown`. Added a matching
+  self-check to the pre-finalization review list.
+- `scripts/run_worldstate_walkthrough.py` gained a compact, per-turn
+  "repetition report" (stagnation notes, strategy, questions, response
+  text) printed LAST in the log, specifically because GitHub Actions'
+  `get_job_logs` truncates to roughly the last ~5000 lines/~590K chars
+  -- a prior round's 11-turn dump only survived the last ~4 turns when
+  fetched this way. Printing the summary last survives regardless of
+  transcript length.
+
+**Live-dispatched to verify** (run `29914079300`, branch
+`claude/sensemaking-engine-60xbki`, real `OPENROUTER_API_KEY`,
+`openrouter/free`): 10/11 turns succeeded (turn 7 hit a transient
+provider failure, unrelated -- free-tier rate limits under ~44 rapid
+calls). The repetition report showed the mechanical signal working
+exactly as designed -- `stagnation_notes` correctly started firing at
+turn 4 once an Unknown crossed the turn threshold, and kept firing with
+increasingly specific detail through turn 11. But Planner's *compliance*
+with the new mandatory rule was inconsistent: `conversational_strategy`
+correctly shifted to "summarize understanding" on turns 4-5 but
+**reverted to "ask exploratory questions" on turns 6, 8, 10, and 11
+despite `stagnation_notes` being non-empty on every one of those
+turns**. Worse, even on the compliant turns, `questions_to_explore`
+still listed the exact same flagged questions verbatim -- one question,
+*"What are Sarah's potential reasons for not giving a clear
+explanation?"*, recurred **word-for-word identical in 6 of the 11
+turns** (2, 3, 4, 5, 6, 8), including turns where Judgment had already
+flagged it as stagnant. Turn 11's response text was still substantially
+the same question as turn 2's, nine turns later. This is the exact
+"detected but didn't act on it" compliance gap this codebase has hit
+repeatedly elsewhere (`has_risk_signal`, `has_decision_resolution`,
+`grounding_item_ids`) -- every prior instance needed mechanical,
+code-level enforcement backing the prompt; wording the prompt harder
+alone was never sufficient.
+
+**Round 2 (mechanical backstop).** Added
+`src/planner/engine.py::apply_repeated_question_filter`: after
+`run_planner` returns, mechanically drops any `questions_to_explore`
+entry with high word-overlap (`REPEATED_QUESTION_OVERLAP_THRESHOLD =
+0.7`, first-cut/uncalibrated, same status as every other fuzzy-match
+threshold in this codebase) against a question already produced in a
+recent prior turn. Deliberately NOT keyed off `stagnation_notes` at all
+-- a plain "was this already asked recently" check is simpler, doesn't
+depend on Judgment correctly flagging the repeat, and catches a repeat
+Judgment misses just as well as one it flags. Backed by a new
+`WorldState.recent_planner_questions` field (a rolling window, capped
+at `RECENT_QUESTIONS_WINDOW = 20`, excluded from every prompt via
+`PROMPT_EXCLUDED_FIELDS` -- pure bookkeeping, never reasoned over by any
+LLM). Wired into `src/orchestrator/engine.py::run_turn` right after
+Planner succeeds, mirroring `update_tier2`'s own "explicit state in,
+state out" shape rather than folding state mutation into `run_planner`
+itself (which stays a pure LLM-call function). If filtering empties
+`questions_to_explore` entirely, Response's own STRUCTURE rule already
+falls back to `priority_topics`/`resolution_blocker` for its question
+sentence -- confirmed safe, no schema or Response change needed.
+
+Verified: 6 new unit tests (`tests/test_planner_engine.py`) covering no-op
+on first mention, exact-repeat dropping (the literal observed failure),
+reworded near-duplicate dropping, a genuinely different question being
+kept, and the window cap evicting the oldest entry. Full `pytest`
+606/606.
+
+Not yet re-dispatched against a live model at the time of this entry --
+next step is a second live walkthrough run to confirm the mechanical
+filter actually eliminates the observed repeats (the "Sarah's reasons"
+question recurring 6/11 times) end to end, not just at the unit level.

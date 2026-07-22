@@ -68,7 +68,7 @@ from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
 from src.orchestrator.schema import TurnResult
-from src.planner.engine import PlannerError, run_planner
+from src.planner.engine import PlannerError, apply_repeated_question_filter, run_planner
 from src.pom.schema import PersonalOperatingModel
 from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.response.schema import Response
@@ -307,6 +307,15 @@ def run_turn(
             behavioral_events=behavioral_events,
         )
     _notify("planner")
+
+    # Repeated-question mechanical backstop (2026-07-22, see
+    # src/planner/engine.py::apply_repeated_question_filter's own
+    # docstring) -- applied here, not inside run_planner, so run_planner
+    # stays a pure "call the LLM" function; this is the one step that
+    # both reads AND writes WorldState (recent_planner_questions), same
+    # "explicit state in, state out" shape as update_tier2 above.
+    plan, recent_questions = apply_repeated_question_filter(state, plan)
+    state = state.model_copy(update={"recent_planner_questions": recent_questions})
 
     # Synthesis (see mode's own docstring paragraph above): Adaptive
     # mode's per-turn lens choice lives on `plan.active_lens`, not on
