@@ -12649,3 +12649,27 @@ frontend tests (which mock OpenRouter's documented streaming shape
 directly, including the usage-only final chunk and `[DONE]` sentinel)
 are the coverage this ships with. Real-world confirmation of the exact
 wire format remains a real, open gap until someone runs it.
+
+## Fixed api-smoketest.yml's cookie-jar bug (2026-07-22)
+
+Found while building `verify_tier2_background.py` for backlog #235:
+`api-smoketest.yml`'s three `curl` calls (create session, two message
+turns, debug) had no shared cookie jar, so each call looked like a
+different anonymous visitor to `resolve_identity`
+(`src/api/server.py`) -- harmless when this workflow was first written
+(backlog #57, before auth/ownership existed at all), but a silent 404
+on turn 2 and the debug call ever since the auth/ownership layer
+(backlog #174-183) was added on top of it. Nobody had re-run this
+workflow since, so it went unnoticed.
+
+Fix: `-c cookies.txt -b cookies.txt` on all four `curl` calls, sharing
+one jar across the whole conversation -- same fix
+`verify_tier2_background.py`'s own `requests.Session()` needed for the
+same underlying reason.
+
+Live-dispatched (run `29912398094`, against
+`claude/sensemaking-engine-60xbki`) with a real `OPENROUTER_API_KEY`:
+all four requests returned 200 (no more ownership 404s), and
+`check_api_smoketest.py`'s own assertions (real `response_text` on both
+turns, at least one accumulated fact in the persisted WorldState) both
+passed. Confirmed closed, not deleted.

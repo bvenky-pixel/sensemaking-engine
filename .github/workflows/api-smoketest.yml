@@ -51,20 +51,34 @@ jobs:
 
       - name: Drive a real 2-turn conversation and verify persistence
         run: |
-          SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/sessions | jq -r '.id')
+          # Shared cookie jar across every call (2026-07-22, backlog #57
+          # follow-up): resolve_identity (src/api/server.py) mints an
+          # anonymous_id cookie on session creation, and _require_owned_session
+          # only recognizes a later request as the same caller if that SAME
+          # cookie comes back. Three independent, cookie-less curl calls
+          # each look like a different anonymous visitor and 404 on
+          # ownership -- this bit after the auth/ownership layer (backlog
+          # #174-183) was added on top of this smoketest, and went
+          # unnoticed since this workflow hadn't been re-run since. -c/-b
+          # against the same jar file is the curl equivalent of a real
+          # browser's cookie jar / this repo's other httpx.Client()-based
+          # live tests (see test_api_server.py's stream test).
+          COOKIES=cookies.txt
+
+          SESSION_ID=$(curl -s -c "$COOKIES" -b "$COOKIES" -X POST http://127.0.0.1:8000/sessions | jq -r '.id')
           echo "Session: $SESSION_ID"
 
-          RESP1=$(curl -s -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
+          RESP1=$(curl -s -c "$COOKIES" -b "$COOKIES" -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
             -H "Content-Type: application/json" \
             -d '{"content": "I'\''ve been trying to move from my current team to the Product team for a few months now."}')
           echo "Turn 1 response: $RESP1"
 
-          RESP2=$(curl -s -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
+          RESP2=$(curl -s -c "$COOKIES" -b "$COOKIES" -X POST "http://127.0.0.1:8000/sessions/$SESSION_ID/messages" \
             -H "Content-Type: application/json" \
             -d '{"content": "My manager Sarah keeps saying it'\''s not the right time, but never gives a clear reason."}')
           echo "Turn 2 response: $RESP2"
 
-          DEBUG=$(curl -s "http://127.0.0.1:8000/sessions/$SESSION_ID/debug")
+          DEBUG=$(curl -s -c "$COOKIES" -b "$COOKIES" "http://127.0.0.1:8000/sessions/$SESSION_ID/debug")
 
           export RESP1 RESP2 DEBUG
           python3 scripts/check_api_smoketest.py
