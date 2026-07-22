@@ -30,6 +30,7 @@ full discussion):
 from __future__ import annotations
 
 import json
+import re
 from typing import List, Optional
 
 from pydantic import ValidationError
@@ -41,6 +42,63 @@ from src.judgment.schema import Judgment
 from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.15  # low: this is assessment/reasoning, not creative generation
+
+# Leaked-id mechanical backstop (2026-07-22, direct founder bug report
+# from manual production testing of the Clarity Brief -- a live "What
+# matters here"/"Still uncertain" card showed raw WorldState item ids
+# leaking through verbatim, e.g. "...lack of communication (fact:
+# 4be1114f-3e51-47c7-b5c0-51b7600ed0d1) could lead to..." and "...(claims:
+# b523627e-c0d6-4f3d-832c-d62f1640ad1e, 2766f7c7-f0a4-46ad-b37c-56064afaff04)").
+# Same "prompt alone isn't enough" lesson already applied to Planner's
+# own questions_to_explore (src/planner/engine.py::strip_leaked_ids) --
+# Judgment had the equivalent PROMPT-level law (GOVERNING LAW 5) but no
+# mechanical backstop at all, unlike Planner. Judgment's free-text/list
+# fields feed build_clarity_brief's key_insights/remaining_unknowns/
+# competing_priorities/contradictions sections directly, so a leak here
+# reaches the user just as directly as a leak in Planner's fields does.
+#
+# Same widened regex as Planner's (see that module's own comment): the
+# label before the uuid is whichever WorldState item TYPE NAME the model
+# reaches for (fact/facts/claim/claims/...), not always literally "id",
+# and more than one comma-separated uuid can appear under one label.
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_LEAKED_ID_RE = re.compile(
+    rf"\s*\(\s*[a-zA-Z]+:\s*{_UUID_RE}(?:\s*,\s*{_UUID_RE})*\s*\)"
+)
+
+
+def _strip_leaked_id(text: str) -> str:
+    return _LEAKED_ID_RE.sub("", text).strip()
+
+
+def strip_leaked_ids(judgment: Judgment) -> Judgment:
+    """Strips a "(word: <uuid>[, <uuid>...])"-shaped suffix from every
+    Judgment free-text/list field that reaches the Clarity Brief or the
+    user in some form -- deliberately NOT applied to the exact-quote
+    fields (knowledge_correction_target, decision_resolution_option),
+    which must stay byte-identical to real WorldState text by their own
+    contract, or to supporting_evidence, which is the one field ids are
+    SUPPOSED to live in."""
+    return judgment.model_copy(update={
+        "primary_problem": _strip_leaked_id(judgment.primary_problem),
+        "primary_goal": _strip_leaked_id(judgment.primary_goal),
+        "current_focus": _strip_leaked_id(judgment.current_focus),
+        "situation_assessment": _strip_leaked_id(judgment.situation_assessment),
+        "key_blockers": [_strip_leaked_id(t) for t in judgment.key_blockers],
+        "secondary_issues": [_strip_leaked_id(t) for t in judgment.secondary_issues],
+        "open_unknowns": [_strip_leaked_id(t) for t in judgment.open_unknowns],
+        "active_decisions": [_strip_leaked_id(t) for t in judgment.active_decisions],
+        "contradictions": [_strip_leaked_id(t) for t in judgment.contradictions],
+        "contradiction_significance": _strip_leaked_id(judgment.contradiction_significance),
+        "competing_priorities": [_strip_leaked_id(t) for t in judgment.competing_priorities],
+        "near_duplicates": [_strip_leaked_id(t) for t in judgment.near_duplicates],
+        "decision_readiness": _strip_leaked_id(judgment.decision_readiness),
+        "risk_scan": _strip_leaked_id(judgment.risk_scan),
+        "risks": [_strip_leaked_id(t) for t in judgment.risks],
+        "opportunities": [_strip_leaked_id(t) for t in judgment.opportunities],
+        "risk_significance": _strip_leaked_id(judgment.risk_significance),
+        "stagnation_notes": [_strip_leaked_id(t) for t in judgment.stagnation_notes],
+    })
 
 # --- Legacy phase-transition thresholds, ported unchanged from Judgment v1 ---
 # Minimum core_question_confidence before we consider the "real question"
@@ -241,6 +299,16 @@ def run_judgment(
         result = result.model_copy(update={
             "supporting_evidence": [eid for eid in result.supporting_evidence if eid in known_ids],
         })
+        # Leaked-id mechanical backstop (see strip_leaked_ids's own
+        # comment above) -- applied here, inside run_judgment, rather
+        # than by the caller (unlike src/planner/engine.py's own
+        # strip_leaked_ids, which orchestrator/engine.py applies
+        # externally so run_planner stays a pure "call the LLM"
+        # function): run_judgment already does its own post-processing
+        # on `result` immediately above (the grounding filter), so this
+        # keeps every Judgment-output cleanup step in the one place,
+        # and guarantees no caller of run_judgment can forget to apply it.
+        result = strip_leaked_ids(result)
         return result
 
     raise JudgmentError("All configured LLM providers failed: " + "; ".join(failures))

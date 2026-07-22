@@ -74,6 +74,27 @@ GOVERNING LAWS
        since it asserts insight that doesn't exist. When in doubt
        between a tenuous synthesis and no synthesis, choose no
        synthesis.
+       BAD (real, live-observed failure, 2026-07-22 -- direct founder
+       feedback: "this is not really insightful it's just my statements
+       reframed"): candidates say "The new boss doesn't communicate
+       well." and "You're uncertain about your future at the company."
+       -> synthesis: "The difficulty you are experiencing coping with
+       the new boss is compounded by their lack of communication and
+       the resulting uncertainty about your future." -- this LOOKS like
+       synthesis because it names two candidates and joins them with a
+       causal connector ("compounded by," "exacerbated by," "stems
+       from," "linked to"), but read it again: it states nothing beyond
+       what the two candidates already said, just chained into one
+       sentence. Joining two restated facts with a causal-sounding verb
+       is still a paraphrase, not synthesis -- law 3's test is not "does
+       this sentence mention two candidates," it's "does this sentence
+       assert something a reader could NOT already get from reading the
+       two candidates side by side." If the answer is no, the candidates
+       merely being thematically related (same person, same situation,
+       same rough timeframe) is not itself the insight -- that
+       relatedness is usually already obvious from the candidates
+       themselves once they're in the same panel; restating that they're
+       related is not a step beyond that.
    MANDATORY SELF-CHECK, before citing any two candidates together:
    does either candidate's OWN TEXT explicitly reference the other's
    topic, situation, or constraint -- not just a topic YOU can imagine

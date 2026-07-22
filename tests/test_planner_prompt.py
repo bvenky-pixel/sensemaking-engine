@@ -33,3 +33,28 @@ def test_prompt_explains_why_a_vague_paraphrase_becomes_a_generic_question():
 
 def test_prompt_gives_a_worked_example_of_the_verbatim_preference():
     assert "Who is responsible for acknowledging" in SYSTEM_PROMPT
+
+
+def test_prompt_forbids_desired_outcome_from_asserting_the_users_feelings():
+    """Regression test for a real, live-observed Clarity Brief (2026-07-22,
+    direct founder bug report): "You feel heard and validated regarding
+    your current emotional state" rendered as the Brief's own "current
+    direction" -- desired_outcome asserting the user's feelings back to
+    them as an accomplished fact. Founder's own framing: "we should not
+    tell the user how they feel, if they feel heard and validated they
+    will tell us." """
+    assert "MUST NEVER assert or presume the user's own emotional" in SYSTEM_PROMPT
+
+
+def test_prompt_desired_outcome_rule_is_tense_agnostic():
+    assert "in any tense" in SYSTEM_PROMPT
+    assert "is still a claim" in SYSTEM_PROMPT
+    assert "about their feelings, not a conversational outcome" in SYSTEM_PROMPT
+
+
+def test_prompt_gives_the_real_observed_bad_example_for_desired_outcome():
+    assert "User feels heard and validated regarding their current" in SYSTEM_PROMPT
+
+
+def test_prompt_gives_a_good_example_for_desired_outcome():
+    assert "User articulates what's been hardest about this transition." in SYSTEM_PROMPT

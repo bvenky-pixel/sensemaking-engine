@@ -138,8 +138,20 @@ def run_planner(
 # alone isn't enough" lesson as the repeated-question filter below,
 # applied here to the id-leak case specifically -- real, live-observed,
 # not a hypothetical.
+#
+# Widened (2026-07-22, second round, direct founder bug report from
+# manual production testing of the Clarity Brief): the SAME class of
+# leak showed up in a different shape than this regex originally
+# covered -- not just "(id: <uuid>)", but "(fact: <uuid>)", "(claim:
+# <uuid>)", and multiple comma-separated ids under a pluralized label,
+# e.g. "(claims: b523627e-..., 2766f7c7-...)". The label is whichever
+# WorldState item TYPE NAME the model reaches for (fact/facts/claim/
+# claims/goal/...), not always literally "id" -- so this now matches
+# any "word: uuid[, uuid...]" parenthetical, not just the one literal
+# label first observed.
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _LEAKED_ID_RE = re.compile(
-    r"\s*\(\s*id:\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\s*\)"
+    rf"\s*\(\s*[a-zA-Z]+:\s*{_UUID_RE}(?:\s*,\s*{_UUID_RE})*\s*\)"
 )
 
 

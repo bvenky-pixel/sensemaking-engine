@@ -13099,3 +13099,132 @@ distinct Unknowns/Goals -- the mechanical filter now stops the same
 QUESTION from recurring, but doesn't itself make Planner choose a
 genuinely different STRATEGY when a conversation stays this abstract.
 Worth watching for in the next live dispatch, not fixed this round.
+
+## 2026-07-22 -- Second round of production feedback: id leaks (widened), desired_outcome feelings-assertion, Tier 2 causal-connector paraphrase
+
+Grounding data: the founder pasted the actual rendered Clarity Brief for
+the same live transcript the generic-difficulty-question fix above was
+diagnosed against, with two bugs stated verbatim:
+
+> "1. we should not tell the user how they feel, if they feel heard and
+> validated they will tell us
+> 2. still see ids on the clarity brief"
+
+followed (in a second, mid-turn message) by a third piece of feedback on
+the same Brief's "Putting it together" section: "this is not really
+insightful it's just my statements reframed" -- alongside explicit
+confirmation that the "What matters here" section's *content* (ids
+aside) and the "Still uncertain" section's *questions* were both real
+signal ("these are strong valuable questions"), narrowing the
+"circular questioning" complaint to something already tracked (the
+generic-difficulty-question fix above) rather than a new bug in
+question selection itself.
+
+### Bug 1: id-leak regex was still too narrow
+
+The existing anti-id-leak law (Planner: `_LEAKED_ID_RE` +
+`strip_leaked_ids`, `src/planner/engine.py`) only matched a literal
+`"(id: <uuid>)"` shape, and Judgment had a prompt-level law (GOVERNING
+LAW 5) but no mechanical backstop at all. The real leaks in this Brief
+used the WorldState item's own TYPE NAME as the label, not "id", and
+sometimes carried multiple ids under one label:
+`(fact: 4be1114f-...)`, `(claims: b523627e-..., 2766f7c7-...)`,
+`(claim: d772552a-...)`, `(facts: 882c7638-..., 38cac1d0-...)`.
+
+Fix: widened the regex to match any `word:` label with one or more
+comma-separated uuids --
+
+```python
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_LEAKED_ID_RE = re.compile(
+    rf"\s*\(\s*[a-zA-Z]+:\s*{_UUID_RE}(?:\s*,\s*{_UUID_RE})*\s*\)"
+)
+```
+
+applied in `src/planner/engine.py` (existing call site, now covering
+the wider shape), and replicated for the first time in
+`src/judgment/engine.py` as a new `strip_leaked_ids(judgment)` function
+applied at the end of `run_judgment`, right after the existing
+supporting_evidence grounding filter -- deliberately inside
+`run_judgment` itself (unlike Planner's version, which the orchestrator
+applies externally) so every Judgment-output cleanup step lives in one
+place and no caller can forget it. Both versions deliberately exclude
+the exact-quote fields (`knowledge_correction_target`,
+`decision_resolution_option` -- must stay byte-identical to real
+WorldState text for `src/state/builder.py` to find the matching item)
+and `supporting_evidence` (the one field ids are supposed to live in).
+
+Tests: new `tests/test_judgment_leaked_ids.py`, 8 tests covering the
+real observed single- and multi-id labeled shapes, the original `id:`
+shape, every affected Judgment field, and the two deliberately-excluded
+field categories, plus an end-to-end `run_judgment` test with a mocked
+provider.
+
+### Bug 2: desired_outcome asserting the user's own feelings
+
+The rendered Brief stated: "You feel heard and validated regarding your
+current emotional state." This is `Planner.desired_outcome`, rewritten
+to second person and shown verbatim as the Brief's "current direction"
+(`src/executor/engine.py`'s `build_clarity_brief`,
+`to_second_person(planner.desired_outcome)`, no filtering). Root cause:
+`desired_outcome` is dual-purpose -- Planner's own internal planning aim
+AND the literal source of this user-facing field -- so an aim phrased
+as "user feels heard and validated" (meant as an aspiration to plan
+toward) rendered as a direct, presumptuous claim about the user's actual
+feelings once voice-rewritten.
+
+Fix: added a MANDATORY rule to `desired_outcome`'s field definition in
+`src/planner/prompt.py` -- tense-agnostic (a future/aspirational framing
+like "user will feel more confident" is still a claim about their
+feelings, not a conversational outcome, so it's equally forbidden),
+with the real observed BAD example and a GOOD counterexample describing
+conversational progress instead ("User articulates what's been hardest
+about this transition."). Explicitly applies even in Vent mode, where
+"the person feels more understood" remains a legitimate private aim --
+it must not become this field's own literal wording.
+
+No mechanical backstop here (unlike the id leaks): whether a sentence
+asserts an emotional state is a semantic judgment, not a matchable
+shape -- same category of choice as the anti-templating and repeated-
+question fixes above, where a prompt-level fix was the right layer once
+the failure was concretely diagnosed.
+
+Tests: `tests/test_planner_prompt.py` gains 4 new tests -- the MANDATORY
+rule's presence, the tense-agnostic framing, the real observed BAD
+example, and the GOOD example.
+
+### Bug 3 (new, surfaced mid-diagnosis): Tier 2 "Putting it together" is causal-connector paraphrase, not synthesis
+
+`emerging_patterns` (Brief) <- `state.understanding.tier2`
+(`src/understanding/tier2_engine.py`'s LLM-driven synthesis layer,
+`src/understanding/tier2_prompt.py`). That prompt's law 3 already
+forbade single-candidate restatement with worked BAD/GOOD examples --
+but the real observed failures instead joined TWO candidates with a
+causal connector ("compounded by," "exacerbated by," "stems from,"
+"linked to"), which technically satisfies law 3's letter (cites two
+candidates) while adding nothing beyond what each already said. This is
+a distinct failure shape from the ones already documented, not covered
+by the existing examples.
+
+Fix: added a new BAD example to law 3 using the founder's own exact
+observed sentence, naming the failure explicitly (joining two restated
+facts with a causal-sounding verb is still a paraphrase) and restating
+the actual test: not "does this sentence mention two candidates" but
+"does this sentence assert something a reader could NOT already get
+from reading the two candidates side by side." Same "prompt-only, no
+mechanical backstop" reasoning as Bug 2 above -- "is this genuinely new
+insight" isn't a matchable shape.
+
+Tests: new `tests/test_tier2_prompt.py`, 3 tests (the connector-
+concatenation-is-still-paraphrase framing, the real observed BAD
+example, the restated correct test).
+
+Full `pytest`: 658/658 passed (651 prior + 7 new: 4 Planner-prompt +
+3 Tier2-prompt; the 8 Judgment-leaked-id tests were added and verified
+in an earlier commit this same round, before this log entry).
+
+Not yet re-verified live against a fresh dispatch -- deploying
+immediately per the founder's own established pattern this session
+("dispatch and deploy everything we've done so far I will test
+myself"), to be tested against real production traffic rather than a
+synthetic re-run.

@@ -249,6 +249,31 @@ FIELD DEFINITIONS
   "user distinguishes facts from assumptions," "user gains clarity about
   priorities," "user defines decision criteria"). Optimize for
   conversational progress, not for solving the user's external problem.
+  MANDATORY: this field is rendered directly back to the user (Executor's
+  Clarity Brief shows it as "current direction," in second person) -- it
+  MUST NEVER assert or presume the user's own emotional or internal
+  state, in any tense. Not "user feels heard and validated" (asserts a
+  completed present state that isn't yours to declare), and not "user
+  will feel more confident" or "helping the user feel supported" either
+  (a future/aspirational claim about their feelings is still a claim
+  about their feelings, not a conversational outcome). Whether someone
+  feels heard, validated, confident, or supported is something only THEY
+  can report -- if they do, that becomes a Fact/Claim in WorldState like
+  anything else they say, never something this field states on their
+  behalf. This applies even in Vent mode, where "the person feels more
+  understood" is a real thing to privately aim for -- it still must not
+  become this field's own literal wording, because this field is not
+  private; keep it in conversational/informational terms instead (e.g.
+  "user articulates what's been hardest about this" -- describing WHAT
+  the conversation helps them do, never HOW it makes them feel).
+      BAD: "User feels heard and validated regarding their current
+      emotional state." (declares the user's own feelings as an
+      accomplished fact)
+      BAD: "Helping the user feel more confident about their situation."
+      (same problem, just future-tense -- still presumes their feelings)
+      GOOD: "User articulates what's been hardest about this transition."
+      (describes conversational progress -- what gets said/understood --
+      never a claim about the user's internal state)
 - temporal_horizon: one of "immediate", "near_term", or "long_term" --
   the time horizon of the current objective. Recognize when progress
   genuinely depends on a future event (e.g. waiting on someone else's
