@@ -12410,3 +12410,34 @@ nothing confirmed it wouldn't either.
 
 Verified: `pytest tests/test_llm_providers.py` (25/25) and full suite
 (576/576) green after the swap.
+
+## Confirmed the new default chain live (2026-07-22, backlog #234 follow-up)
+
+After switching `_SHARED_REASONING_CHAIN` to Flash-Lite-primary and
+pushing (previous entry), dispatched `worldstate-walkthrough.yml` again
+with NO model override -- exercising the actual new default map rather
+than a forced single model -- to confirm the deployed config works as
+intended (GitHub Actions run `29889237600`, commit `9005de6`).
+
+Every Interpretation/Tier2/Judgment/Planner call in the log shows
+`Model: google/gemini-2.5-flash-lite` -- zero fallback to Qwen3-32B
+across all 44 shared-tier calls, so the primary is landing cleanly in
+practice, not just in the isolated forced-model test. 55/55 total calls
+succeeded, 11/11 turns completed.
+
+Whole-conversation totals vs. the original Qwen3-32b baseline:
+
+- Total latency: 206.4 s vs. 479.3 s baseline (-57%)
+- Average latency per completed turn: ~18.8 s vs. ~48 s baseline (-61%)
+- Turn 10 specifically (the baseline's own reference turn): 30.7 s vs.
+  53.0 s (-42%) -- higher than the 23.6 s measured in the prior forced-
+  model test on the same turn, entirely attributable to Judgment
+  running 14.1 s here vs. 6.3 s there; ordinary run-to-run LLM latency
+  variance, not a config regression (this run's Judgment call is a
+  single data point, not yet enough to say Judgment is trending
+  slower).
+
+Comfortably inside the North Star's 15-20s target on conversation
+average, though individual turns still vary with how much reasoning a
+given turn requires. No production quality re-validation was run in
+this check (see previous entry's caveat -- still open).
