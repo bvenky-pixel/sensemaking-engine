@@ -521,3 +521,163 @@ describe('Journey proximity login nudge', () => {
     await waitFor(() => expect(api.requestMagicLink).toHaveBeenCalledWith('me@example.com', 's1'));
   });
 });
+
+// Clarity Brief during the wait, not after (2026-07-22, backlog #236,
+// see engine/decisions.md "Clarity Brief during the wait" and
+// engine/specs/latency-northstar-v1.md's own "Frontend-only
+// mitigations" #1) -- Understanding moved from below the Composer to
+// right after the orb-companion, so it's the thing a person sees during
+// a long `sending` wait instead of only after. jsdom doesn't do real
+// layout, so this can't check pixel position (that's what the earlier
+// live Playwright verification round covered) -- it checks DOM SOURCE
+// order instead, via compareDocumentPosition, which is what actually
+// determines visual order for this normal-flow, non-absolutely-
+// positioned markup.
+describe('Journey: Clarity Brief position during the wait', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getMessages.mockResolvedValue([{ role: 'user', content: 'I keep putting off a hard conversation.', created_at: '' }]);
+    api.getClarityBrief.mockResolvedValue({
+      situation: 'Weighing whether to raise a workload concern with a manager.',
+      current_direction: 'Leaning toward having the conversation soon.',
+      key_insights: ['The delay itself is adding stress.'],
+      remaining_unknowns: [],
+      decisions: [],
+      secondary_issues: [],
+      stagnation_notes: [],
+    });
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    api.openStageStream.mockReturnValue(vi.fn());
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+  });
+
+  it('renders the Clarity Brief before the Composer in DOM order while a turn is sending', async () => {
+    // Never resolves within the test -- holds `sending` at true so the
+    // in-flight layout (the exact moment this backlog item is about)
+    // is what gets asserted against, not the settled-afterward one.
+    api.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { getByText, getByPlaceholderText, container } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    await waitFor(() => getByText(/Weighing whether to raise a workload concern/));
+
+    const composer = getByPlaceholderText("What's on your mind?");
+    await fireEvent.input(composer, { target: { value: 'And I know putting it off only makes it worse.' } });
+    await fireEvent.click(getByText('Share this'));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
+
+    const understandingRegion = container.querySelector('[aria-label="What we understand so far"]');
+    const composerTextarea = container.querySelector('textarea');
+    expect(understandingRegion).toBeTruthy();
+    expect(composerTextarea).toBeTruthy();
+    // DOCUMENT_POSITION_FOLLOWING on composerTextarea (relative to
+    // understandingRegion) means understandingRegion comes first in
+    // source order -- i.e. Composer, not Understanding.
+    const position = understandingRegion.compareDocumentPosition(composerTextarea);
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// Streamed Response text (2026-07-22, backlog #233, see
+// engine/decisions.md "Stream Response text token-by-token") --
+// openStageStream's third argument (onToken) is captured here and
+// invoked manually, the same way a real GET /stream token event would
+// eventually reach it, without needing a real EventSource/backend.
+describe('Journey: streamed response text preview', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getMessages.mockResolvedValue([]);
+    api.getClarityBrief.mockResolvedValue(null);
+    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
+    api.getBookmark.mockResolvedValue({ bookmarked: false });
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+  });
+
+  it('shows streamed response_text fragments growing in the transcript while still sending', async () => {
+    let capturedOnToken;
+    api.openStageStream.mockImplementation((sessionId, onStage, onToken) => {
+      capturedOnToken = onToken;
+      return vi.fn();
+    });
+    // Never resolves within the test -- holds `sending` at true so the
+    // in-flight streaming preview is what gets asserted, not the
+    // settled-afterward real message.
+    api.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { getByPlaceholderText, getByText, queryByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    const composer = await waitFor(() => getByPlaceholderText("What's on your mind?"));
+    await fireEvent.input(composer, { target: { value: 'I want to talk about work.' } });
+    await fireEvent.click(getByText('Share this'));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
+    expect(typeof capturedOnToken).toBe('function');
+
+    // Nothing streamed yet -- the provisional bubble only appears once
+    // there's real text to show (see Journey.svelte's own displayMessages).
+    expect(queryByText(/It sounds like/)).toBeNull();
+
+    capturedOnToken('It sounds ');
+    await waitFor(() => getByText('It sounds', { exact: false }));
+
+    capturedOnToken('like a lot.');
+    await waitFor(() => getByText('It sounds like a lot.'));
+  });
+
+  it('replaces the streaming preview with the real message once the response resolves, without a duplicate', async () => {
+    let capturedOnToken;
+    let resolveSend;
+    api.openStageStream.mockImplementation((sessionId, onStage, onToken) => {
+      capturedOnToken = onToken;
+      return vi.fn();
+    });
+    api.sendMessage.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+
+    const { getByPlaceholderText, getByText, queryAllByText } = render(Journey, {
+      props: { sessionId: 's1', onBack: vi.fn() },
+    });
+
+    const composer = await waitFor(() => getByPlaceholderText("What's on your mind?"));
+    await fireEvent.input(composer, { target: { value: 'I want to talk about work.' } });
+    await fireEvent.click(getByText('Share this'));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
+
+    capturedOnToken('Partial draft');
+    await waitFor(() => getByText('Partial draft', { exact: false }));
+
+    resolveSend({
+      response_text: 'The real, final response text.',
+      confidence: 0.7,
+      options: [],
+      failed_stage: null,
+      error: null,
+    });
+
+    await waitFor(() => getByText('The real, final response text.'));
+    // The provisional "Partial draft" bubble must be gone, not left
+    // behind alongside the real message.
+    expect(queryAllByText(/Partial draft/, { exact: false }).length).toBe(0);
+  });
+});

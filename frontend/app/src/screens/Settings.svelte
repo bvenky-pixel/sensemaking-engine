@@ -49,16 +49,34 @@
   // note above is no longer accurate for a signed-in visitor -- it now
   // shows the real, signed-in email and a Log out control.
   //
-  // POM surfaced to users (2026-07-18, see frontend/decisions.md): a
-  // third section, "You" -- PersonalOperatingModel.svelte is fully
-  // self-contained (fetches its own data, renders its own
-  // .setting-section card), so it's mounted here exactly like a fourth
-  // sibling, not merged into Privacy/Account's own markup.
+  // You tab (2026-07-21, backlog #263, see information-architecture-v2.md,
+  // engine/decisions.md "Frontend IA v2"): PersonalOperatingModel.svelte/
+  // BehavioralPatterns.svelte (formerly a third and fourth sibling
+  // section here) are now their own top-level screen, You.svelte --
+  // Settings goes back to exactly Privacy + Account, smaller than
+  // before, more aligned with this doc's own "kept deliberately small"
+  // goal, not less.
   //
-  // Learning surfaced to users (2026-07-18, see frontend/decisions.md
-  // "Learning surfaced to users") -- BehavioralPatterns.svelte is the
-  // same self-contained shape, mounted as a fifth sibling right after
-  // PersonalOperatingModel.
+  // No more onBack/back button -- Settings is now a persistent tab bar
+  // destination (backlog #261) reached by tapping the "Settings" tab
+  // from anywhere, the same as Home/Activity/You are; "back" doesn't
+  // mean anything for a top-level tab the way it did when Settings was
+  // a one-off screen reached via a single link.
+  //
+  // Appearance: accent color picker (2026-07-21, direct founder
+  // instruction, see engine/decisions.md "Accent color picker"): a new
+  // third section, alongside Privacy/Account -- a visual preference
+  // about how the app looks for this person, not a Privacy concern and
+  // not really an Account fact either, so it gets its own heading
+  // rather than being folded into Reduce Motion's Account section.
+  // Same login gate as everything else on this screen (see this file's
+  // own "Auth, the low-friction way" note above) -- not because this
+  // preference is itself sensitive (it's plain localStorage, same as
+  // Reduce Motion), but for consistency: Reduce Motion already lives
+  // behind the same gate despite being equally client-side-only, and a
+  // person expects everything under the Settings tab to behave the
+  // same way, not some controls gated and others not for reasons they
+  // can't see.
   import { onMount } from 'svelte';
   import {
     getPrivacySettings,
@@ -68,12 +86,9 @@
     resetAllData,
   } from '../lib/api.js';
   import { getReduceMotionOverride, setReduceMotionOverride, applyReduceMotionAttribute } from '../lib/motionPreference.js';
+  import { ACCENT_THEMES, getAccentTheme, setAccentTheme, applyAccentTheme } from '../lib/accentTheme.js';
   import { authState, logout } from '../lib/auth.svelte.js';
   import LoginGate from '../components/LoginGate.svelte';
-  import PersonalOperatingModel from '../components/PersonalOperatingModel.svelte';
-  import BehavioralPatterns from '../components/BehavioralPatterns.svelte';
-
-  let { onBack } = $props();
 
   let loggingOut = $state(false);
 
@@ -87,6 +102,7 @@
   }
 
   let reduceMotion = $state(false);
+  let accentTheme = $state('coral');
   let crossSessionLearning = $state(true);
   let reflectionPromptEnabled = $state(false);
   let exporting = $state(false);
@@ -95,6 +111,7 @@
 
   onMount(async () => {
     reduceMotion = getReduceMotionOverride();
+    accentTheme = getAccentTheme();
     // Gated behind sign-in (see script comment) -- App.svelte's own
     // onMount already resolved authState before this screen could ever
     // be reached by navigation, so this check never races a still-pending
@@ -112,6 +129,12 @@
     reduceMotion = !reduceMotion;
     setReduceMotionOverride(reduceMotion);
     applyReduceMotionAttribute();
+  }
+
+  function selectAccentTheme(themeId) {
+    accentTheme = themeId;
+    setAccentTheme(themeId);
+    applyAccentTheme();
   }
 
   async function toggleCrossSessionLearning() {
@@ -172,8 +195,6 @@
 </script>
 
 <div class="settings">
-  <button type="button" class="back" onclick={onBack}>&larr; Home</button>
-
   <p class="display">Settings</p>
 
   {#if !authState.checked}
@@ -253,6 +274,29 @@
 
     <section class="card setting-section">
       <div class="setting-heading">
+        <span class="dot" style="--dot-tint: var(--accent-4)"></span>
+        <p class="ui-label">Appearance</p>
+      </div>
+      <p class="setting-body">Choose the accent color for the orb and the rest of the app.</p>
+
+      <div class="accent-swatches" role="radiogroup" aria-label="Accent color">
+        {#each ACCENT_THEMES as theme (theme.id)}
+          <button
+            type="button"
+            class="swatch"
+            class:selected={accentTheme === theme.id}
+            style="--swatch-color: var({theme.previewVar})"
+            role="radio"
+            aria-checked={accentTheme === theme.id}
+            aria-label={theme.label}
+            onclick={() => selectAccentTheme(theme.id)}
+          ></button>
+        {/each}
+      </div>
+    </section>
+
+    <section class="card setting-section">
+      <div class="setting-heading">
         <span class="dot" style="--dot-tint: var(--accent-3)"></span>
         <p class="ui-label">Account</p>
       </div>
@@ -282,18 +326,10 @@
         </button>
       </div>
     </section>
-
-    <PersonalOperatingModel />
-    <BehavioralPatterns />
   {/if}
 </div>
 
 <style>
-  .back {
-    display: block;
-    margin-bottom: var(--space-3);
-  }
-
   .display {
     margin: 0 0 var(--space-4);
   }
@@ -377,6 +413,39 @@
 
   .toggle.on .toggle-thumb {
     transform: translateX(18px);
+  }
+
+  /* Accent color picker (see script comment) -- plain circular swatches,
+     each a real button (not a styled radio input) for the same reason
+     ModePicker's own cards are buttons: a native radio's own focus/
+     check styling would fight this app's rounded, tactile vocabulary
+     rather than match it. The selected swatch gets a ring rather than
+     a checkmark glyph, so it reads clearly regardless of which of the
+     five hues happens to be selected (a fixed-color checkmark would
+     have contrast problems against at least one of them). */
+  .accent-swatches {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
+  }
+
+  .swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--swatch-color);
+    padding: 0;
+    transition: transform var(--motion-quick) ease-out;
+  }
+
+  .swatch:hover:not(.selected) {
+    transform: scale(1.08);
+  }
+
+  .swatch.selected {
+    box-shadow: 0 0 0 2px var(--paper-raised), 0 0 0 4px var(--swatch-color);
   }
 
   /* Export/Forget everything (see script comment) -- same row rhythm

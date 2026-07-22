@@ -199,12 +199,12 @@ def test_resolve_provider_chain_rejects_unknown_provider(monkeypatch):
 @pytest.mark.parametrize(
     "component, expected_chain",
     [
-        ("Interpretation", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
-        ("Tier2", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
-        ("Judgment", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
-        ("Planner", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
-        ("Insight", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
-        ("POM", ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]),
+        ("Interpretation", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
+        ("Tier2", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
+        ("Judgment", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
+        ("Planner", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
+        ("Insight", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
+        ("POM", ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]),
         ("Response", ["deepseek/deepseek-chat"]),
     ],
 )
@@ -251,22 +251,22 @@ def test_call_openrouter_sends_the_resolved_chains_primary_model_in_the_request_
     call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
 
     assert seen_payloads[0]["model"] == "deepseek/deepseek-chat"
-    assert seen_payloads[1]["model"] == "qwen/qwen3-32b"
+    assert seen_payloads[1]["model"] == "google/gemini-2.5-flash-lite"
 
 
 def test_call_openrouter_falls_back_to_the_second_model_when_the_primary_fails(monkeypatch):
-    """Direct regression test for the new primary/fallback chain behavior
-    (2026-07-18, see module docstring): a failure on Interpretation's
-    primary model (qwen/qwen3-32b) must be invisible to the caller if the
-    fallback (google/gemini-2.5-flash-lite) succeeds -- returns normally,
-    no ProviderCallError, and the caller can't tell from the return value
+    """Direct regression test for the primary/fallback chain behavior (see
+    module docstring): a failure on Interpretation's primary model
+    (google/gemini-2.5-flash-lite) must be invisible to the caller if the
+    fallback (qwen/qwen3-32b) succeeds -- returns normally, no
+    ProviderCallError, and the caller can't tell from the return value
     alone which model actually answered."""
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     seen_models = []
 
     def _spy_post(url, headers, json, timeout):
         seen_models.append(json["model"])
-        if json["model"] == "qwen/qwen3-32b":
+        if json["model"] == "google/gemini-2.5-flash-lite":
             return _FakeResponse(status_code=503, text="upstream provider unavailable", json_raises=True)
         return _FakeResponse(json_data={"choices": [{"message": {"content": '{"ok": true}'}}]})
 
@@ -275,7 +275,7 @@ def test_call_openrouter_falls_back_to_the_second_model_when_the_primary_fails(m
     result = call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")
 
     assert result == '{"ok": true}'
-    assert seen_models == ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]
+    assert seen_models == ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]
 
 
 def test_call_openrouter_raises_only_after_every_model_in_the_chain_fails(monkeypatch):
@@ -290,5 +290,5 @@ def test_call_openrouter_raises_only_after_every_model_in_the_chain_fails(monkey
 
     monkeypatch.setattr("src.llm.providers.requests.post", _always_fails)
 
-    with pytest.raises(ProviderCallError, match="qwen/qwen3-32b.*gemini-2.5-flash-lite"):
+    with pytest.raises(ProviderCallError, match="gemini-2.5-flash-lite.*qwen/qwen3-32b"):
         call_openrouter(SYSTEM_PROMPT, MESSAGES, SCHEMA, TEMPERATURE, component="Interpretation")

@@ -26,27 +26,74 @@
   import { fade, fly } from 'svelte/transition';
 
   let { messages, onOptionSelect, disabled } = $props();
+
+  // Only the last exchange visible by default, older turns reachable
+  // (2026-07-21, backlog #237, see engine/decisions.md and
+  // engine/specs/latency-northstar-v1.md's own "needs a real
+  // interaction-design decision" flag) -- a collapse/expand affordance,
+  // deliberately NOT a fixed-height scrollable pane: the app has no
+  // nested scroll regions anywhere else (see Journey.svelte's own
+  // .scroll-fade comment, "the whole app is one continuously scrolling
+  // flow"), and this keeps that principle intact rather than
+  // introducing a new one just for this screen.
+  //
+  // "Last exchange" = the most recent user message and everything from
+  // that point on (normally just its one assistant reply, but also
+  // correctly covers the mid-flight case where a user message has been
+  // sent and nothing has answered it yet). Recomputed from `messages`
+  // on every render, not frozen at mount, so a freshly-sent turn is
+  // always what's shown without the person having to manually
+  // re-collapse anything. `showEarlier` stays a simple, un-persisted
+  // $state -- defaults closed on every fresh open of a Journey, and
+  // once a person opens it within one visit it stays open rather than
+  // silently re-collapsing under them as further turns arrive.
+  let showEarlier = $state(false);
+
+  let lastExchangeStart = $derived.by(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return i;
+    }
+    return 0;
+  });
+  let earlierMessages = $derived(messages.slice(0, lastExchangeStart));
+  let lastExchangeMessages = $derived(messages.slice(lastExchangeStart));
 </script>
 
+{#snippet messageRow(message, showOptions)}
+  <p class={message.role === 'assistant' ? 'voice' : ''} in:fly={{ y: 8, duration: 280 }}>{message.content}</p>
+  {#if message.role === 'assistant' && message.options?.length && showOptions}
+    <div class="options" role="group" aria-label="Quick replies" in:fade={{ duration: 280, delay: 100 }}>
+      {#each message.options as option}
+        <button
+          type="button"
+          class="option"
+          disabled={disabled}
+          onclick={() => onOptionSelect(option.label)}
+        >
+          <span class="option-label">{option.label}</span>
+          <span class="option-description">{option.description}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
 <div class="transcript">
-  {#each messages as message, i (i)}
-    <p class={message.role === 'assistant' ? 'voice' : ''} in:fly={{ y: 8, duration: 280 }}>{message.content}</p>
-    {#if message.role === 'assistant' && message.options?.length && i === messages.length - 1}
-      <div class="options" role="group" aria-label="Quick replies" in:fade={{ duration: 280, delay: 100 }}>
-        {#each message.options as option}
-          <button
-            type="button"
-            class="option"
-            disabled={disabled}
-            onclick={() => onOptionSelect(option.label)}
-          >
-            <span class="option-label">{option.label}</span>
-            <span class="option-description">{option.description}</span>
-          </button>
-        {/each}
-      </div>
+  {#if earlierMessages.length > 0}
+    {#if showEarlier}
+      {#each earlierMessages as message, i (i)}
+        {@render messageRow(message, false)}
+        <hr />
+      {/each}
+    {:else}
+      <button type="button" class="link-button show-earlier" onclick={() => (showEarlier = true)}>
+        Show earlier in this Journey
+      </button>
     {/if}
-    {#if i < messages.length - 1}<hr />{/if}
+  {/if}
+  {#each lastExchangeMessages as message, i (i)}
+    {@render messageRow(message, i === lastExchangeMessages.length - 1)}
+    {#if i < lastExchangeMessages.length - 1}<hr />{/if}
   {/each}
 </div>
 
@@ -57,6 +104,16 @@
 
   .transcript hr {
     margin: var(--space-3) 0;
+  }
+
+  /* Last-exchange-only collapse affordance (see script comment) --
+     deliberately quiet, matching every other "reveal more" tap target
+     in this codebase (Journey.svelte's own menu trigger): plain
+     .link-button styling, no card or border, sits above the hidden
+     history rather than calling attention to itself. */
+  .show-earlier {
+    display: block;
+    margin: 0 0 var(--space-3);
   }
 
   .options {

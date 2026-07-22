@@ -11641,3 +11641,1011 @@ transient, not something this codebase's error handling did wrong (it
 was correctly caught and reported as a `[FAIL]` line rather than
 crashing the whole script, which is exactly why Baseline A and Confidant
 still completed).
+
+## Insight Engine calibration: 4/4 scored, first live data on clustering-by-meaning (2026-07-21, backlog #249)
+
+Dispatched `insight-calibration.yml` (`scripts/run_insight_calibration.py`,
+5 scenarios) against production's actual per-component chain
+(`openrouter_model` left blank -- resolves to `qwen/qwen3-32b`, the
+model `run_insight_detection`'s `Insight` component chain actually
+dispatches to; `google/gemini-2.5-flash-lite` fallback unused). Run
+29840020433, job 88666234037, **conclusion: success**, completed in
+under a minute (4 real calls, 5,837 tokens, $0.0008).
+
+Real results, from the job log:
+
+- **`reworded_recurring_theme`**: HIT. Two sessions describing the same
+  underlying pattern in different words (a manager's stalled transfer
+  approval; a co-founder's deferred pivot decision) correctly clustered
+  into one theme ("Decision delays caused by others' inaction"), both
+  session ids in evidence.
+- **`three_sessions_shared_theme`**: HIT. Three sessions (deferring a
+  dinner choice, a work decision, an apartment choice) correctly
+  clustered as "Decision deferral to others," all three ids in
+  evidence -- confirms clustering isn't limited to minimal pairs.
+- **`negative_control_unrelated`**: HIT. Two genuinely unrelated
+  sessions (an org transfer freeze; a house-vs-MBA affordability
+  decision) correctly produced zero insights -- no over-clustering.
+- **`two_sessions_same_topic_different_take`** (observation-only): the
+  model DID cluster a blocked-transfer session with an unrelated harsh-
+  review session under "Managerial decisions causing unexpected work
+  obstacles" purely on shared-manager/surprise framing -- a defensible
+  call given the deliberately ambiguous design, but worth watching: this
+  is the direction over-clustering would show up in if the model's
+  threshold for "same theme" turns out to be too permissive on real
+  production data.
+- **`below_evidence_floor`**: HIT, and confirmed live in production's
+  exact calling shape: a single session made ZERO LLM calls (the
+  engine's own `MIN_EVIDENCE_SESSIONS` short-circuit), not just in
+  `tests/test_insight_engine.py`'s unit coverage.
+
+**4/4 scored scenarios hit**, first real signal on `MIN_EVIDENCE_SESSIONS=2`/
+`MAX_SESSIONS_FOR_INSIGHT=30` (both still explicit first guesses, per
+`insight-engine-specification-v1.md`) -- this round didn't stress-test
+the numeric thresholds themselves (no scenario approached 30 sessions),
+it validated the clustering PROMPT's basic under-/over-firing behavior,
+which is the prerequisite question. No code change. Revisit if the
+observation-only scenario's permissiveness shows up as a real problem
+once production has enough multi-session accounts to observe.
+
+## POM inferred-systems calibration: 5/5 scored, first live data on all six systems (2026-07-21, backlog #292)
+
+Dispatched `pom-inferred-calibration.yml` (`scripts/run_pom_inferred_calibration.py`,
+6 scenarios) against production's actual chain (`openrouter_model` left
+blank -- resolves to `qwen/qwen3-32b`, `run_inferred_pom`'s `POM`
+component chain). Run 29840022423, job 88666244548, **conclusion:
+success**, ~1m25s (6 real calls, 15,033 tokens, $0.0020).
+
+Real results, from the job log -- all five targeted scenarios produced
+the expected non-"unclear" signal, correctly grounded in the content
+actually given:
+
+- **`narrative_redemptive_and_identity`**: HIT. `narrative.arc="redemptive"`
+  with a summary correctly identifying the setback-to-mentoring arc;
+  `identity.self_concept` populated and grounded in the same facts.
+- **`motivation_low_autonomy`**: HIT. `motivation.autonomy="low"`,
+  correctly grounded in the manager/partner/parent decision pattern.
+- **`stress_high_signals`**: HIT. `stress.level="high"`, grounded in all
+  three emotional-signal lines plus the explicit self-report.
+- **`learning_style_reflective_processor`**: HIT. `learning_style.style`
+  populated with an actually-specific description ("prefers reflective
+  writing and deliberate decision-making with historical context"), not
+  a generic restatement.
+- **`theory_of_mind_named_entity`**: HIT. `theory_of_mind.entries`
+  contains an entry for "Priya" whose `inferred_perspective` correctly
+  attributes her hesitation to staffing pressure rather than personal
+  opposition, exactly the grounded, non-invented read the scenario was
+  designed to test.
+- **`negative_control_thin_data`** (observation-only): correctly stayed
+  almost entirely "unclear"/empty on two flat, signal-free facts --
+  `stress.level`, `narrative.arc`, `learning_style.style`, `identity.self_concept`
+  all abstained. No confident-sounding invention from thin data.
+
+**5/5 scored scenarios hit, and the negative control correctly
+abstained** -- the strongest first-round result of any calibration
+campaign this session has run. No code change. This validates the
+inference PROMPT's basic grounding/abstention behavior on hand-built
+scenarios; it does not yet say anything about real production accounts'
+actual score distributions (e.g. what fraction of real users' aggregated
+content produces a non-"unclear" Stress/Motivation reading) -- that
+remains unobserved until real per-account data exists.
+
+## Planner/Response calibration: 3/3 scored, first case-ID-tracked round for either stage (2026-07-21, backlog #222, #223)
+
+Dispatched `planner-response-calibration.yml` (`scripts/run_planner_response_calibration.py`,
+5 tracked cases PR01-PR05, full pipeline per turn) against production's
+actual chain (`openrouter_model` left blank -- Interpretation/Judgment/
+Planner resolve to `qwen/qwen3-32b`, Response to `deepseek/deepseek-chat`).
+Run 29840024716, job 88666252173, **conclusion: success**, ~13m
+(46 calls -- some bounded single-stage retries beyond the 36 baseline
+calls for 9 turns x 4 stages, none surfaced as a `[FAIL]`; 293,688
+tokens, $0.0362).
+
+Real results, from the job log:
+
+- **PR01 (user_stated_response_style_constraint)**: HIT. User said
+  "please don't ask me a bunch of questions." `planning_constraints`
+  correctly translated this into `['No direct questions in the
+  response', ...]` (the 2026-07-10 literal-translation rule), and
+  Response actually honored it -- `response_text` contains zero
+  question marks, closing with an open invitation instead of a direct
+  question.
+- **PR02 (respect_already_made_decision)**: HIT, and a clean one on
+  content, not just the absence of trigger phrases: the user explicitly
+  said "I've decided -- I'm taking it." Planner's `resolution_blocker`
+  moved entirely to resignation logistics/non-compete timing --
+  `primary_objective`/`rationale` never re-litigated whether to take
+  the job -- and Response asked a logistics-only follow-up ("What
+  specific timeline are you considering for giving notice"). User
+  Agency principle #2 held on real dispatched output, not just an
+  absence-of-phrase proxy.
+- **PR03 (overwhelm_pacing)**: HIT. Three compounding stressors in one
+  turn produced `response_text` with exactly one question mark, plus
+  the v3 "real choice buttons" mechanism doing the actual
+  disambiguation work (three `ResponseOption`s, one per stressor) --
+  confirms the pacing rule and the button-based structure work together
+  as designed, not competing mechanisms.
+- **PR04 (emotional_acknowledgment_before_pivot)**, observation-only but
+  a clean positive read: "It sounds like sorting out your father's
+  estate is both a practical and emotional challenge right now. What
+  would you say is the most complex part..." -- the brief
+  acknowledgment-before-pivot from Response v2 Priority 1 visibly fired
+  on real dispatched output.
+- **PR05 (negative_control_mundane)**, observation-only, and the one
+  finding worth flagging: for a flat "dentist appointment moved" +
+  "renew car registration sometime this month" exchange, Response
+  framed the registration renewal as "the immediate priority" -- a mild
+  overstatement of urgency for something the user themselves scoped as
+  "sometime this month." Not catastrophizing or invented distress, but
+  a real, small over-fitting signal (treating routine admin as needing
+  full exploratory-question treatment) worth watching if it recurs on
+  real production turns.
+
+**3/3 scored cases hit.** This is the first structured, case-ID-tracked
+evaluation round either stage has had (`response-generator-specification-v2.md`'s
+own Open Questions section named this exact gap for #223) -- prior
+rounds were driven by direct user complaints or ad hoc log greps, never
+a repeatable named-case set. No code change this round; PR05's mild
+over-fitting observation is noted as a watch item, not acted on from a
+single data point.
+
+## Frontend: richer stagnation wording sourced from Judgment's own stagnation_notes (2026-07-21, backlog #255)
+
+Closes the gap `frontend/decisions.md`'s own "three-increment frontend
+redesign" entry named as explicitly deferred: Home's stagnation aside
+(`session.has_stagnation_signal`) only ever rendered one fixed generic
+phrase ("There's more to think through here."), never Judgment's own
+richer `stagnation_notes` wording -- deliberately deferred at the time
+specifically because doing so "would need an extra debug_json read per
+session for a first pass that doesn't need it yet" (`src/api/db.py::list_sessions`'s
+own docstring). That extra read is now done, mirroring how
+`get_session_texts_for_insights` already reads a session's `judgment`
+dict out of `debug_json` the same way.
+
+`list_sessions` now also selects `debug_json` and, per row, extracts
+the last completed turn's `Judgment.stagnation_notes[0]` (second-person
+rendered via `src.executor.voice.to_second_person`, the same transform
+already applied to this field for the live Clarity Brief in
+`send_message`) into a new `SessionSummary.stagnation_note: Optional[str]`
+field. `None` whenever there's no completed turn yet, or that turn's
+`stagnation_notes` came back empty -- a real, common, correct answer
+per that field's own docstring (Judgment may reason a raw mechanical
+signal isn't actually significant that turn), not something to paper
+over with the old generic phrase.
+
+**`has_stagnation_signal` is kept, not replaced** -- it's a different,
+independent signal (a pure mechanical function of WorldState alone,
+`compute_stagnation_signals`) that can be true even when the richer
+text is absent. `Home.svelte` now prefers `stagnation_note` when
+present and falls back to the old fixed phrase only when
+`has_stagnation_signal` is true but `stagnation_note` is `None` --
+never both, never neither incorrectly.
+
+Verified: two new backend tests (`tests/test_api_server.py`) covering
+the populated-note case (with the second-person transform actually
+firing) and the empty-notes-but-signal-true fallback case; three new
+frontend tests (`Home.test.js`) covering the real-text render, the
+fallback-phrase render, and the neither-renders case. Full suite:
+`pytest` 576 passed, `npm test` 107 passed, `npm run build` green.
+
+## Frontend: audit of explicitly-declined/deferred features (2026-07-21, backlog #256)
+
+Reviewed every "explicitly out of scope"/"deliberately deferred"/
+"declined" item recorded across `frontend/decisions.md` and
+`frontend/specs/` to check whether anything built since has newly
+triggered one. Findings:
+
+**Already resolved by later, unrelated rounds (no action needed now,
+just noting the closure):**
+- "The exact frontend surfacing shape for Learning's cross-Journey
+  patterns (needs its own design pass)" -- resolved by
+  `interaction-model-v4.md`'s own design pass plus the Insight Engine
+  (`src/insight/`) and `BehavioralPatterns.svelte` (#214) actually
+  shipping; `interaction-model-v4.md` explicitly notes Insight Engine
+  "now exists to fulfill" the reserved-but-unimplemented Learning slot
+  its predecessor spec left open.
+- "'Something noticed across Journeys' (still gated on the backend's
+  unimplemented Learning process)" -- same resolution: `insight_theme`/
+  `insight_detail` on Home and the You tab's Behavioral Patterns card
+  are exactly this, already shipped.
+- "Deliberately out of scope: privacy_settings/personal_operating_model/
+  learned_patterns/insights all stay the single, global, cross-visitor
+  models" -- resolved by the later per-account rounds (#192-196, #257,
+  #273, #274), all completed.
+- "Not built, and a known rough edge: clicking a magic link reloads the
+  whole app fresh... lands back on Home, not the exact conversation" --
+  resolved by backlog #186 ("return to the same Journey after
+  magic-link verify"), already completed.
+
+**Still correctly out of scope, no new trigger found:**
+- "Have one POM question asked before Home" -- declined for a standing
+  philosophical reason ("a mandatory pre-Home gate is exactly the kind
+  of forced, survey-shaped touchpoint the 'no manufactured urgency'
+  philosophy exists to avoid"), still holds; nothing built since
+  changes that reasoning.
+- Multi-person/collaborative Journeys, archiving a resolved Journey,
+  the Foundations token-showcase page, Clarity Brief editing UI (still
+  no backend write path for it), URL/hash-based routing -- each still
+  has its own documented reopening condition
+  (`information-architecture-v1.md`'s "Future Considerations" for the
+  first two) that hasn't fired. "Mobile-specific layout beyond the
+  narrow-screen priority rule" is not newly relevant on its own --
+  it's already the explicit subject of the separate, already-scoped
+  Frontend IA v2 group (backlog #260-267, "build responsive tab-bar
+  navigation shell"), not something #256 needs to reopen independently.
+- Learning Phase 1's own live-dispatch walkthrough verification remains
+  genuinely open (same real-production-data/explicit-go-ahead blocker
+  as backlog #213), not newly relevant, not resolved by this audit.
+
+No code change -- this was a research-only audit. Nothing found
+warranted reopening; the two genuinely resolved-by-other-work items are
+recorded here so this doc doesn't keep listing them as open elsewhere.
+
+## Frontend: only the last exchange visible by default, older turns reachable (2026-07-21, backlog #237)
+
+`engine/specs/latency-northstar-v1.md` flagged this as needing a real
+interaction-design decision before implementation, not just a reorder
+(fixed-height scrollable pane vs. a collapse/expand affordance) --
+asked the founder directly; **collapse/expand affordance chosen** (the
+recommended option), specifically to keep the app's existing "one
+continuously scrolling flow, no fixed inner scroll panes" principle
+(`Journey.svelte`'s own `.scroll-fade` comment) intact rather than
+introducing the app's first nested scroll region for this one screen.
+
+`Transcript.svelte` now finds the start of the "last exchange" (the
+most recent user message and everything from that point on -- normally
+just its one assistant reply, but also correctly covers the mid-flight
+case where a user message has been sent and nothing has answered it
+yet) and renders only that by default. Everything earlier sits behind a
+plain `.link-button`-styled "Show earlier in this Journey" toggle;
+tapping it reveals the rest inline in the same continuous page scroll
+-- nothing new architecturally, just more content in the same flow.
+`showEarlier` is un-persisted component state: defaults closed on every
+fresh open of a Journey, but once opened within one visit it stays open
+rather than silently re-collapsing as further turns arrive. Recomputed
+from `messages` on every render (not frozen at mount), so a freshly-
+sent turn is always what's shown.
+
+Response v3's own "only the LAST message's options are ever live" rule
+(`onOptionSelect`) is unaffected -- `showOptions` is now passed
+explicitly per message (true only for the last message in the visible
+last-exchange slice) rather than compared against the full array's own
+length, same behavior, cleaner plumbing via a `{#snippet messageRow}`
+shared between the collapsed and visible render paths.
+
+Verified: four new tests in `Transcript.test.js` (hidden-by-default,
+reveal-and-stays-open, no-toggle-for-a-single-exchange, mid-flight lone
+user message correctly treated as its own last exchange) plus all 5
+pre-existing Transcript tests still passing unchanged (the options-
+visibility test's "earlier message with options gets hidden" case now
+exercises the collapse path too, not just the array-length check it
+used before). Full suite: `npm test` 111 passed, `npm run build` green;
+`pytest` unaffected (576 passed, no Python touched this round). Not
+live-verified in a real browser against a running backend -- this is a
+deterministic, fully unit-tested component behavior change (not a
+visual design change), so that gap is noted plainly rather than
+claimed.
+
+## Frontend IA v2: 5-tab nav reconciled against the three-spaces rule (2026-07-21, backlog #260)
+
+`information-architecture-v1.md` doesn't name "exactly three spaces"
+as arbitrary -- it presents that count as the result of applying its
+own "New Spaces Are Expensive" test until nothing further survived,
+and explicitly walks through and REJECTS a "history browser separate
+from Journeys" as a worked 4th-space example. The pending 5-tab backlog
+cluster (#261-267) asks for exactly that shape (an Activity tab
+relocating Home's own journey list) plus a second new space (a You tab
+promoting POM/Behavioral Patterns out of Settings) -- a genuine
+departure from v1's own reasoning, not a small extension of it. Wrote
+`frontend/specs/information-architecture-v2-tab-nav-proposal.md`
+(discussion draft) working through each of the five proposed tabs
+against v1's own "genuinely distinct question" test rather than
+papering over the conflict with clever reframing.
+
+Findings: Activity and the center Share/Journey action both read as
+consistent extensions of v1's own reasoning (Activity relocates
+existing content rather than adding new; the center action is a
+navigational shortcut, not a browsable space at all) -- only You is a
+first-class departure from v1's explicit goals, defensible on a
+"self-understanding vs. configuration" distinct-question argument, but
+one needing the founder's own sign-off rather than an assumed yes.
+
+**Asked the founder directly: accept all 5 tabs, supersede v1
+(the recommended option) -- confirmed.** Wrote
+`frontend/specs/information-architecture-v2.md`, naming five spaces
+(Home narrowed to pure entry/welcome, Activity as the relocated journey
+list, Journey unchanged, You as promoted self-understanding, Settings
+narrowed further now that You's content is gone) plus the center
+navigation action (explicitly not a sixth space -- a shortcut into
+Journey, carrying none of the "new space" tax). `information-
+architecture-v1.md` marked superseded at its own top, kept in full
+below that marker as the reasoning trail -- same treatment
+`interaction-model-v4.md` gave `interaction-model-v2.md`/`v3.md`. No
+code implied by this entry -- #261-265 (the actual tab shell, Activity,
+You, center action, and revised Home) proceed next now that the
+architecture question is resolved; #267 (sweeping stale
+information-architecture-v1.md references across other frontend specs)
+is scoped for after those actually ship, matching its own "reflect the
+SHIPPED structure" wording.
+
+## Frontend IA v2 shipped: TabBar, Activity, You, center action, revised Home (2026-07-21, backlog #261-265)
+
+Implements the five-space structure `information-architecture-v2.md`
+named. New `components/TabBar.svelte`: four persistent destinations
+(Home/Activity/You/Settings, plain text labels, no icons -- matching
+the app's established all-text convention) plus a visually distinct
+center "+" action that starts a new Journey rather than a fifth
+destination -- consistent with v2's own "not a sixth space" framing.
+First width-based `@media` rule in the codebase (640px, an honest
+first-guess breakpoint, not empirically validated): fixed to the
+viewport bottom on mobile, a plain static top row on desktop. Never
+rendered during Journey/ModeSelect -- both already have their own back
+navigation, and showing TabBar underneath would be competing chrome
+during the one moment "navigation should never interrupt" matters most.
+
+`App.svelte` rewritten around a `tab` vs `screen` state split: `tab`
+tracks which of the four persistent destinations is "underneath"
+(changes only via TabBar's `onNavigate`); `screen` tracks what's
+actually rendered right now (`'tab'`, or the full-screen `'journey'`/
+`'mode-select'` overlays). Backing out of either overlay is just
+`screen = 'tab'` -- `tab` was never touched while the overlay was open,
+so this naturally restores wherever the person actually came from
+(Home, Activity, You, or Settings) with no separate `previousTab`
+bookkeeping needed. Considered and rejected: always returning to
+Activity (loses context for someone who tapped + from You/Settings),
+explicit `previousTab` tracking (redundant once `tab` already does the
+job passively).
+
+New `screens/Activity.svelte`: the journey list, filters, bookmark
+toggle, and Journey-completion login nudge extracted verbatim from the
+old Home.svelte -- three distinct empty states (no Journeys at all,
+none in the current bookmark/time-period filter) rather than one
+generic message, since "tap + below to begin" is only the right copy
+for the genuinely-empty case. Deliberately has no "+ Begin something
+new" button of its own now that the center tab action covers it.
+
+`screens/Home.svelte` rewritten drastically smaller now that Activity
+owns the journey list: the hero (BreathingOrb, ZenQuote, ModePicker)
+renders unconditionally instead of the old conditional collapse (big
+hero only when `sessions.length === 0`) -- that branch became dead
+complexity once Activity took over the list entirely, a simplification
+the split enabled rather than something bolted on separately. Bottom
+Settings/Log-in links removed -- redundant with the persistent TabBar.
+
+New `screens/You.svelte`: `PersonalOperatingModel.svelte` and
+`BehavioralPatterns.svelte` moved here wholesale from Settings.svelte,
+gated behind the same `LoginGate` pattern Settings already used for
+signed-out visitors. Neither component's own rendering changed --only
+which screen mounts them did.
+
+`screens/Settings.svelte` narrowed to match: POM/Behavioral Patterns
+mounts and the `onBack` prop/back button removed ("back" meant
+something as a one-off reachable-only-from-Home screen; it means
+nothing now that Settings is a top-level tab reached directly from
+TabBar). `screens/ModeSelect.svelte`'s back label changed from
+"← Home" to the deliberately generic "← Back", since it's now reachable
+from any tab's center action, not only from Home.
+
+Verified live against a real running backend (`uvicorn` serving the
+built `dist/` via `src/api/server.py`'s existing `StaticFiles` mount --
+sidesteps `vite.config.js`'s dev proxy, which only forwards `/sessions`,
+not `/modes`/`/auth/*`; a pre-existing gap, not touched here) with
+Playwright/chromium: Home shows the always-on hero with TabBar active
+on Home; tapping Activity/You/Settings renders each correctly (Activity's
+genuine empty state, You's/Settings' signed-out login gates); the center
+"+" opens ModeSelect with "← Back" (not "← Home"); starting and then
+backing out of a real (non-empty) Journey correctly restores the
+originating tab (`aria-current="page"` back on Home) with no TabBar
+visible during the Journey itself; desktop viewport (1280px) confirmed
+the TabBar renders `position: static` beneath the mode cards rather than
+fixed to the viewport.
+
+**Found, not fixed here (pre-existing, unrelated to this round):**
+backing out of a genuinely EMPTY anonymous Journey throws unhandled --
+`Journey.svelte`'s `handleBack` awaits `deleteSession(sessionId)` for
+the empty case, but `DELETE /sessions/{id}` is gated behind
+`require_user` (`src/api/server.py`), so an anonymous visitor who opens
+and immediately abandons an empty Journey gets a 401 that aborts
+`handleBack` before `onBack()` ever fires, trapping them on the screen.
+Reproducible today regardless of this round's changes (Journey.svelte
+itself untouched here) -- flagging for a future backlog item rather
+than fixing opportunistically inside an unrelated navigation change.
+
+Also fixed as part of #267 (spec/comment sweep for the shipped
+structure): `screen-design-v1.md`'s "three sanctioned screens" framing
+(an old DISCUSSION DRAFT that predates both this IA change and the
+later visual redesign) annotated as historical rather than rewritten
+wholesale; `PersonalOperatingModel.svelte`'s own docstring, which
+claimed it "lives inside Settings... rather than a new screen" per
+v1's since-superseded exhaustiveness rule, corrected to describe its
+actual current home (You.svelte). Left `frontend-engineering-
+architecture-v1.md`'s citation of `information-architecture-v1.md`
+alone -- it cites a principle ("state scoped to a Journey") v2 restates
+unchanged, not a screen-count claim, so it isn't actually wrong.
+
+Verified: 118 frontend tests (`TabBar.test.js`, `Activity.test.js`,
+rewritten `Home.test.js`, `You.test.js`, edited `Settings.test.js`/
+`ModeSelect.test.js`), `npm run build` clean; full `pytest` 576 passed
+(no Python touched this round, run for safety only).
+
+## Tab order: You, Activity, +, Plans, Settings (2026-07-21, direct founder instruction)
+
+Direct instruction, no ambiguity to reconcile against a standing
+principle this time (unlike backlog #260's own founder-confirmation
+round): "You - Activity - + - Plans - Settings this is the order of
+tabs I want... build the [Plans] screen for now with a coming soon
+message." Two real design questions this DID require resolving, since
+the instruction only specified the five slots, not what happens to
+Home (which the previous round's tab list had included) or what a
+first-time visitor lands on now that Home isn't a listed tab:
+
+**Asked the founder directly** (see the three-option AskUserQuestion in
+this session): Activity as the new default (keeps a no-login-wall
+landing per this app's own "an invitation, not a form" principle), You
+as the new default (matches it being leftmost, but puts a login wall on
+first launch -- a real conflict with that same principle), or keep Home
+as an unlisted landing screen with no tab of its own.
+
+**Founder's actual answer, more elegant than any of the three offered:
+"+ becomes the default and has the home screen."** Rather than picking
+one of the three options, this merges what were two separate things --
+a tab-bar destination (the old "Home" tab) and a modal overlay reached
+only via the center action (`ModeSelect.svelte`) -- into one. The
+center + action and the app's default landing screen now show the
+IDENTICAL content (`Home.svelte`, unchanged: BreathingOrb hero,
+ZenQuote, ModePicker), reached two different ways (default load, or
+tapping + from any other tab). This also resolves the login-wall
+conflict for free: the merged screen carries no auth gate (never did),
+so it's safe as both the default AND reachable from every tab.
+
+**Implementation.** `App.svelte`'s `tab` enum changes from
+`home/activity/you/settings` to `start/activity/you/plans/settings`,
+default `tab = $state('start')` (was `'home'`). `screen`'s `mode-select`
+value is retired entirely -- `ModeSelect.svelte` had nothing left to do
+once its content and the default/tab-'start' content became the same
+thing, so it and its test were deleted rather than kept as a
+now-pointless second wrapper around `ModePicker.svelte`. `TabBar.svelte`
+reordered (You, Activity, [+], Plans, Settings) with a new `Plans`
+button; the center action changed from a distinct `onBeginNew` prop to
+plain `onNavigate('start')`, since it's now just another destination in
+`active`/`aria-current` terms, not a one-way action -- added a subtle
+active-state ring (`box-shadow` accent outline) to the center circle for
+exactly this reason, the one visual addition beyond reordering.
+`Home.svelte` itself is content-unchanged, docstring updated to explain
+its new dual reach path. New `screens/Plans.svelte`: a bare "Coming
+soon." message, no functionality -- backlog #266 (the actual Plans
+design) remains unstarted; this only claims the tab's spot honestly,
+per this app's own "no report of what isn't real yet" discipline.
+
+Swept now-stale `ModeSelect.svelte` references while deleting it:
+`ModePicker.svelte`'s own docstring (used to describe ModeSelect as a
+live sibling caller), `Journey.svelte`'s completion-tracking comment,
+and `tests/setup.js`'s matchMedia comment (also fixed an unrelated
+already-stale claim there, "Home has no dedicated test file yet" --
+`Home.test.js` has existed since backlog #265). Added a dated amendment
+section to `information-architecture-v2.md` rather than rewriting its
+"Five Spaces" body -- Activity/Journey/You/Settings descriptions there
+are all still accurate; only Home's tab status and the space list
+itself needed a correction, left as an amendment pointing back at the
+original text as reasoning trail (same pattern as v1's own supersession
+banner).
+
+Verified: 117 frontend tests (net -1 from dropping `ModeSelect.test.js`'s
+3, adding `Plans.test.js`'s 1, `TabBar.test.js` gaining 1 for the new
+active-center-action case), `npm run build` clean; full `pytest` 576
+passed (no Python touched). Live-verified against a running backend
+with Playwright: tab order renders exactly You/Activity/+/Plans/
+Settings; default load shows the merged start screen with the center
+action's own `aria-current="page"`; Plans shows the coming-soon message
+and nothing else; tapping + from Activity opens the same start content
+with no back button and TabBar still visible; starting and completing a
+real Journey from there, then backing out, correctly returns to the
+start screen with the center action re-marked active.
+
+## Compact mode picker: all six modes visible without scrolling (2026-07-21, direct founder instruction)
+
+Direct follow-up ask: "rework the + screen in a way where all mode
+options are visible on mobile without having to scroll." Measured the
+actual cost first rather than guessing -- the six mode cards alone
+(24px padding on all sides, a 20px label, descriptions often wrapping
+two lines, 16px margins between cards) added up to roughly 780px,
+before the header (title, 108px orb + enso, a ZenQuote that runs 1-3
+lines depending which quote gets picked, plus a now-redundant "Pick
+what fits right now" line) on top of that -- taller than most phone
+viewports on its own.
+
+**Asked the founder which trade-off to make** (three options: compact
+list with everything tightened, a 2-column grid, or labels-only with no
+descriptions) rather than guessing at a redesign this visible.
+**Chose "compact list, tighter everything."**
+
+**Changes.** `Home.svelte`: `BreathingOrb`'s existing `compact` prop
+(108px -> 72px, no enso ring -- this prop already existed for Journey's
+idle-orb use, not new) knocks the hero down; the redundant "Pick what
+fits right now" line is gone entirely (the cards are self-explanatory);
+title font-size 32px -> 22px, margins tightened throughout.
+`ZenQuote.svelte`: margins tightened, and the blockquote clamped to 2
+lines (`-webkit-line-clamp`) -- quote length varies by which one gets
+randomly picked, which directly conflicts with a hard "always fits"
+goal if left unbounded, so its height needs a ceiling regardless of
+content, not just a usually-short average. `ModePicker.svelte`: card
+padding 24px -> 8px/16px, label font-size 20px -> 16px, dot 10px -> 8px,
+li margin-bottom 16px -> 6px, and -- the same reasoning as the quote --
+the description clamped to exactly 1 line rather than left to wrap,
+since a card's height needs to be predictable regardless of how long
+any given mode's description text happens to be.
+
+**Found a real bug while verifying, not introduced by this change but
+finally exposed by it:** `App.svelte`'s `.tab-content { padding-bottom:
+72px }` (mobile) was sized to TabBar's own rendered height alone, but
+TabBar is `position: fixed; bottom: var(--space-2)` (16px) -- its true
+footprint from the viewport edge is 72 + 16 = 88px, not 72. This 16px
+shortfall was invisible before now because content never packed close
+enough to that boundary to matter; compacting six cards tight enough to
+target small phones is what finally made the last card's bottom edge
+reach it. Fixed to `calc(72px + var(--space-2))`.
+
+**Verified with Playwright at three phone heights** (iPhone SE 375x667,
+iPhone 13 mini 375x812, iPhone 13 390x844), checking each mode card's
+actual bounding rect against the viewport, not just document
+scrollHeight (which stays technically "scrollable" by design -- trailing
+padding under the fixed TabBar is deliberate slack, not a defect):
+standard and larger phones (812px+) show all six cards fully clear of
+the TabBar with zero scrolling. The smallest phone tested (iPhone SE,
+667px) needs a small scroll (~89px) for the sixth card to fully clear
+the fixed nav -- confirmed this scroll actually reaches full clearance
+after the `.tab-content` padding fix (before that fix, the reserved
+space fell 16px short even at full scroll, which would have been a
+genuine dead end, not just a small scroll). This matches the caveat
+given to the founder before they chose this option, not a surprise
+found after the fact.
+
+Verified: 117 frontend tests unaffected (no test asserted exact pixel
+sizes, only presence/interaction, so no test file needed updating this
+round), `npm run build` clean, full `pytest` 576 passed (no Python
+touched).
+
+## Accent color picker (2026-07-21, direct founder instruction)
+
+Direct ask: "add an option in settings where users can choose and
+change the color of the orb and as a result the whole UI. Default
+remains the current color."
+
+**Mechanism reuses the app's own existing pattern rather than inventing
+a new one.** `src/lib/motionPreference.js`'s Reduce Motion toggle
+already established the shape for an app-level visual preference in
+this codebase: plain `localStorage` (no user-preference field exists
+server-side -- see `src/api/db.py`'s own "single-user simplification"
+note, unchanged), applied by toggling a `<html>` attribute that
+`tokens.css` reacts to, read once at startup (`main.js`) and re-applied
+immediately after the Settings control changes. New
+`src/lib/accentTheme.js` follows the identical shape --
+`data-accent-theme` alongside the existing `data-reduce-motion`.
+
+**Five choices, not an open picker -- reuses colors this app already
+has.** `modeTints.js` already names four supporting accent tones
+(`--accent-2` periwinkle, `--accent-3` sage, `--accent-4` lavender,
+`--accent-5` gold) used to color-code the six Counseling modes. Rather
+than inventing new hex values needing their own light/dark pair
+defined from scratch, the picker's four non-default options simply
+repoint `--accent` at one of these via `:root[data-accent-theme='X']
+{ --accent: var(--accent-N); }` -- one rule per theme, correct in both
+light and dark mode automatically (the referenced variable already
+resolves to its own correct value at point of use, and the attribute
+selector's specificity always beats the dark-mode media query's plain
+`:root`, regardless of source order). "Coral" (the default) is simply
+the absence of the attribute, since that's `--accent`'s own base
+definition already -- no rule needed. New `--accent-default` token (a
+fixed, never-overridden reference to the same coral hex) exists solely
+so the Settings picker's own "Coral" swatch preview keeps showing the
+true default color even while a different theme is active and
+`--accent` itself points elsewhere.
+
+**"As a result the whole UI," taken literally -- three places that
+were hardcoded to coral specifically needed to become theme-aware too,
+not just the generic `--accent`-driven surfaces (buttons, links, focus
+rings) that already worked for free:**
+- `--shadow-glow` (the glow under `.btn-primary` and the orb) was a
+  fixed `rgba(255, 122, 89, ...)` -- switched to
+  `color-mix(in srgb, var(--accent) 35%, transparent)` (45% in dark
+  mode, matching the original alpha values) so the glow relights to
+  match whichever accent is chosen, instead of a re-tinted button
+  glowing orange underneath itself.
+- `BreathingOrb.svelte`/`AmbientPresence.svelte`'s own core gradient
+  highlight was a fixed peach hex (`#FFD4BE`/`#FFC2A8`) blending into
+  `var(--accent)` -- since the orb is literally the feature's named
+  subject ("the color of the orb"), leaving this fixed would mean the
+  orb's edge changes color but its own center stays orange regardless
+  of theme. Switched to
+  `color-mix(in srgb, var(--accent) 45%, white 55%)`, a light tint
+  computed FROM the chosen accent rather than a fixed color.
+- The page-level ambient background wash's first (larger, primary)
+  radial-gradient stop was also a fixed coral rgba -- same color-mix
+  treatment. The second (smaller, corner) stop stays a fixed
+  periwinkle regardless of theme, deliberately -- a permanent secondary
+  highlight, not part of what the picker controls; letting both stops
+  follow the same theme would occasionally produce a monochrome wash
+  (e.g. choosing "periwinkle" would otherwise duplicate the existing
+  fixed blue corner).
+
+**UI**: new "Appearance" section in Settings, between Privacy and
+Account -- five circular swatch buttons (`role="radiogroup"`), the
+selected one marked with a ring (`box-shadow`, not a checkmark glyph --
+a fixed-color checkmark would have contrast problems against at least
+one of the five hues, a ring reads clearly against all of them). Gated
+behind the same sign-in requirement as the rest of Settings, for
+consistency with Reduce Motion (also plain-localStorage, also
+gated) -- a person shouldn't find some Settings controls behind login
+and others not for reasons they can't see, even though this specific
+preference isn't itself sensitive.
+
+**Verification note**: Settings requires real magic-link login, which
+isn't practically exercisable end-to-end in this sandbox. The picker's
+own click-handling logic (persist + apply + re-render selected state)
+is covered by three new Vitest cases in `Settings.test.js` (default
+selection, selecting a theme, returning to Coral clears storage) using
+a directly-set `authState`, the same pattern every other signed-in
+Settings test in that file already uses. What those component tests
+can't catch -- whether the CSS itself (new `color-mix()` usage, the
+attribute-selector cascade/specificity argument above) actually
+resolves correctly in a real browser -- was verified separately with
+Playwright against the running app: toggled `data-accent-theme`
+directly (the same DOM effect the picker itself produces) across all
+five themes, confirmed via `getComputedStyle` that `--accent`/
+`--accent-ink`/the orb's gradient/TabBar's center button all update
+correctly, confirmed dark mode + a theme combine correctly
+(`prefers-color-scheme: dark` emulated alongside `data-accent-theme`),
+and visually confirmed gold's dark-ink override keeps the "+" glyph
+readable against its pale background.
+
+Verified: 120 frontend tests (3 new), `npm run build` clean, full
+`pytest` 576 passed (no Python touched).
+
+## Clarity Brief during the wait (2026-07-22, backlog #236)
+
+Picking up the latency backlog (#233-236, all `[pending]` since the
+north-star doc that scoped them). Started with #236 specifically
+because `engine/specs/latency-northstar-v1.md`'s own "Frontend-only
+mitigations" section already fully specified it as **"zero backend
+change, zero new latency cost"** -- the lowest-risk item of the four,
+worth shipping first rather than picked arbitrarily.
+
+**The fix, exactly as scoped**: `Journey.svelte` previously rendered
+`<Understanding>` (which renders the Clarity Brief) below the Composer,
+at the very bottom of the screen. `Understanding`'s `brief` prop is
+already fully populated from the END of the PREVIOUS turn by the time
+`sending` flips true on the NEXT one (`refreshBrief()` runs at
+`onMount` and again after every completed send) -- nothing about it
+depends on the in-flight turn finishing. Its low position meant it sat
+below the (disabled-while-sending) Composer, easy to miss during
+exactly the ~40-50s wait (per the north-star doc's own measured
+baseline) when it's the one thing actually worth reading instead of
+watching the orb animate. Moved to render immediately after the
+orb-companion/stage-label block, before the Composer -- unconditionally
+(not only while `sending`), so there's no layout jump the instant a
+send starts or finishes.
+
+**Also fixed while touching orb-adjacent styling**: `Understanding.svelte`'s
+own `.orb-signature` dot and card list-marker dots were the one spot
+missed in the accent-color-picker round earlier this session -- still a
+fixed peach-to-coral gradient (`#FFD4BE`) rather than `color-mix()`
+against `var(--accent)` like `BreathingOrb`/`AmbientPresence` got. Fixed
+to match, so the orb's "voice" markers scattered through the Clarity
+Brief now also re-tint with whichever accent theme is chosen.
+
+**Verification, and its real limits in this sandbox**: this environment
+has no `OPENROUTER_API_KEY` available, so a genuine two-turn
+conversation (real Judgment/Planner output populating a real brief,
+then observing it during a real second-turn wait) isn't runnable here
+end-to-end. Rather than fabricate that check, verified what's actually
+verifiable: a new Vitest case in `Journey.test.js` renders with a
+mocked (but realistic-shaped) Clarity Brief already present, holds
+`sending` at `true` via a never-resolving `sendMessage` mock, and
+asserts via `compareDocumentPosition` that the Understanding region
+precedes the Composer's `<textarea>` in DOM source order -- which is
+what actually determines visual order for this normal-flow, non-
+absolutely-positioned markup (this is the thing a live Playwright pixel
+check would otherwise confirm, substituted honestly rather than
+skipped or faked). Separately live-verified against the running app
+with Playwright that starting a Journey, sending, and hitting the
+expected `OPENROUTER_API_KEY`-missing failure produces no console
+errors and no broken/empty Understanding region in its new position
+(the `{#if brief || tier2?.length}` guard correctly renders nothing
+until a real brief exists).
+
+Verified: 121 frontend tests (1 new), `npm run build` clean, full
+`pytest` 576 passed (no Python touched).
+
+## Switch shared reasoning tier's primary to Gemini 2.5 Flash Lite (2026-07-22, backlog #234)
+
+Continuing the latency backlog after #236. #234 asked to evaluate
+faster (not just cheaper) models per stage. Dispatched
+`worldstate-walkthrough.yml` against the same 11-turn career-decision
+transcript the North Star baseline itself uses
+(`engine/specs/latency-northstar-v1.md`), with `openrouter_model:
+google/gemini-2.5-flash-lite` forced across every stage (GitHub Actions
+run `29886121679`) -- Flash Lite was already an approved, currently-
+deployed production model (the shared reasoning tier's existing
+fallback), so this required no new model authorization, only a
+decision about promoting it to primary.
+
+**Turn 10** (the same turn number the North Star baseline itself
+reports, for a clean comparison):
+
+| Stage | Qwen3-32B (baseline) | Gemini 2.5 Flash Lite |
+|---|---|---|
+| Interpretation | 11.7 s | 2.1 s |
+| Judgment | 13.8 s | 6.3 s |
+| Tier2 | 14.0 s | 8.5 s |
+| Planner | 8.5 s | 3.2 s |
+| Response | 4.9 s (deepseek-chat) | 3.6 s |
+| **Turn total** | **53.0 s** | **23.6 s** |
+
+The other three turns retrievable from that run's log (GitHub only
+returns the tail of very long job logs, so only turns 8, 9, 11 besides
+10 were reachable) landed in the same 19-25s range, so turn 10 wasn't a
+fluke. Reliability was clean: 55/55 calls succeeded, 11/11 turns
+completed (the baseline run had one dropped Interpretation call).
+
+Reported the numbers plainly rather than silently repinning production
+(per this session's standing discipline, and CLAUDE.md's requirement to
+ask before changing the model default). Founder's decision: switch
+Gemini 2.5 Flash Lite to primary for every shared-reasoning-tier
+component (Interpretation, Tier2, Judgment, Planner, Insight, POM),
+keep Response on `deepseek/deepseek-chat` unchanged. Implemented by
+reversing `_SHARED_REASONING_CHAIN` in `src/llm/providers.py` --
+`["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]` -- so Qwen3-32B
+becomes the fallback instead of the primary. No `fly.toml` change
+needed (it doesn't pin `OPENROUTER_MODEL`, by design, so this map is
+already what production reads). Updated `tests/test_llm_providers.py`'s
+chain-order assertions and fallback-behavior tests to match.
+
+**What this measurement did NOT cover**: response quality/compliance.
+This was a speed-and-reliability comparison only -- Qwen3-32B's
+per-field compliance was never directly re-validated against Flash
+Lite's. Worth a calibration pass (same discipline as
+`has_knowledge_correction`'s calibration campaign) if output quality
+regresses in practice; nothing in this round suggested it would, but
+nothing confirmed it wouldn't either.
+
+Verified: `pytest tests/test_llm_providers.py` (25/25) and full suite
+(576/576) green after the swap.
+
+## Confirmed the new default chain live (2026-07-22, backlog #234 follow-up)
+
+After switching `_SHARED_REASONING_CHAIN` to Flash-Lite-primary and
+pushing (previous entry), dispatched `worldstate-walkthrough.yml` again
+with NO model override -- exercising the actual new default map rather
+than a forced single model -- to confirm the deployed config works as
+intended (GitHub Actions run `29889237600`, commit `9005de6`).
+
+Every Interpretation/Tier2/Judgment/Planner call in the log shows
+`Model: google/gemini-2.5-flash-lite` -- zero fallback to Qwen3-32B
+across all 44 shared-tier calls, so the primary is landing cleanly in
+practice, not just in the isolated forced-model test. 55/55 total calls
+succeeded, 11/11 turns completed.
+
+Whole-conversation totals vs. the original Qwen3-32b baseline:
+
+- Total latency: 206.4 s vs. 479.3 s baseline (-57%)
+- Average latency per completed turn: ~18.8 s vs. ~48 s baseline (-61%)
+- Turn 10 specifically (the baseline's own reference turn): 30.7 s vs.
+  53.0 s (-42%) -- higher than the 23.6 s measured in the prior forced-
+  model test on the same turn, entirely attributable to Judgment
+  running 14.1 s here vs. 6.3 s there; ordinary run-to-run LLM latency
+  variance, not a config regression (this run's Judgment call is a
+  single data point, not yet enough to say Judgment is trending
+  slower).
+
+Comfortably inside the North Star's 15-20s target on conversation
+average, though individual turns still vary with how much reasoning a
+given turn requires. No production quality re-validation was run in
+this check (see previous entry's caveat -- still open).
+
+## Tier2 moved off the critical path (2026-07-22, backlog #235)
+
+Scoped #235 (whether the sequential stage count can shrink) before
+touching anything -- see the scoping conversation itself for the full
+boundary-by-boundary analysis. Findings, briefly: Interpretation->Judgment
+has no real merge case (Judgment never reads Interpretation directly,
+confirmed via #239's own prior finding). Judgment->Planner is a real,
+deep dependency (Planner's prompt reads a dozen+ specific Judgment
+fields) and is the one the north-star doc itself names as the actual
+merge candidate -- but merging two separately-calibrated stages (Judgment
+v2 eval, Planner's #222 round) into one schema is a real prompt/schema
+redesign with real quality risk, not something to do inside this pass.
+
+The one clean, low-risk finding: Judgment->Tier2 isn't a real data
+dependency at all. `update_tier2` only ever reads WorldState (never
+Judgment's output), and neither Planner nor Response reads Tier2's
+output either -- it only feeds the frontend's Clarity Brief
+(Understanding.svelte), which already tolerates reading whatever the
+PREVIOUS turn computed for a full turn, per backlog #236's own
+reasoning. It ran before Planner in `src/orchestrator/engine.py` purely
+so it would still get a chance to update WorldState even if Planner/
+Response failed later -- not because anything downstream needed its
+result first. So its LLM call (4-14s observed live) was sitting in the
+user's critical path for no reason connected to data flow.
+
+**The fix**: `run_turn` (`src/orchestrator/engine.py`) gets a new
+`run_tier2: bool = True` parameter. Default True preserves every
+existing caller unchanged (conversation_runner.py,
+scripts/run_worldstate_walkthrough.py, tests) -- Tier2 still runs
+inline, synchronously, exactly as before. `src/api/server.py::send_message`
+is the one caller that passes `run_tier2=False`, then schedules a new
+`_run_tier2_in_background` via FastAPI's `BackgroundTasks` -- which only
+runs AFTER the HTTP response has already been sent to the person waiting
+on it. The background function reloads WorldState fresh from the DB
+(rather than closing over pre-response state, since `save_turn_result`
+has already committed by the time it fires), computes Tier2 with its own
+`UsageTracker` (the request's own tracker has already been drained to
+the DB by the time this fires, so recording usage needs a second,
+independent write), and persists via a new narrow `db.save_tier2_result`
+(world_state_json only, mirroring the existing
+`save_world_state_for_backfill` pattern, so it can't clobber `debug_json`
+-- which still reflects the TurnResult as of the response actually
+sent). A `KeyError` from `db.load_state` (session deleted between the
+response returning and the background task firing) is caught and
+treated as nothing to update; `update_tier2` itself already catches its
+own LLM-call failures per its existing module docstring, so this is the
+only new failure mode introduced.
+
+**What this deliberately doesn't do**: it doesn't merge Judgment and
+Planner (the north-star doc's actual scoping target) -- that stays a
+separate, bigger effort requiring its own calibration campaign before
+implementation, not bundled into this pass. It also doesn't introduce
+real parallelism anywhere in the four-LLM-call chain itself
+(Interpretation/Judgment/Planner/Response stay exactly as sequential as
+`run_turn`'s own docstring always said) -- only Tier2, which was never
+actually part of that dependency chain, moved.
+
+Verified: two new tests (`tests/test_orchestrator.py::
+test_run_turn_skips_update_tier2_when_run_tier2_is_false`,
+`tests/test_api_server.py::test_send_message_defers_tier2_to_a_background_task`
+-- the latter spies on both the orchestrator's own `update_tier2`
+reference (asserts it's never called) and `src.api.server`'s copy
+(asserts it's called exactly once), relying on FastAPI's TestClient
+running BackgroundTasks synchronously before returning control, so this
+is a real assertion, not a timing-dependent one). Full `pytest` 578/578
+(576 + 2 new). No live-dispatch re-verification run yet -- the existing
+worldstate-walkthrough script calls `run_turn` directly with the
+unchanged `run_tier2=True` default, so it can't exercise this path;
+would need a small script/curl-based check against the actual HTTP
+endpoint to confirm the background timing live, not done this round.
+
+## Live verification: Tier2 confirmed off the critical path (2026-07-22, backlog #235 follow-up)
+
+Dispatched `tier2-background-verify.yml` against the real running API
+server with a real `OPENROUTER_API_KEY` (GitHub Actions run
+`29890589571`, commit `02cd157`). Required first adding the workflow's
+YAML file (only the file -- no application code) to `main`, since
+GitHub only allows dispatching a `workflow_dispatch` workflow via the
+API once it exists on the default branch, even when the run itself
+targets a different `ref`; confirmed with the founder before pushing
+anything to `main`.
+
+Real measured result, one turn:
+
+- POST /sessions/{id}/messages returned in 8.6s (a real response_text,
+  not a stub).
+- Immediately after that response returned, GET /sessions/{id}/understanding
+  showed 0 Tier2 statements -- confirming Tier2 had NOT already run
+  synchronously inside the request.
+- Polling afterward, Tier2 appeared 3.0s later (2 statements), proving
+  the background task actually completed and persisted, not just that
+  it was scheduled and forgotten.
+
+This is direct, live confirmation that #235's fix works as designed:
+the person waiting on a response was never blocked on Tier2's separate
+~3s (this run) to ~14s (prior latency-comparison runs) LLM call.
+
+**Incidental find, not fixed here**: writing this verification script
+surfaced that bare `requests.post`/`requests.get` calls (no shared
+`requests.Session()`) don't round-trip the `anonymous_id` cookie
+`resolve_identity` issues on session creation, so each call resolves a
+DIFFERENT anonymous identity and `_require_owned_session` 404s. Fixed
+in this script by using a real `requests.Session()`. The existing
+`api-smoketest.yml` / `scripts/check_api_smoketest.py` use bare `curl`
+calls with no `-b`/`-c` cookie-jar flags, which have the same bug --
+that workflow was written (backlog #57/#58) BEFORE the auth/ownership
+layer existed (backlog #174-183), and likely hasn't actually exercised
+a real conversation since ownership checks were added; its own most
+recent run should be checked and, if broken, fixed separately -- out of
+scope for #235 itself, flagged here rather than silently fixed.
+
+## Stream Response text token-by-token (2026-07-22, backlog #233)
+
+Last item on the latency backlog. The north-star doc framed this as
+needing a real architectural decision because Response's provider call
+uses `response_format: json_object` (`response_text` is one field
+alongside `confidence`/`options`, not a standalone free-text
+completion) -- streaming naively would mean showing a person raw,
+partial JSON.
+
+**The decision**: don't touch the request/schema at all. Keep asking
+for the exact same structured object, but switch that ONE call to
+OpenRouter's SSE streaming mode (`stream: true`,
+`stream_options.include_usage: true` so cost/token instrumentation
+still works) and run the growing raw text through a small incremental
+extractor (`src/response/streaming.py::ResponseTextStreamExtractor`)
+that picks the `response_text` STRING VALUE out of the not-yet-valid
+JSON as it arrives -- scanning for the literal `"response_text"` key
+substring wherever it appears (not dependent on field order, though
+Response's own schema puts it first in practice), handling the value's
+own JSON escaping (`\"`, `\\`, `\n`) so an escaped quote inside the
+text doesn't look like the closing quote. Once the full response
+finishes, `run_response_generator` does the EXACT same
+`json.loads` + Pydantic validation it always has on the complete
+accumulated text -- streaming is purely a perception layer bolted onto
+the existing call, not a new code path the real parsed `Response`
+object depends on being correct.
+
+**Threading, end to end**: `call_openrouter`/`call_provider` gain an
+optional `on_delta` (only added to the OpenRouter payload/request when
+actually given -- every existing caller's request looks byte-identical
+to before). `run_response_generator` gains `on_token`, wrapping a fresh
+`ResponseTextStreamExtractor` per call attempt. `run_turn` gains
+`on_response_token`, threaded ONLY to Response (Interpretation/Judgment/
+Planner/Tier2 stay fully synchronous -- Response is the only stage a
+person actually reads) -- and only to the FIRST attempt: `_with_bounded_retry`
+(backlog #250) can call Response twice if the first raises
+`ResponseGeneratorError`, and a retry's tokens would otherwise land on
+top of whatever partial text the failed first attempt already streamed.
+`src/api/server.py::send_message` only passes a real callback when
+`stream_entry is not None` (someone actually opened
+`GET /sessions/{id}/stream` first) -- requesting OpenRouter's streaming
+mode with nobody consuming the tokens would be pure overhead. The
+existing SSE queue (`_stage_queues`) now carries two event shapes,
+`("stage", name)` (unchanged wire format) and `("token", delta)` (new
+`{"token": "..."}` event) -- `openStageStream` (frontend/src/lib/api.js)
+gets an optional third `onToken` argument, defaulting to a no-op so its
+one other caller (AmbientPresence.svelte) is unaffected.
+
+**Frontend**: `Journey.svelte` accumulates deltas into `streamingText`
+and renders it as a provisional last assistant message (via a
+`displayMessages` derived value) only once `sending` is true AND
+there's actual text -- before the first token, the existing stage-label
+text is still the only signal, unchanged. Cleared the instant the REAL
+response is appended (not just in the `finally` block) so there's never
+a render tick showing both the provisional bubble and the real message
+at once.
+
+**Compatibility discipline**: every new kwarg (`on_delta`, `on_token`,
+the `stream` request flag) is only ever ADDED to a call's arguments
+when actually streaming -- never passed as an explicit `None`. This is
+why dozens of existing tests across four files kept passing unmodified
+once this was right: every mock/test double written before #233 (fixed
+signatures, no `**kwargs`) still sees byte-identical calls unless a
+test explicitly opens a stream.
+
+Verified: 18 new backend tests (`tests/test_response_streaming.py` --
+the extractor directly, including a random-chunk-boundary property
+check; `tests/test_llm_providers_streaming.py` -- the real SSE parsing
+against fake `requests.post` streaming responses shaped like
+OpenRouter's own docs; `tests/test_response_engine_streaming.py`;
+plus one `test_orchestrator.py` case for the retry-doesn't-double-stream
+guard, and one live-uvicorn-thread `test_api_server.py` case confirming
+real `{"token": ...}` SSE events arrive before the `"response"` stage
+event) -- full `pytest` 597/597. 2 new frontend tests
+(`Journey.test.js`) covering the growing provisional bubble and its
+clean replacement by the real message with no duplicate. Full `npm
+test` 123/123, `npm run build` clean.
+
+**Not live-dispatched this round**: a new script/workflow
+(`scripts/verify_response_streaming.py`, `.github/workflows/response-streaming-verify.yml`)
+is written and locally sanity-checked (fails cleanly on the expected
+missing-`OPENROUTER_API_KEY` error, same as every other local check
+this session), designed to open `GET /stream` before POSTing and assert
+real `{"token": ...}` events arrive, concatenate to exactly the final
+`response_text`, and all precede the `"response"` stage event -- the
+one thing no mocked test above can confirm: that OpenRouter's actual
+streaming response shape matches what `_consume_openrouter_stream`
+assumes. Dispatching it would require the same one-time workflow-file-only
+push to `main` #235's verification workflow needed (GitHub won't
+dispatch a `workflow_dispatch` workflow via the API until its file
+exists on the default branch); asking again this round was declined, so
+this stays committed and ready but undispatched -- the 18 backend + 2
+frontend tests (which mock OpenRouter's documented streaming shape
+directly, including the usage-only final chunk and `[DONE]` sentinel)
+are the coverage this ships with. Real-world confirmation of the exact
+wire format remains a real, open gap until someone runs it.

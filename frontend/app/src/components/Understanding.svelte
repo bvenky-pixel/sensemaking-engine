@@ -153,12 +153,15 @@
   /* The orb's seal -- same core gradient as BreathingOrb/AmbientPresence,
      static (no breathing, no glow) so it reads as a signature marking
      whose voice this section is, not a third animated orb on the
-     screen. */
+     screen. color-mix() against var(--accent), not a fixed peach hex
+     (2026-07-22, see engine/decisions.md "Accent color picker") -- this
+     was the one spot the earlier accent-theme round missed; the list-
+     marker dots below get the identical fix for the same reason. */
   .orb-signature {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white 55%), var(--accent) 70%);
     margin: 0 auto var(--space-2);
     opacity: 0.7;
   }
@@ -223,7 +226,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white 55%), var(--accent) 70%);
   }
 
   .card p:last-child,

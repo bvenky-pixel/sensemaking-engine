@@ -25,7 +25,7 @@ the full discussion):
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from pydantic import ValidationError
 
@@ -39,6 +39,7 @@ from src.planner.schema import Planner
 from src.pom.schema import PersonalOperatingModel
 from src.response.prompt import build_messages
 from src.response.schema import Response
+from src.response.streaming import ResponseTextStreamExtractor
 from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.7  # higher than Judgment/Planner's 0.15: this is expression, not assessment
@@ -60,6 +61,7 @@ def run_response_generator(
     mode: Optional[str] = None,
     pom: Optional[PersonalOperatingModel] = None,
     insights: Optional[List[Insight]] = None,
+    on_token: Optional[Callable[[str], None]] = None,
 ) -> Response:
     """
     Calls an LLM to produce a Response from the given WorldState, Judgment,
@@ -119,10 +121,35 @@ def run_response_generator(
 
     failures: List[str] = []
     for provider_name in resolve_provider_chain():
+        # A fresh extractor per attempt (2026-07-22, backlog #233, see
+        # engine/decisions.md "Stream Response text token-by-token") --
+        # if this provider's call fails partway through streaming and
+        # the loop retries, the retry's tokens must be scanned from
+        # scratch, not continue a state machine left mid-value by the
+        # failed attempt's partial output. (Response's own model chain
+        # has no fallback -- see providers.py -- so in practice this
+        # loop runs once; kept per-attempt anyway rather than relying on
+        # that staying true.)
+        # `on_delta` is only ever added to this call's kwargs when
+        # actually streaming -- every existing caller/test double that
+        # mocks call_provider with its pre-#233 signature keeps working
+        # unchanged, since this call looks identical to before unless
+        # on_token was actually given.
+        call_kwargs = {}
+        if on_token is not None:
+            extractor = ResponseTextStreamExtractor()
+
+            def _on_delta(chunk: str, _extractor=extractor) -> None:
+                piece = _extractor.feed(chunk)
+                if piece:
+                    on_token(piece)
+
+            call_kwargs["on_delta"] = _on_delta
+
         try:
             raw = call_provider(
                 provider_name, system_prompt, messages, schema, TEMPERATURE,
-                component="Response", tracker=tracker,
+                component="Response", tracker=tracker, **call_kwargs,
             )
         except ProviderCallError as exc:
             failures.append(f"{provider_name}: {exc}")

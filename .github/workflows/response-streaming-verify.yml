@@ -1,0 +1,65 @@
+name: Response streaming verification
+
+# Manual only -- live proof for backlog #233 ("Stream Response text
+# token-by-token", see engine/decisions.md) that GET /sessions/{id}/stream
+# delivers real {"token": "..."} events for Response's own response_text
+# WHILE the POST /sessions/{id}/messages request is still in flight, and
+# that OpenRouter's real streaming response actually matches the SSE
+# frame shape src/llm/providers.py's _consume_openrouter_stream assumes
+# -- the one thing no unit/integration test in this repo can cover.
+# Starts the real MVP API server (same pattern as
+# tier2-background-verify.yml) and runs
+# scripts/verify_response_streaming.py against it with a real
+# OPENROUTER_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: "OPENROUTER_MODEL override (blank = provider default 'openrouter/free')"
+        required: false
+        default: ""
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start the API server
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONFIDANT_TRACK_USAGE: "1"
+          OPENROUTER_MODEL_INPUT: ${{ github.event.inputs.openrouter_model }}
+        run: |
+          if [ -n "$OPENROUTER_MODEL_INPUT" ]; then
+            export OPENROUTER_MODEL="$OPENROUTER_MODEL_INPUT"
+          fi
+          nohup python3 -m uvicorn src.api.server:app --host 127.0.0.1 --port 8000 \
+            > server.log 2>&1 &
+          echo "server_pid=$!" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 20); do
+            if curl -s -o /dev/null http://127.0.0.1:8000/; then
+              echo "Server is up."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Verify Response text streams token-by-token during the live request
+        run: python3 scripts/verify_response_streaming.py
+
+      - name: Server log (always shown for debugging)
+        if: always()
+        run: cat server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: kill "$server_pid" 2>/dev/null || true

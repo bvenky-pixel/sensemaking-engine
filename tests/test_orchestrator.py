@@ -339,6 +339,70 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     assert result.failed_stage is None
 
 
+def test_run_turn_skips_update_tier2_when_run_tier2_is_false(monkeypatch):
+    """Direct regression test for backlog #235 (see engine/decisions.md
+    "Tier2 moved off the critical path"): src/api/server.py passes
+    run_tier2=False and computes Tier2 itself afterward, off the
+    response path -- run_turn must not call update_tier2 at all in that
+    case, and `state` must come back with whatever Tier2 the state
+    already carried untouched (not cleared, not recomputed)."""
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        "src.orchestrator.engine.update_tier2",
+        lambda state, tracker=None: calls.append(state) or state,
+    )
+
+    result = run_turn("I want to move teams.", WorldState(), run_tier2=False)
+
+    assert calls == []
+    assert result.failed_stage is None
+
+
+def test_run_turn_only_streams_the_first_response_attempt(monkeypatch):
+    """Direct regression test for backlog #233 (see engine/decisions.md
+    "Stream Response text token-by-token"): if Response's first attempt
+    fails (bounded retry, backlog #250) and a second attempt succeeds,
+    on_response_token must only ever be threaded to the FIRST attempt --
+    a second attempt's tokens would otherwise land on top of whatever
+    partial text the failed first attempt already streamed."""
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+
+    attempts = {"n": 0}
+    saw_on_token = []
+
+    def _response(state, judgment, planner, tracker=None, mode=None, pom=None, insights=None, on_token=None):
+        attempts["n"] += 1
+        saw_on_token.append(on_token is not None)
+        if attempts["n"] == 1:
+            if on_token:
+                on_token("partial text from the failed attempt")
+            raise ResponseGeneratorError("transient failure")
+        return _RESPONSE
+
+    monkeypatch.setattr("src.orchestrator.engine.run_response_generator", _response)
+
+    received_tokens = []
+    result = run_turn(
+        "I want to move teams.", WorldState(), on_response_token=received_tokens.append,
+    )
+
+    assert attempts["n"] == 2
+    assert saw_on_token == [True, False]
+    assert received_tokens == ["partial text from the failed attempt"]
+    assert result.failed_stage is None
+    assert result.response == _RESPONSE
+
+
 def test_run_turn_interpretation_failure_leaves_state_genuinely_unchanged(monkeypatch):
     def _raise(message, tracker=None):
         raise InterpretationError("all providers failed")

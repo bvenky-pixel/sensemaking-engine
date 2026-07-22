@@ -32,6 +32,14 @@
   --accent-3: #5FB58B; /* soft sage -- growth/steady moods */
   --accent-4: #C293E8; /* soft lavender -- exploratory moods */
   --accent-5: #F2B84B; /* soft gold -- warmth/realignment moods */
+  /* Accent color picker (2026-07-21, direct founder instruction, see
+     engine/decisions.md "Accent color picker") -- a stable reference to
+     THIS color specifically, never overridden by data-accent-theme
+     below (unlike --accent itself, which the picker repoints). Exists
+     only so Settings' own "Coral" swatch preview keeps showing the
+     actual default color even while a different theme is active and
+     --accent points elsewhere. */
+  --accent-default: #FF7A59;
   --danger: #E15C4E;
   --danger-ink: #FFFFFF;
 
@@ -87,7 +95,11 @@
      just a barely-different fill color. */
   --shadow-soft: 0 1px 2px rgba(46, 39, 33, 0.04), 0 8px 24px -8px rgba(46, 39, 33, 0.10);
   --shadow-lifted: 0 4px 8px rgba(46, 39, 33, 0.06), 0 16px 32px -12px rgba(46, 39, 33, 0.16);
-  --shadow-glow: 0 8px 32px -8px rgba(255, 122, 89, 0.35);
+  /* color-mix(), not a fixed rgba (2026-07-21, see "Accent color
+     picker" below) -- so a chosen accent theme relights this glow to
+     match, rather than the primary button/orb changing color while its
+     own glow stays the original coral underneath it. */
+  --shadow-glow: 0 8px 32px -8px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -106,13 +118,61 @@
     --accent-3: #7BCBA3;
     --accent-4: #D2AEEF;
     --accent-5: #F5C868;
+    --accent-default: #FF9166;
     --danger: #F0796A;
     --danger-ink: #1B1714;
 
     --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.16), 0 8px 24px -8px rgba(0, 0, 0, 0.35);
     --shadow-lifted: 0 4px 8px rgba(0, 0, 0, 0.24), 0 16px 32px -12px rgba(0, 0, 0, 0.45);
-    --shadow-glow: 0 8px 32px -8px rgba(255, 145, 102, 0.45);
+    --shadow-glow: 0 8px 32px -8px color-mix(in srgb, var(--accent) 45%, transparent);
   }
+}
+
+/* Accent color picker (2026-07-21, direct founder instruction: "add an
+   option in settings where users can choose and change the color of
+   the orb and as a result the whole UI. Default remains the current
+   color.") -- Settings' new Appearance section sets/clears this
+   attribute, mirroring the established `data-reduce-motion` pattern
+   (see tokens.css's own comment on that rule, and
+   src/lib/motionPreference.js) rather than inventing a new mechanism.
+   No rule at all for the default ("coral") case -- it's simply the
+   absence of this attribute, since --accent's own base definition
+   above already IS that color.
+
+   Each override repoints --accent at one of the existing mode-tint
+   colors above rather than inventing new hex values -- this app
+   already has five named accent-family tones (see modeTints.js's own
+   comment for why), so a person choosing "sage" gets the exact same
+   sage this app already uses to color-code the Realign mode, not a
+   sixth, unrelated color needing its own light/dark pair defined from
+   scratch. --accent-ink is picked per theme for contrast: gold's pale,
+   warm tone needs dark ink; the rest read fine with white, same as the
+   default.
+
+   Single rule per theme, not duplicated inside the dark-mode media
+   query above -- `var(--accent-2)` etc. already resolve to their own
+   correct light- or dark-mode value at the point of use, and every
+   rule below is more specific (`:root` + an attribute selector) than
+   the plain `:root` selector inside that media query, so it always
+   wins regardless of source order or which mode is active. */
+:root[data-accent-theme='periwinkle'] {
+  --accent: var(--accent-2);
+  --accent-ink: #FFFFFF;
+}
+
+:root[data-accent-theme='sage'] {
+  --accent: var(--accent-3);
+  --accent-ink: #FFFFFF;
+}
+
+:root[data-accent-theme='lavender'] {
+  --accent: var(--accent-4);
+  --accent-ink: #FFFFFF;
+}
+
+:root[data-accent-theme='gold'] {
+  --accent: var(--accent-5);
+  --accent-ink: var(--ink);
 }
 
 * {
@@ -137,9 +197,14 @@ body {
   /* A very soft, slow-drifting radial wash behind everything -- the
      one ambient "alive" touch at the page level. Subtle enough to
      read as warmth, not as a busy background; fixed so it doesn't
-     scroll with content. */
+     scroll with content. First stop uses color-mix() against --accent
+     (2026-07-21, see engine/decisions.md "Accent color picker") so
+     this wash re-tints with whichever accent theme is chosen too, same
+     reasoning as --shadow-glow above; the second stop stays a fixed
+     periwinkle corner regardless of theme -- a permanent secondary
+     highlight, not part of what the picker controls. */
   background-image:
-    radial-gradient(600px circle at 15% -10%, rgba(255, 122, 89, 0.06), transparent 60%),
+    radial-gradient(600px circle at 15% -10%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
     radial-gradient(500px circle at 100% 10%, rgba(108, 142, 239, 0.05), transparent 55%);
   background-repeat: no-repeat;
   background-attachment: fixed;

@@ -66,14 +66,24 @@ str-returning signature with `_resolve_model_chain` returning an
 ordered `List[str]`:
 
 - Shared reasoning tier (Interpretation, Tier2, Judgment, Planner,
-  Insight, POM) -- `qwen/qwen3-32b` PRIMARY ($0.08 in / $0.28 out per
-  1M, cheaper than the prior `google/gemini-2.5-flash-lite` pin on both
-  axes), with `google/gemini-2.5-flash-lite` ($0.10/$0.40) as FALLBACK
-  if Qwen3-32B's call fails for any reason (unreachable, timeout,
-  malformed response -- anything `call_openrouter` already surfaces as
-  `ProviderCallError`). Qwen3 is routed through third-party inference
-  providers on OpenRouter rather than a direct-from-lab route, so a
-  fallback here is a real reliability hedge, not a formality.
+  Insight, POM) -- `google/gemini-2.5-flash-lite` PRIMARY ($0.10/$0.40),
+  with `qwen/qwen3-32b` ($0.08 in / $0.28 out) as FALLBACK if Flash
+  Lite's call fails for any reason (unreachable, timeout, malformed
+  response -- anything `call_openrouter` already surfaces as
+  `ProviderCallError`). REVERSED (2026-07-22, see engine/decisions.md
+  "Switch shared reasoning tier's primary to Gemini 2.5 Flash Lite") from
+  the prior Qwen3-32B-primary ordering: Qwen3 was cheaper per-token, but
+  a live-dispatch latency comparison on the same 11-turn transcript
+  (same turn 10 the North Star baseline itself measures) showed Flash
+  Lite completing that turn's 5 stages in 23.6s against Qwen3's 53.0s --
+  roughly half, and consistently so across the other 3 turns pulled from
+  that run too. Flash Lite was already the trusted fallback in
+  production before this swap, so this is a reordering of an
+  already-approved chain, not the introduction of a new model. Quality
+  was not re-validated as part of this latency measurement -- only
+  speed and reliability (55/55 calls succeeded in the comparison run,
+  vs. Qwen3's one dropped Interpretation call in the baseline run) --
+  worth another calibration pass if response quality regresses.
 - Response -- `deepseek/deepseek-chat` (DeepSeek V3, $0.20 in / $0.80
   out), replacing `openai/gpt-4.1-mini` ($0.40/$1.60) -- half the price
   on both axes, chosen specifically (not just "the cheapest option")
@@ -133,7 +143,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 import requests
 
@@ -176,7 +186,7 @@ def _first_env(*names: str) -> Optional[str]:
 # through to _FALLBACK_CHAIN below like any other unmapped component.
 # Values are ORDERED chains -- call_openrouter tries each model in turn,
 # only raising ProviderCallError once every model in the chain has failed.
-_SHARED_REASONING_CHAIN = ["qwen/qwen3-32b", "google/gemini-2.5-flash-lite"]
+_SHARED_REASONING_CHAIN = ["google/gemini-2.5-flash-lite", "qwen/qwen3-32b"]
 
 _DEFAULT_COMPONENT_MODELS = {
     "Interpretation": _SHARED_REASONING_CHAIN,
@@ -274,6 +284,7 @@ def _call_openrouter_with_model(
     tracker: Optional[UsageTracker],
     api_key: str,
     base_url: str,
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> str:
     """One HTTP attempt against OpenRouter for a single, already-resolved
     `model` -- the part of call_openrouter's old body that actually talks
@@ -281,30 +292,56 @@ def _call_openrouter_with_model(
     chain of models (see module docstring's "PER-COMPONENT PAID MODEL
     PINNING" section) without duplicating the request/parsing logic.
     Raises ProviderCallError -- see module docstring's robustness
-    contract -- never any other exception type."""
+    contract -- never any other exception type.
+
+    on_delta (2026-07-22, backlog #233, see engine/decisions.md "Stream
+    Response text token-by-token"): when given, switches this ONE call
+    to OpenRouter's streaming mode (`stream: true`) and invokes on_delta
+    once per raw text fragment as it arrives, in addition to (not
+    instead of) returning the full accumulated content at the end --
+    every caller that doesn't pass on_delta gets the exact prior
+    behavior, byte for byte. `stream_options.include_usage` asks
+    OpenRouter for a final usage-only chunk (no `choices`), same
+    prompt/completion/cached/reasoning token shape as the non-streaming
+    response -- if a model/provider doesn't honor it, usage silently
+    stays at 0 (extract_openai_compatible_usage's own documented
+    missing-usage behavior), never a hard failure."""
     schema_hint = (
         "\n\nReturn ONLY a single JSON object matching this schema exactly "
         f"(no prose, no markdown fences):\n{json.dumps(schema)}"
     )
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": system_prompt + schema_hint}] + messages,
+        "temperature": temperature,
+        "response_format": {"type": "json_object"},
+    }
+    if on_delta is not None:
+        payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
+
+    # `stream` only added to the request kwargs when actually streaming
+    # (2026-07-22, backlog #233) -- every existing caller/test double
+    # that mocks requests.post with its pre-#233 signature keeps working
+    # unchanged, since a non-streaming call looks byte-for-byte identical
+    # to before.
+    post_kwargs = {}
+    if on_delta is not None:
+        post_kwargs["stream"] = True
 
     start = time.monotonic()
     try:
         response = requests.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [{"role": "system", "content": system_prompt + schema_hint}] + messages,
-                "temperature": temperature,
-                "response_format": {"type": "json_object"},
-            },
+            json=payload,
             timeout=180,
+            **post_kwargs,
         )
     except requests.RequestException as exc:
         # Covers connection errors AND timeouts -- requests.exceptions.Timeout
         # is itself a RequestException subclass.
         raise ProviderCallError(f"OpenRouter request failed ({model}): {exc}") from exc
-    latency_ms = (time.monotonic() - start) * 1000
 
     if not response.ok:
         try:
@@ -312,6 +349,17 @@ def _call_openrouter_with_model(
         except ValueError:
             detail = response.text
         raise ProviderCallError(f"OpenRouter returned {response.status_code} ({model}): {detail}")
+
+    if on_delta is not None:
+        content, raw_usage = _consume_openrouter_stream(response, model, on_delta)
+        latency_ms = (time.monotonic() - start) * 1000
+        parsed_usage = extract_openai_compatible_usage({"usage": raw_usage} if raw_usage else {})
+        _record_usage(tracker, component, "openrouter", model, parsed_usage, raw_usage, latency_ms)
+        if not content.strip():
+            raise ProviderCallError(f"OpenRouter streamed response content was empty ({model})")
+        return content.strip()
+
+    latency_ms = (time.monotonic() - start) * 1000
 
     try:
         payload = response.json()
@@ -327,6 +375,45 @@ def _call_openrouter_with_model(
     return content
 
 
+def _consume_openrouter_stream(
+    response: "requests.Response", model: str, on_delta: Callable[[str], None]
+) -> tuple:
+    """Reads an OpenRouter streaming response's SSE lines (OpenAI-
+    compatible `data: {...}` frames, terminated by a literal `data:
+    [DONE]`), calling on_delta with each non-empty
+    choices[0].delta.content fragment and accumulating them into the
+    same full string the non-streaming path returns. Returns
+    (accumulated_content, usage_dict_or_None) -- usage arrives on its
+    own final chunk (see stream_options.include_usage above), separate
+    from every content-bearing chunk. Malformed individual lines are
+    skipped, not fatal -- a single corrupted SSE frame shouldn't sink an
+    otherwise-working stream when the accumulated content by the end is
+    still what matters."""
+    parts: List[str] = []
+    usage: Optional[dict] = None
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if not raw_line or not raw_line.startswith("data:"):
+            continue
+        data = raw_line[len("data:"):].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        chunk_usage = chunk.get("usage")
+        if chunk_usage:
+            usage = chunk_usage
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        delta = (choices[0].get("delta") or {}).get("content")
+        if delta:
+            parts.append(delta)
+            on_delta(delta)
+    return "".join(parts), usage
+
+
 def call_openrouter(
     system_prompt: str,
     messages: list,
@@ -334,6 +421,7 @@ def call_openrouter(
     temperature: float,
     component: str = "unknown",
     tracker: Optional[UsageTracker] = None,
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> str:
     """
     POSTs to OpenRouter's OpenAI-compatible /chat/completions endpoint.
@@ -366,6 +454,7 @@ def call_openrouter(
         try:
             return _call_openrouter_with_model(
                 model, system_prompt, messages, schema, temperature, component, tracker, api_key, base_url,
+                on_delta=on_delta,
             )
         except ProviderCallError as exc:
             failures.append(str(exc))
@@ -400,7 +489,9 @@ def call_provider(
     temperature: float,
     component: str = "unknown",
     tracker: Optional[UsageTracker] = None,
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> str:
     return _PROVIDER_CALLERS[name](
-        system_prompt, messages, schema, temperature, component=component, tracker=tracker
+        system_prompt, messages, schema, temperature, component=component, tracker=tracker,
+        on_delta=on_delta,
     )

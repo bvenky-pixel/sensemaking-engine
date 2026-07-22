@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -77,6 +77,7 @@ from src.planner.schema import Planner
 from src.pom.schema import PersonalOperatingModel
 from src.retrieval.engine import build_retrieved_context
 from src.state.world_state import WorldState
+from src.understanding.tier2_engine import update_tier2
 
 # Real frontend (see frontend/decisions.md "Build the real Confidant
 # frontend") -- Svelte + Vite, built via `npm run build` in
@@ -375,7 +376,11 @@ async def stream_stages(
     """Server-Sent Events -- one `{"stage": "<internal_id>"}` event per
     pipeline stage that finishes during the turn this session's next
     POST /messages runs (see src/orchestrator/engine.py's on_stage_complete,
-    engine/decisions.md "Major update" Part 5). Payload is deliberately
+    engine/decisions.md "Major update" Part 5), PLUS (2026-07-22, backlog
+    #233, see engine/decisions.md "Stream Response text token-by-token")
+    zero or more `{"token": "<fragment>"}` events carrying Response's own
+    `response_text` as it's generated, once the "planner" stage event has
+    already fired and before "response" fires. Payload is deliberately
     minimal -- no elapsed_ms, no ordinal/total -- a total stage count
     can't be known upfront (a turn can fail after 1 stage or complete
     after 4), and anything enabling "n of estimated total" would be a
@@ -401,13 +406,23 @@ async def stream_stages(
         try:
             while True:
                 try:
-                    stage = await asyncio.wait_for(stage_queue.get(), timeout=10)
+                    item = await asyncio.wait_for(stage_queue.get(), timeout=10)
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                if stage is None:  # sentinel from send_message: turn finished
+                if item is None:  # sentinel from send_message: turn finished
                     break
-                yield f"data: {json.dumps({'stage': stage})}\n\n"
+                # Two event shapes share this queue (2026-07-22, backlog
+                # #233, see engine/decisions.md "Stream Response text
+                # token-by-token"): ("stage", name) -- unchanged wire
+                # format, {"stage": name} -- and ("token", delta), a new
+                # {"token": delta} event for Response's own streamed
+                # text specifically. openStageStream (frontend/src/lib/
+                # api.js) ignores any event shape it doesn't recognize,
+                # so adding this second kind can't break anything already
+                # listening for stage events alone.
+                kind, payload = item
+                yield f"data: {json.dumps({kind: payload})}\n\n"
         finally:
             # Only remove if it's still this connection's own queue --
             # a second stream open (e.g. a page reload) may already have
@@ -420,9 +435,50 @@ async def stream_stages(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
+def _run_tier2_in_background(session_id: str) -> None:
+    """Backlog #235 (2026-07-22, see engine/decisions.md "Tier2 moved off
+    the critical path"): Tier2 has no data dependency on Planner/Response
+    -- it only ever reads WorldState -- and nothing downstream reads its
+    output synchronously either (Understanding.svelte's Clarity Brief
+    already tolerates reading whatever the PREVIOUS turn computed, per
+    backlog #236), so there was never a real reason for its LLM call
+    (4-14s observed live) to sit in the critical path of the response the
+    user is waiting on. Scheduled via FastAPI's BackgroundTasks, which
+    only runs after the HTTP response has already been sent -- so this
+    reloads state fresh from the DB rather than closing over the
+    pre-response `state`/`result.state`, since send_message's own
+    save_turn_result has already committed by the time this runs.
+
+    Own UsageTracker, not the request's `tracker`: by the time this
+    fires, send_message's own tracker-recording loop has already run and
+    returned, so anything appended to that tracker afterward would never
+    reach the DB -- this records its own usage independently instead.
+
+    update_tier2 itself already catches its own failures and returns
+    state unchanged (see its own docstring) -- the only realistic failure
+    mode here is the session having been deleted between the response
+    being sent and this task firing (e.g. the user deletes the Journey
+    immediately after their last message); db.load_state raises KeyError
+    in that case, which is caught and treated as "nothing to update."
+    """
+    try:
+        state = db.load_state(session_id)
+    except KeyError:
+        return
+    tier2_tracker = UsageTracker()
+    state = update_tier2(state, tracker=tier2_tracker)
+    db.save_tier2_result(session_id, state)
+    if is_tracking_enabled():
+        for usage in tier2_tracker.records:
+            db.record_llm_usage(session_id, usage)
+        for attempt in tier2_tracker.outcomes:
+            db.record_llm_attempt(session_id, attempt)
+
+
 @app.post("/sessions/{session_id}/messages", response_model=SendMessageResponse)
 def send_message(
-    session_id: str, body: SendMessageRequest, identity: Identity = Depends(resolve_identity)
+    session_id: str, body: SendMessageRequest, background_tasks: BackgroundTasks,
+    identity: Identity = Depends(resolve_identity)
 ) -> SendMessageResponse:
     _require_owned_session(session_id, identity)
 
@@ -464,7 +520,22 @@ def send_message(
     def _push(stage: Optional[str]) -> None:
         if stream_entry is not None:
             stage_queue, loop = stream_entry
-            loop.call_soon_threadsafe(stage_queue.put_nowait, stage)
+            item = None if stage is None else ("stage", stage)
+            loop.call_soon_threadsafe(stage_queue.put_nowait, item)
+
+    # Streamed Response tokens (2026-07-22, backlog #233, see
+    # engine/decisions.md "Stream Response text token-by-token") -- same
+    # queue, same thread-safety requirement as _push above, just a
+    # differently-shaped item so stream_stages' _events() generator can
+    # tell the two apart. Never pushes the None sentinel -- only _push(None)
+    # (called once, at the very end of this whole function) closes the
+    # stream, so a token arriving after the turn has already finished
+    # (shouldn't happen, but see run_response_generator's own single-
+    # attempt-only streaming guard) can't reopen a closed connection.
+    def _push_token(delta: str) -> None:
+        if stream_entry is not None:
+            stage_queue, loop = stream_entry
+            loop.call_soon_threadsafe(stage_queue.put_nowait, ("token", delta))
 
     # Retrieval v1 (see src/retrieval/engine.py, engine/decisions.md
     # "Retrieval") -- Learning/Insight Engine already compute these
@@ -522,12 +593,25 @@ def send_message(
         body.content, state, tracker=tracker, session_id=session_id,
         on_stage_complete=_push, mode=db.get_session_mode(session_id),
         retrieved_context=retrieved_context, pom=pom, insights=insights,
+        run_tier2=False,
+        # Only actually stream Response's tokens when someone's
+        # listening (2026-07-22, backlog #233) -- stream_entry is None
+        # whenever the frontend never opened GET /stream before this
+        # POST, which is a real, common case (any script/test/API
+        # client that just wants the final response), not just a test
+        # artifact. Requesting OpenRouter's streaming mode with nothing
+        # consuming the tokens would be pure overhead for zero benefit.
+        on_response_token=_push_token if stream_entry is not None else None,
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 
     db.append_message(session_id, "user", body.content)
     db.save_turn_result(session_id, result)
     db.save_events(session_id, result.behavioral_events)
+
+    # Backlog #235: Tier2 runs after this request returns, not before --
+    # see _run_tier2_in_background's own docstring above.
+    background_tasks.add_task(_run_tier2_in_background, session_id)
 
     # Production observability (2026-07-19, backlog #230, see
     # engine/decisions.md "Production observability beyond opt-in

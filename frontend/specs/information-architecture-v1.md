@@ -1,5 +1,14 @@
 # Confidant Information Architecture v1
 
+**Superseded 2026-07-21 by `information-architecture-v2.md`** (backlog
+#260-267) — the founder confirmed a deliberate, explicit departure from
+this document's own "exactly three spaces" count (Activity and You both
+judged to clear this document's own "genuinely distinct question" test
+for a new space, applying that test again rather than lowering its
+bar). Kept here in full, unedited below, as the visible reasoning
+trail — the same treatment `interaction-model-v4.md` gave
+`interaction-model-v2.md`/`v3.md`.
+
 Status: Depends on `frontend-philosophy-v1.md`. Terminology updated —
 every prior use of "Thread" below now reads "Journey," matching
 `interaction-model-v4.md`, which is also now the authoritative source for

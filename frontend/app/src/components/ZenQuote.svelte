@@ -44,12 +44,23 @@
 
 <style>
   .zen-quote {
-    margin: 0 0 var(--space-3);
+    margin: 0 0 var(--space-2);
     text-align: center;
   }
 
+  /* Compact mode picker (2026-07-21, see Home.svelte's own docstring
+     and engine/decisions.md "Compact mode picker"): quote length varies
+     (some run to 2-3 lines at this font size), which conflicts with a
+     hard "always fits without scrolling" goal -- clamped to 2 lines
+     with an ellipsis so this component's own height is bounded
+     regardless of which quote gets picked, rather than only usually
+     compact. */
   .zen-quote blockquote {
     margin: 0 0 var(--space-1);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .zen-quote figcaption {
