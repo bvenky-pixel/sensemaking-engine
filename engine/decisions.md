@@ -12512,3 +12512,43 @@ worldstate-walkthrough script calls `run_turn` directly with the
 unchanged `run_tier2=True` default, so it can't exercise this path;
 would need a small script/curl-based check against the actual HTTP
 endpoint to confirm the background timing live, not done this round.
+
+## Live verification: Tier2 confirmed off the critical path (2026-07-22, backlog #235 follow-up)
+
+Dispatched `tier2-background-verify.yml` against the real running API
+server with a real `OPENROUTER_API_KEY` (GitHub Actions run
+`29890589571`, commit `02cd157`). Required first adding the workflow's
+YAML file (only the file -- no application code) to `main`, since
+GitHub only allows dispatching a `workflow_dispatch` workflow via the
+API once it exists on the default branch, even when the run itself
+targets a different `ref`; confirmed with the founder before pushing
+anything to `main`.
+
+Real measured result, one turn:
+
+- POST /sessions/{id}/messages returned in 8.6s (a real response_text,
+  not a stub).
+- Immediately after that response returned, GET /sessions/{id}/understanding
+  showed 0 Tier2 statements -- confirming Tier2 had NOT already run
+  synchronously inside the request.
+- Polling afterward, Tier2 appeared 3.0s later (2 statements), proving
+  the background task actually completed and persisted, not just that
+  it was scheduled and forgotten.
+
+This is direct, live confirmation that #235's fix works as designed:
+the person waiting on a response was never blocked on Tier2's separate
+~3s (this run) to ~14s (prior latency-comparison runs) LLM call.
+
+**Incidental find, not fixed here**: writing this verification script
+surfaced that bare `requests.post`/`requests.get` calls (no shared
+`requests.Session()`) don't round-trip the `anonymous_id` cookie
+`resolve_identity` issues on session creation, so each call resolves a
+DIFFERENT anonymous identity and `_require_owned_session` 404s. Fixed
+in this script by using a real `requests.Session()`. The existing
+`api-smoketest.yml` / `scripts/check_api_smoketest.py` use bare `curl`
+calls with no `-b`/`-c` cookie-jar flags, which have the same bug --
+that workflow was written (backlog #57/#58) BEFORE the auth/ownership
+layer existed (backlog #174-183), and likely hasn't actually exercised
+a real conversation since ownership checks were added; its own most
+recent run should be checked and, if broken, fixed separately -- out of
+scope for #235 itself, flagged here rather than silently fixed.
