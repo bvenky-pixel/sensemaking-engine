@@ -42,6 +42,73 @@ silently guessed at call time:
                        record and deliberately keeps "resolved" visible,
                        but this template isn't that)
 
+Major update (2026-07-22, see engine/decisions.md and
+engine/specs/clarity-brief-specification-v1.md "The Eight Sections" --
+the founder/CPO's "living model" product-direction memo): four new
+sections, additive to the five above (none of the five original fields
+or their mappings change, except `situation`'s SOURCE -- see below).
+Every new mapping is either a direct reorganization of a field Judgment/
+WorldState already produces, or (`known_facts`) a new Executor-level
+template with no Judgment change at all -- same "never a new judgment
+call" discipline as everything above.
+
+- situation (SOURCE CHANGE ONLY, same field/section) <-
+                       Judgment.situation_assessment, falling back to
+                       Judgment.primary_problem when situation_assessment
+                       is still empty (e.g. very early in a Journey,
+                       before Judgment can characterize the situation's
+                       own frame yet). Previously sourced from
+                       WorldState.surface_complaint, which is BY
+                       CONSTRUCTION a light paraphrase of the person's
+                       own last message -- situation_assessment is
+                       Judgment's own synthesized frame, never a copy of
+                       raw WorldState content (Judgment's Governing Law
+                       2: "produces conclusions, not memory"), so this is
+                       a real improvement over echoing the last message,
+                       not just a rename. The echo-suppression check
+                       below (_SITUATION_ECHO_THRESHOLD) still runs
+                       defensively against whichever text ends up here,
+                       even though the new source is structurally far
+                       less likely to trigger it.
+- known_facts       <- WorldState.facts, filtered to status="active" and
+                       capped to the _KNOWN_FACTS_CAP most-recently-
+                       updated (via Provenance.last_updated) -- a NEW
+                       Executor-level template, deliberately NOT a new
+                       Judgment field: Judgment's own governing law is
+                       "produces conclusions, not memory... never restate
+                       WorldState verbatim," so a plain facts listing
+                       belongs at this deterministic-template layer, same
+                       as `decisions` already does. First-cut,
+                       uncalibrated cap -- see clarity-brief-
+                       specification-v1.md Open Question 1.
+- competing_priorities <- Judgment.competing_priorities directly (new
+                       Judgment field, see src/judgment/schema.py --
+                       tension BETWEEN two things that are both true and
+                       both matter, distinct from contradictions below).
+- contradictions    <- Judgment.contradictions, with
+                       Judgment.contradiction_significance appended as
+                       one final entry (when non-empty) -- the "what this
+                       tension implies" sentence reads naturally as the
+                       last line of this section, not a separate
+                       sub-section, since it only ever applies to the
+                       contradictions already listed above it in the same
+                       section. Confirmed via
+                       test_build_clarity_brief_never_touches_judgment_key_blockers_or_active_decisions's
+                       own history: contradictions was previously,
+                       deliberately, never mapped at all -- this is the
+                       single highest-leverage change in this rollout,
+                       real backend capability that was already computed
+                       every turn and already grounded, just invisible.
+- emerging_patterns <- WorldState.understanding.tier2 (each
+                       UnderstandingStatement's own `.text`) -- a
+                       reframe, not a new build: this is the exact same
+                       content already rendered today as the "Putting it
+                       together" card, now folded into the Brief as its
+                       own section instead of a separate adjacent panel
+                       that also claims to be "the current
+                       understanding." No new synthesis, no change to
+                       Tier 2's own conditional-recompute gating.
+
 Sparse-by-default holds here the same way it does throughout the
 Sensemaking Engine: an empty section is a structural consequence of an
 empty upstream field, not a gap Executor tries to fill.
@@ -84,6 +151,7 @@ new judgment call, per the module's own "never reasons" claim above):
 from __future__ import annotations
 
 import re
+from typing import List
 
 from src.executor.schema import ClarityBrief
 from src.executor.voice import to_second_person
@@ -117,16 +185,39 @@ _SITUATION_ECHO_THRESHOLD = 0.6
 # (see module docstring's `decisions` mapping entry).
 _BRIEF_DECISION_STATUSES = {"open", "deferred"}
 
+# First-cut, uncalibrated -- same "not the final word" status as
+# _SITUATION_ECHO_THRESHOLD above. See clarity-brief-specification-v1.md
+# Open Question 1.
+_KNOWN_FACTS_CAP = 5
+
+_FACT_VISIBLE_STATUSES = {"active"}
+
+
+def _select_known_facts(state: WorldState) -> List[str]:
+    """Most-recently-updated active Facts, capped -- a new Executor-level
+    template, not a Judgment field (see module docstring's `known_facts`
+    entry)."""
+    active_facts = [f for f in state.facts if f.status in _FACT_VISIBLE_STATUSES]
+    active_facts.sort(
+        key=lambda f: f.provenance.last_updated if f.provenance else -1,
+        reverse=True,
+    )
+    return [to_second_person(f.content) for f in active_facts[:_KNOWN_FACTS_CAP]]
+
 
 def build_clarity_brief(
     state: WorldState, judgment: Judgment, planner: Planner, last_user_message: str = "",
 ) -> ClarityBrief:
-    situation = to_second_person(state.surface_complaint)
+    situation = to_second_person(judgment.situation_assessment or judgment.primary_problem)
     if situation and last_user_message and (
         _word_overlap(situation, last_user_message) >= _SITUATION_ECHO_THRESHOLD
         or _word_overlap(last_user_message, situation) >= _SITUATION_ECHO_THRESHOLD
     ):
         situation = ""
+
+    contradictions = [to_second_person(item) for item in judgment.contradictions]
+    if judgment.contradiction_significance:
+        contradictions.append(to_second_person(judgment.contradiction_significance))
 
     return ClarityBrief(
         situation=situation,
@@ -141,6 +232,10 @@ def build_clarity_brief(
             for d in state.decisions
             if d.status in _BRIEF_DECISION_STATUSES
         ],
+        known_facts=_select_known_facts(state),
+        competing_priorities=[to_second_person(item) for item in judgment.competing_priorities],
+        contradictions=contradictions,
+        emerging_patterns=[to_second_person(item.text) for item in state.understanding.tier2],
     )
 
 
@@ -163,8 +258,16 @@ def render_clarity_brief(brief: ClarityBrief) -> str:
         f"{_bullets(brief.key_insights)}\n\n"
         "## Current Direction\n"
         f"{brief.current_direction or '(none)'}\n\n"
+        "## Known Facts\n"
+        f"{_bullets(brief.known_facts)}\n\n"
         "## Remaining Unknowns\n"
         f"{_bullets(brief.remaining_unknowns)}\n\n"
+        "## Competing Priorities\n"
+        f"{_bullets(brief.competing_priorities)}\n\n"
+        "## Contradictions\n"
+        f"{_bullets(brief.contradictions)}\n\n"
         "## Decisions\n"
-        f"{_bullets(brief.decisions)}\n"
+        f"{_bullets(brief.decisions)}\n\n"
+        "## Emerging Patterns\n"
+        f"{_bullets(brief.emerging_patterns)}\n"
     )

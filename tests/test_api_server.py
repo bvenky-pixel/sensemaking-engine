@@ -1454,8 +1454,8 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(populated_planner))
 
     session_id = client.post("/sessions").json()["id"]
-    # Deliberately worded NOT to overlap with the mocked surface_complaint
-    # below ("User wants to move to the Product team.") -- see
+    # Deliberately worded NOT to overlap with populated_judgment's own
+    # primary_problem below ("Founder resists the move.") -- see
     # test_clarity_brief_suppresses_situation_when_it_echoes_the_last_message
     # for the dedicated test of that separate behavior; this test's own
     # purpose is the field MAPPING, which the echo-suppression would
@@ -1470,7 +1470,12 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
     # secondary_issues/stagnation_notes, which bypass build_clarity_brief's
     # mapping but are just as user-facing -- is voice-rewritten via
     # src/executor/voice.py::to_second_person before reaching the client.
-    assert body["situation"] == "You want to move to the Product team."
+    # Major update (2026-07-22, see clarity-brief-specification-v1.md):
+    # situation's SOURCE is now Judgment.situation_assessment, falling
+    # back to primary_problem -- populated_judgment leaves
+    # situation_assessment at its default ("") so this exercises the
+    # fallback path.
+    assert body["situation"] == "Founder resists the move."
     assert body["key_insights"] == [
         "Founder resists the move.",
         "Founder may block the transfer.",
@@ -1494,15 +1499,23 @@ def test_clarity_brief_reflects_completed_turn(client, monkeypatch):
 
 def test_clarity_brief_suppresses_situation_when_it_echoes_the_last_message(client, monkeypatch):
     """Regression test for a real, live-observed issue (see
-    engine/decisions.md "Frontend UX pass"): `situation` is, by
+    engine/decisions.md "Frontend UX pass"): `situation` used to be, by
     construction, always a light paraphrase of the most recent message
     -- surfacing it as its own card directly below the actual chat
-    transcript just repeats the person's own words back to them."""
+    transcript just repeats the person's own words back to them. The
+    echo-suppression check still runs defensively against whichever text
+    ends up in `situation`, regardless of source -- this test populates
+    situation_assessment directly (2026-07-22, see
+    clarity-brief-specification-v1.md) so the echo case is still
+    exercised now that surface_complaint is no longer the source at
+    all."""
     monkeypatch.setattr(
         "src.interpretation.engine.call_provider",
         _always_returns(_minimal_interp("User wants to move to the Product team.")),
     )
-    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT))
+    echoing_judgment = dict(_MINIMAL_JUDGMENT)
+    echoing_judgment["situation_assessment"] = "You want to move to the Product team."
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(echoing_judgment))
     monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
 
     session_id = client.post("/sessions").json()["id"]

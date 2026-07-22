@@ -31,3 +31,12 @@ class ClarityBrief(BaseModel):
     current_direction: str
     remaining_unknowns: List[str] = Field(default_factory=list)
     decisions: List[str] = Field(default_factory=list)
+
+    # v2 (added 2026-07-22, see engine/decisions.md and
+    # engine/specs/clarity-brief-specification-v1.md "The Eight
+    # Sections"): four new sections, additive to the five above -- see
+    # src/executor/engine.py::build_clarity_brief for the exact mapping.
+    known_facts: List[str] = Field(default_factory=list)
+    competing_priorities: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    emerging_patterns: List[str] = Field(default_factory=list)

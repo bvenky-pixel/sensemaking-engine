@@ -13,6 +13,17 @@ to_second_person(<source field>) rather than the raw source field
 directly, so these tests confirm both the mapping AND the voice rewrite
 without duplicating voice.py's own rewrite logic by hand --
 tests/test_executor_voice.py is where the rewrite itself is verified.
+
+Major update (2026-07-22, see engine/decisions.md and
+engine/specs/clarity-brief-specification-v1.md "The Eight Sections"):
+four new sections (known_facts, competing_priorities, contradictions,
+emerging_patterns), and situation's SOURCE changes from
+WorldState.surface_complaint to Judgment.situation_assessment (falling
+back to primary_problem) -- the five original fields and their mappings
+are otherwise unchanged. `_JUDGMENT` below deliberately leaves
+situation_assessment at its default ("") so existing tests exercise the
+fallback path; a dedicated test below confirms situation_assessment
+takes precedence when populated.
 """
 
 from __future__ import annotations
@@ -22,7 +33,8 @@ from src.executor.schema import ClarityBrief
 from src.executor.voice import to_second_person
 from src.judgment.schema import Judgment
 from src.planner.schema import Planner
-from src.state.world_state import Decision, WorldState
+from src.state.world_state import Decision, Fact, Provenance, WorldState
+from src.understanding.schema import UnderstandingState, UnderstandingStatement
 
 _JUDGMENT = Judgment(
     primary_problem="Transfer to Product team has stalled.",
@@ -66,7 +78,10 @@ def test_build_clarity_brief_maps_each_field_from_the_documented_source():
 
     brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
 
-    assert brief.situation == to_second_person(state.surface_complaint)
+    # situation falls back to primary_problem since _JUDGMENT.situation_assessment
+    # is "" -- surface_complaint is NO LONGER the source at all (see module
+    # docstring above).
+    assert brief.situation == to_second_person(_JUDGMENT.primary_problem)
     # key_insights = primary_problem + risks + opportunities, in that order
     assert brief.key_insights == [
         to_second_person(_JUDGMENT.primary_problem),
@@ -82,23 +97,38 @@ def test_build_clarity_brief_maps_each_field_from_the_documented_source():
     assert brief.decisions == ["You're weighing Wait until Q3 as an option."]
 
 
+def test_build_clarity_brief_sources_situation_from_situation_assessment_when_present():
+    """situation_assessment takes precedence over primary_problem when
+    populated -- the whole point of the v2 source change (see engine.py's
+    module docstring's `situation` mapping entry)."""
+    judgment = _JUDGMENT.model_copy(
+        update={"situation_assessment": "A stalled internal career transition."}
+    )
+    brief = build_clarity_brief(WorldState(), judgment, _PLANNER)
+    assert brief.situation == to_second_person("A stalled internal career transition.")
+
+
 def test_build_clarity_brief_suppresses_situation_that_echoes_the_last_message():
     """Regression test for a real, live-observed issue (see
-    engine/decisions.md "Frontend UX pass"): situation is, by
-    construction, always a light paraphrase of the most recent message
-    -- rendering it as its own card directly under the actual chat
-    transcript just repeats the person's own words back to them."""
-    state = WorldState(surface_complaint="You want to move to the Product team.")
+    engine/decisions.md "Frontend UX pass"): situation used to be, by
+    construction, always a light paraphrase of the most recent message.
+    The echo-suppression check still runs defensively against whichever
+    text ends up in `situation`, regardless of source."""
+    judgment = _JUDGMENT.model_copy(
+        update={"situation_assessment": "You want to move to the Product team."}
+    )
     brief = build_clarity_brief(
-        state, _JUDGMENT, _PLANNER, last_user_message="I want to move teams."
+        WorldState(), judgment, _PLANNER, last_user_message="I want to move teams."
     )
     assert brief.situation == ""
 
 
 def test_build_clarity_brief_keeps_situation_when_it_does_not_echo_the_last_message():
-    state = WorldState(surface_complaint="You want to move to the Product team.")
+    judgment = _JUDGMENT.model_copy(
+        update={"situation_assessment": "You want to move to the Product team."}
+    )
     brief = build_clarity_brief(
-        state, _JUDGMENT, _PLANNER, last_user_message="Ugh, today was a rough day."
+        WorldState(), judgment, _PLANNER, last_user_message="Ugh, today was a rough day."
     )
     assert brief.situation == "You want to move to the Product team."
 
@@ -107,9 +137,8 @@ def test_build_clarity_brief_keeps_situation_when_no_last_user_message_given():
     """Callers that don't pass last_user_message (e.g. every other test
     in this file) get the old, unconditional behavior -- the parameter
     is additive, not a breaking change to the existing mapping."""
-    state = WorldState(surface_complaint="You want to move to the Product team.")
-    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
-    assert brief.situation == "You want to move to the Product team."
+    brief = build_clarity_brief(WorldState(), _JUDGMENT, _PLANNER)
+    assert brief.situation == to_second_person(_JUDGMENT.primary_problem)
 
 
 def test_build_clarity_brief_excludes_resolved_and_expired_decisions():
@@ -136,8 +165,10 @@ def test_build_clarity_brief_excludes_resolved_and_expired_decisions():
 
 def test_build_clarity_brief_never_touches_judgment_key_blockers_or_active_decisions():
     """The template is a specific, documented mapping -- confirms fields
-    NOT in the mapping (key_blockers, active_decisions, contradictions)
-    don't leak into the brief just because they exist on Judgment."""
+    NOT in the mapping (key_blockers, active_decisions) don't leak into
+    the brief just because they exist on Judgment. contradictions IS now
+    in the mapping (see test_build_clarity_brief_maps_contradictions_and_significance
+    below) -- this test no longer claims otherwise."""
     state = WorldState()
     brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
 
@@ -145,10 +176,136 @@ def test_build_clarity_brief_never_touches_judgment_key_blockers_or_active_decis
         assert field_value not in _JUDGMENT.key_blockers
 
 
-def test_render_clarity_brief_produces_all_five_sections():
+def test_build_clarity_brief_maps_known_facts_capped_and_recency_ordered():
+    """known_facts <- WorldState.facts, filtered to status="active" and
+    capped to the _KNOWN_FACTS_CAP most-recently-updated -- a new
+    Executor-level template, not a Judgment field."""
+    state = WorldState(
+        facts=[
+            Fact(
+                content="Oldest active fact.",
+                status="active",
+                provenance=Provenance(source="interpretation", first_seen=1, last_updated=1),
+            ),
+            Fact(
+                content="Newest active fact.",
+                status="active",
+                provenance=Provenance(source="interpretation", first_seen=2, last_updated=5),
+            ),
+            Fact(
+                content="Retracted fact, should not appear.",
+                status="retracted",
+                provenance=Provenance(source="interpretation", first_seen=1, last_updated=10),
+            ),
+        ],
+    )
+    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
+
+    assert brief.known_facts == [
+        to_second_person("Newest active fact."),
+        to_second_person("Oldest active fact."),
+    ]
+
+
+def test_build_clarity_brief_caps_known_facts():
+    state = WorldState(
+        facts=[
+            Fact(
+                content=f"Active fact {i}.",
+                status="active",
+                provenance=Provenance(source="interpretation", first_seen=1, last_updated=i),
+            )
+            for i in range(10)
+        ],
+    )
+    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
+    assert len(brief.known_facts) == 5
+    # Most-recently-updated (highest last_updated) survive the cap.
+    assert brief.known_facts[0] == to_second_person("Active fact 9.")
+
+
+def test_build_clarity_brief_maps_competing_priorities():
+    judgment = _JUDGMENT.model_copy(
+        update={
+            "competing_priorities": [
+                "Pushing harder for the Product team move risks straining "
+                "the relationship with Sarah that the user also wants to protect."
+            ]
+        }
+    )
+    brief = build_clarity_brief(WorldState(), judgment, _PLANNER)
+    assert brief.competing_priorities == [
+        to_second_person(
+            "Pushing harder for the Product team move risks straining "
+            "the relationship with Sarah that the user also wants to protect."
+        )
+    ]
+
+
+def test_build_clarity_brief_maps_contradictions_and_significance():
+    """contradictions <- Judgment.contradictions, with
+    contradiction_significance appended as the final entry when
+    non-empty. Previously NEVER mapped at all -- see engine.py's module
+    docstring for why this is the highest-leverage change in this
+    rollout."""
+    judgment = _JUDGMENT.model_copy(
+        update={
+            "contradictions": [
+                "Manager says user is doing great, but user was passed over "
+                "for the promotion."
+            ],
+            "contradiction_significance": (
+                "Career advancement appears blocked despite positive "
+                "performance signals."
+            ),
+        }
+    )
+    brief = build_clarity_brief(WorldState(), judgment, _PLANNER)
+    assert brief.contradictions == [
+        to_second_person(
+            "Manager says user is doing great, but user was passed over "
+            "for the promotion."
+        ),
+        to_second_person(
+            "Career advancement appears blocked despite positive "
+            "performance signals."
+        ),
+    ]
+
+
+def test_build_clarity_brief_omits_significance_when_empty():
+    judgment = _JUDGMENT.model_copy(
+        update={"contradictions": ["A vs. B contradiction."], "contradiction_significance": ""}
+    )
+    brief = build_clarity_brief(WorldState(), judgment, _PLANNER)
+    assert brief.contradictions == [to_second_person("A vs. B contradiction.")]
+
+
+def test_build_clarity_brief_maps_emerging_patterns_from_tier2():
+    """emerging_patterns <- WorldState.understanding.tier2 -- a reframe
+    of the existing "Putting it together" content, not a new build."""
+    state = WorldState(
+        understanding=UnderstandingState(
+            tier2=[
+                UnderstandingStatement(
+                    id="tier2:synthesis:abc123",
+                    tier=2,
+                    kind="synthesis",
+                    text="A pattern connecting two goals.",
+                    grounding_item_ids=["goal:1", "goal:2"],
+                )
+            ]
+        )
+    )
+    brief = build_clarity_brief(state, _JUDGMENT, _PLANNER)
+    assert brief.emerging_patterns == [to_second_person("A pattern connecting two goals.")]
+
+
+def test_render_clarity_brief_produces_all_nine_sections():
+    judgment = _JUDGMENT.model_copy(update={"situation_assessment": "x"})
     brief = build_clarity_brief(
-        WorldState(surface_complaint="x", decisions=[Decision(content="y")]),
-        _JUDGMENT,
+        WorldState(decisions=[Decision(content="y")]),
+        judgment,
         _PLANNER,
     )
     rendered = render_clarity_brief(brief)
@@ -157,8 +314,12 @@ def test_render_clarity_brief_produces_all_five_sections():
     assert "## Situation" in rendered
     assert "## Key Insights" in rendered
     assert "## Current Direction" in rendered
+    assert "## Known Facts" in rendered
     assert "## Remaining Unknowns" in rendered
+    assert "## Competing Priorities" in rendered
+    assert "## Contradictions" in rendered
     assert "## Decisions" in rendered
+    assert "## Emerging Patterns" in rendered
     assert "x" in rendered
     assert "- You're weighing y as an option." in rendered
 
@@ -170,10 +331,16 @@ def test_render_clarity_brief_shows_none_for_empty_sections_not_a_blank_gap():
         current_direction="",
         remaining_unknowns=[],
         decisions=[],
+        known_facts=[],
+        competing_priorities=[],
+        contradictions=[],
+        emerging_patterns=[],
     )
     rendered = render_clarity_brief(empty_brief)
 
     # Every section still reads as a complete, deliberate "(none)", not a
     # blank that looks broken -- sparse-by-default, same as upstream.
-    # (situation, key_insights, current_direction, remaining_unknowns, decisions)
-    assert rendered.count("(none)") == 5
+    # (situation, key_insights, current_direction, known_facts,
+    # remaining_unknowns, competing_priorities, contradictions, decisions,
+    # emerging_patterns)
+    assert rendered.count("(none)") == 9
