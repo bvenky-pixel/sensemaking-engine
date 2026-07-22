@@ -63,12 +63,20 @@ Entry Points (three, per the founder's own spec)
    to it -- Programs are the persistent container, but all actual
    thinking still happens through conversation; a Program with no
    Journey yet is an empty shell, not a place to "do work" outside
-   conversation.
+   conversation. **Naming note** (see Decided, below): "Decision
+   Program" is this spec's own internal name for the TYPE, not the
+   literal picker copy a user sees -- the picker shows something closer
+   to "Work through a decision" / "Navigate a career move," with
+   "Program"/"Program Type" staying architectural vocabulary, the same
+   relationship "WorldState" has to the UI today.
 2. **A Journey recommends a Program.** Founder's own example: "This
    seems like a significant career decision. Would you like to start a
    Decision Program?" This is a NEW capability, not an existing one --
    see "The Recommendation Mechanism" below for exactly what has to be
-   built.
+   built. Same naming note applies: the SHIPPED offer text drops
+   "Program" (e.g. "Would you like help working through this as its own
+   thread you can come back to?"), even though the founder's own memo
+   language is quoted here verbatim as the originating idea.
 3. **Manage existing Programs** from the Plans tab: view, resume,
    review progress, complete, archive, start new. Mirrors the existing
    Activity tab's Journey-list pattern (filter, bookmark, resume) --
@@ -176,15 +184,14 @@ deliberately NOT new tables**:
 
 ---
 
-No Progress Bars
+No Progress Bars (for the summary) / Numbered Stage Tracker (for the stage) -- these are two different UI elements, decided differently
 
-Direct design constraint, stated explicitly because the founder's own
-"training plan" analogy could otherwise be read as inviting a
-percentage-complete bar: `progress_summary` is prose ("You've explored
-two of the three options you named, and you're waiting to hear back
-about the compensation question before comparing them seriously"), not
-a number. This is the same "no dashboard chrome, no score" discipline
-already enforced everywhere else in this product
+`progress_summary` stays prose ("You've explored two of the three
+options you named, and you're waiting to hear back about the
+compensation question before comparing them seriously"), never a
+percentage -- this part of the constraint stands as originally written.
+This is the same "no dashboard chrome, no score" discipline already
+enforced everywhere else in this product
 (`frontend/specs/product-experience-v1.md`), and it's also a MORE
 honest representation of what a Program actually is -- "how much of a
 career decision is done" has no real percentage, and asserting one
@@ -192,6 +199,18 @@ would be inventing false precision the same way this codebase has
 refused to do with `confidence` fields elsewhere (Judgment/Planner's
 own `confidence` reflects EVIDENCE COMPLETENESS, never a fabricated
 sense of certainty).
+
+**A separate, distinct display question -- the current STAGE within the
+Program's own sequence -- was decided the other way** (see Decided,
+below): a numbered "Stage 2 of 6"-style tracker, not prose-only. This
+spec's own first draft recommended prose-only for stage display too,
+matching the discipline above; the founder's explicit call reversed
+that specific piece, not the percentage-free `progress_summary`
+principle. Worth being precise about the boundary: no field in this
+data model will ever show a percentage or a fabricated completion
+score, but the Program's discrete stage position (an ordinal, not a
+completion estimate) is the one place in this spec where a numbered UI
+element is intentional.
 
 ---
 
@@ -279,83 +298,80 @@ Deliberately Out of Scope for v1
 
 ---
 
+Decided (founder/CPO, 2026-07-22)
+
+- **Login requirement: required upfront.** Confirmed, matching this
+  spec's own recommendation and POM's existing per-account-only
+  precedent.
+- **Recommendation Mechanism: Option B.** The new boolean-gate pair
+  (`has_program_recommendation` / `recommended_program_type`) plus a
+  dedicated `POST /programs` API action on tap, confirmed over reusing
+  the fragile option-tap-then-text-match pattern -- matching this spec's
+  own recommendation and the precedent set by every other "did something
+  important just happen" signal in this codebase.
+- **Modes and Programs stay fully orthogonal.** Confirmed, matching this
+  spec's own recommendation -- a Program never biases which Counseling
+  Mode a linked Journey uses; Governing Law 2 (user agency) keeps that
+  choice with the person every time.
+- **`progress_summary` authorship: hybrid.** An LLM call drafts it at
+  Journey-close (same "not per-turn, only per-Journey-close" cost
+  profile as the plain "new LLM call" option this spec originally
+  offered), rendered as an editable field so the person can correct or
+  rewrite it. This is a genuine third option beyond the two this spec
+  originally posed (LLM-only vs. manual-only) -- it keeps the field
+  "alive" by default without requiring the person to write it from
+  scratch, while still giving them the last word on their own summary.
+- **"Program" stays internal vocabulary, not user-visible language.**
+  Confirmed, matching this spec's own recommendation and
+  `product-risks-and-design-principles-v1.md`'s Risk 2 audit. Plans shows
+  only named instances ("Career Move," "Speaking Up at Work"); "Program"
+  and "Program Type" never appear as UI copy, the same relationship
+  "WorldState" has to the UI today. See the naming notes added to Entry
+  Points above for what shipped copy should look like instead.
+- **Stage display: a numbered tracker ("Stage 2 of 6"), not prose-only.**
+  This is a deliberate reversal of this spec's own original
+  recommendation (prose-only, matching the Brief's "no progress bars"
+  principle) -- noted explicitly rather than silently dropped, since it
+  cuts against a discipline enforced everywhere else in this product.
+  See "No Progress Bars (for the summary) / Numbered Stage Tracker (for
+  the stage)" above for the precise boundary this draws: `progress_summary`
+  still never shows a percentage or a fabricated completion score: only
+  the Program's discrete stage POSITION (an ordinal, not a completion
+  estimate) gets the numbered treatment.
+
 Open Questions
 
-1. **Login requirement.** Journeys today support anonymous use (capped,
-   then a magic-link prompt). Programs are long-lived, cross-Journey
-   entities -- does starting a Program require login upfront (consistent
-   with POM/Learning's existing per-account-only scoping), or does an
-   anonymous person get to start one and hit the login wall only later?
-   Recommend requiring login upfront, matching POM's own precedent --
-   a Program that could vanish because an anonymous session expired
-   would undermine the entire "persists across time" promise this
-   feature exists to make.
-2. **Stage sequences.** The two worked examples above (Decision,
+1. **Stage sequences.** The two worked examples above (Decision,
    Confidence) are this spec's own inference from the founder's memo,
-   NOT founder-confirmed. Needs an explicit design pass per type, same
-   rigor as Priority 4's per-mode framework table -- these are genuinely
-   new content, not derivable from existing code the way most of
-   Priorities 1-4 were.
-3. **The Recommendation Mechanism** (Option A vs. B above) -- needs a
-   founder call given the schema-complexity tradeoff.
-4. **Does a Program's own Journeys still each pick a Counseling Mode?**
-   E.g. is a Journey inside a Decision Program free to be started in
-   Vent mode, or does entering a Program implicitly bias toward
-   Strategize? Recommend: modes and Programs stay orthogonal -- a
-   Program is WHAT you're working on across time, a Mode is HOW this
-   particular conversation should go right now; forcing a mode based on
-   Program type would remove a degree of freedom the founder's own mode
-   design has otherwise protected carefully (Governing Law 2, user
-   agency).
-5. **Naming for `progress_summary` generation.** Who writes it -- a new
-   small LLM call after each Journey that touches the Program (cost:
-   one more call, though not per-turn, only per-Journey-close), or does
-   it stay a manually-edited field a person updates themselves? A new
-   LLM call is more "alive," but costs money on every Program-linked
-   Journey close; a manual field is free but adds friction. Needs a
-   product call, not an engineering default.
-6. **Should "Program" be user-visible language at all**, added per
-   `product-risks-and-design-principles-v1.md`'s Risk 2 audit. This spec
-   and the founder's own memo use "Decision Program," "Confidence
-   Program" as if that's literal UI copy, but this codebase has an
-   existing, deliberate discipline of never surfacing its own
-   architectural nouns to users (confirmed: no screen renders "Tier 1,"
-   "POM," "Learning Engine," etc. -- see that document's audit). Plans
-   may be better served showing only named instances ("Career Move,"
-   "Speaking Up at Work") with "Program"/"Program Type" staying internal
-   vocabulary the same way "WorldState" never appears in the UI --
-   rather than assuming the memo's own naming is meant to be user-facing
-   verbatim. Needs an explicit product call, same as Open Question 3.
-7. **Should stages render as a labeled, numbered sequence** ("Stage 2 of
-   6") or prose-only, matching the Clarity Brief spec's own decided
-   "no progress bars" principle? The natural default for a "training
-   plan" UI is a numbered stage tracker, which is precisely the kind of
-   dashboard chrome this product has otherwise avoided everywhere else
-   (Understanding, the Brief, `BehavioralPatterns.svelte`'s plain
-   "Noticed {n} times" instead of a counter widget). Recommend prose
-   only, consistent with every other surface in this product, but
-   flagging this explicitly since a numbered tracker is what most
-   "Plans"-style UIs default to without a deliberate decision against it.
+   NOT yet founder-confirmed. Under active discussion now -- see the
+   conversation following this spec for the live revision pass, same
+   rigor as Priority 4's per-mode framework table.
 
 ---
 
 Rollout
 
-1. Resolve Open Questions 1-3 with the founder before writing schema
-   code -- these change the data model and API shape materially.
+1. Confirm the stage sequences (Open Question 1) with the founder before
+   writing schema code -- `programs.stage` and the per-type stage-name
+   dictionaries are the one remaining piece of content this spec needs
+   before implementation, now that every architectural fork (login,
+   recommendation mechanism, mode orthogonality, progress_summary
+   authorship, naming, stage display) is decided above.
 2. Build the data model (`programs`, `program_experiments`,
    `program_reviews`, `sessions.program_id`) and CRUD API endpoints
    (`POST/GET /programs`, `GET /programs/{id}`, status transitions),
    mirroring existing endpoint conventions in `src/api/server.py`.
 3. Build the Plans tab for real: a program-type picker (direct reuse of
-   `ModePicker.svelte`'s existing visual pattern for a new content type),
-   an active-Programs list (direct reuse of Activity's existing list
-   pattern), and a Program detail view (new -- stage, prose progress,
-   experiments, reviews, scoped insights).
+   `ModePicker.svelte`'s existing visual pattern for a new content type,
+   with jargon-free copy per the naming decision above), an
+   active-Programs list (direct reuse of Activity's existing list
+   pattern), and a Program detail view (new -- numbered stage tracker,
+   prose progress summary, experiments, reviews, scoped insights).
 4. Thread `program_context` into Planner/Response, reusing the `mode`
    parameter's existing shape exactly.
-5. Build the Recommendation Mechanism per whichever option Open
-   Question 3 resolves to.
+5. Build the Recommendation Mechanism per the decided Option B above:
+   the new Planner boolean-gate pair, and the dedicated `POST /programs`
+   API action wired to a tapped recommendation.
 6. Live-dispatch verify a full multi-Journey Program lifecycle (start,
    several linked Journeys advancing stage/logging experiments, a
    review, completion) before shipping -- this is the one spec in this
