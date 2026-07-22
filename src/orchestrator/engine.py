@@ -71,6 +71,7 @@ from src.orchestrator.schema import TurnResult
 from src.planner.engine import PlannerError, run_planner
 from src.pom.schema import PersonalOperatingModel
 from src.response.engine import ResponseGeneratorError, run_response_generator
+from src.response.schema import Response
 from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
 from src.understanding.engine import build_tier1_statements
@@ -100,6 +101,7 @@ def run_turn(
     pom: Optional[PersonalOperatingModel] = None,
     insights: Optional[List[Insight]] = None,
     run_tier2: bool = True,
+    on_response_token: Optional[Callable[[str], None]] = None,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -192,6 +194,17 @@ def run_turn(
     already tolerates for one whole turn by design, see backlog #236) --
     the caller is expected to invoke update_tier2 itself afterward,
     off the response path.
+
+    on_response_token: optional callback invoked with each raw text
+    fragment of `response_text` AS IT'S GENERATED (2026-07-22, backlog
+    #233, see engine/decisions.md "Stream Response text token-by-token"
+    and src/response/streaming.py's own docstring for how the fragment
+    boundaries are chosen). Threaded ONLY to run_response_generator --
+    every earlier stage's own call stays fully synchronous/non-streaming,
+    since Response is the only stage whose output a person actually
+    reads. Default None is a true no-op for every existing caller
+    (conversation_runner.py, scripts/run_worldstate_walkthrough.py,
+    tests) -- src/api/server.py is the only caller that passes one.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -301,13 +314,35 @@ def run_turn(
     # concrete lens Planner actually chose this turn.
     effective_mode = plan.active_lens if mode == "adaptive" and plan.active_lens else mode
 
-    try:
-        response = _with_bounded_retry(
-            lambda: run_response_generator(
-                state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom, insights=insights,
-            ),
-            ResponseGeneratorError,
+    # on_response_token (2026-07-22, backlog #233, see engine/decisions.md
+    # "Stream Response text token-by-token"): only the FIRST attempt gets
+    # the real callback -- _with_bounded_retry can call run_stage() a
+    # second time if the first raises ResponseGeneratorError (e.g. a
+    # streamed response that failed schema validation), and a retry's
+    # tokens would otherwise land on top of whatever partial text the
+    # failed first attempt already streamed, showing the person a
+    # garbled mix of two different draft responses. A retry silently
+    # falls back to non-streaming instead -- rare (provider failure),
+    # and the eventual POST /messages response is unaffected either way.
+    _response_attempt_count = {"n": 0}
+
+    def _run_response() -> Response:
+        _response_attempt_count["n"] += 1
+        # `on_token` only added to this call's kwargs when actually
+        # streaming -- every existing caller/test double that mocks
+        # run_response_generator with its pre-#233 signature keeps
+        # working unchanged, since a non-streaming call looks identical
+        # to before.
+        call_kwargs = {}
+        if on_response_token is not None and _response_attempt_count["n"] == 1:
+            call_kwargs["on_token"] = on_response_token
+        return run_response_generator(
+            state, judgment, plan, tracker=tracker, mode=effective_mode, pom=pom, insights=insights,
+            **call_kwargs,
         )
+
+    try:
+        response = _with_bounded_retry(_run_response, ResponseGeneratorError)
     except ResponseGeneratorError as exc:
         return TurnResult(
             state=state, interpretation=interp, judgment=judgment, planner=plan,

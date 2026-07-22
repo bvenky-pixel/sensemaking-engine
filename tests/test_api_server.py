@@ -114,15 +114,27 @@ def _always_returns(payload_or_list):
     If given a list, returns each element in order across successive
     calls (used to make Interpretation's mock introduce a different
     fact per turn); otherwise always returns the same payload.
+
+    **kwargs (accepts and ignores `on_delta`, 2026-07-22, backlog #233):
+    real call_provider/call_openrouter now accept an optional on_delta
+    streaming callback -- this fake never actually streams (it just
+    returns the full payload in one shot, same as always), but must
+    still ACCEPT the kwarg without raising when a test exercises the
+    real GET /stream + POST /messages combination that makes
+    send_message request streaming for real (see
+    test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn).
+    Every other test never opens a stream, so send_message never passes
+    on_delta at all -- this is a compatibility allowance, not something
+    most tests rely on.
     """
     if isinstance(payload_or_list, list):
         state = {"calls": iter(payload_or_list)}
 
-        def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None):
+        def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None, **kwargs):
             return json.dumps(next(state["calls"]))
         return _call
 
-    def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None):
+    def _call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None, **kwargs):
         return json.dumps(payload_or_list)
     return _call
 
@@ -1629,6 +1641,98 @@ def test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn(monkeyp
         # subprocess, so server._stage_queues here really is the dict the
         # stream generator's finally block cleaned up.
         assert session_id not in server._stage_queues
+    finally:
+        live_server.should_exit = True
+        server_thread.join(timeout=5)
+
+
+def test_stream_endpoint_delivers_token_events_for_streamed_response_text(monkeypatch, tmp_path):
+    """Direct regression test for backlog #233 (see engine/decisions.md
+    "Stream Response text token-by-token"): when Response's own
+    call_provider actually streams (calls on_delta, same as a real
+    OpenRouter streaming call would), GET /stream must deliver
+    {"token": "..."} events -- not just the {"stage": "..."} events the
+    sibling test above already covers -- and they must arrive BEFORE the
+    "response" stage event, since the whole point is showing the text as
+    it's generated, not after. Same live-uvicorn-thread harness as
+    test_stream_endpoint_delivers_one_event_per_stage_during_a_live_turn,
+    see that test's own docstring for why TestClient can't be used here."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "stream_token_test.db")
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(_MINIMAL_JUDGMENT))
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+
+    full_json = json.dumps(_MINIMAL_RESPONSE)
+
+    def _streaming_response_call(provider_name, system_prompt, messages, schema, temperature, component="unknown", tracker=None, on_delta=None):
+        if on_delta is not None:
+            for i in range(0, len(full_json), 4):
+                on_delta(full_json[i : i + 4])
+        return full_json
+
+    monkeypatch.setattr("src.response.engine.call_provider", _streaming_response_call)
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    config = uvicorn.Config(server.app, host="127.0.0.1", port=port, log_level="warning")
+    live_server = uvicorn.Server(config)
+    server_thread = threading.Thread(target=live_server.run, daemon=True)
+    server_thread.start()
+    deadline = time.monotonic() + 5
+    while not live_server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert live_server.started, "uvicorn never started"
+
+    try:
+        base = f"http://127.0.0.1:{port}"
+        with httpx.Client(base_url=base) as http_client:
+            session_id = http_client.post("/sessions").json()["id"]
+
+            events: list[tuple] = []
+            connected = threading.Event()
+
+            def _listen():
+                with http_client.stream("GET", f"/sessions/{session_id}/stream", timeout=10) as response:
+                    connected.set()
+                    for line in response.iter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = json.loads(line[len("data: "):])
+                        if "stage" in data:
+                            events.append(("stage", data["stage"]))
+                        elif "token" in data:
+                            events.append(("token", data["token"]))
+                        if events and events[-1] == ("stage", "response"):
+                            break
+
+            listener = threading.Thread(target=_listen, daemon=True)
+            listener.start()
+            assert connected.wait(timeout=2), "stream never connected"
+
+            res = http_client.post(
+                f"/sessions/{session_id}/messages", json={"content": "I want to move teams."}, timeout=10
+            )
+            assert res.status_code == 200
+
+            listener.join(timeout=5)
+        assert not listener.is_alive()
+
+        # These are already-extracted response_text fragments (see
+        # ResponseTextStreamExtractor), not raw JSON deltas -- the
+        # extraction happens inside run_response_generator, upstream of
+        # _push_token.
+        token_events = [payload for kind, payload in events if kind == "token"]
+        assert "".join(token_events) == _MINIMAL_RESPONSE["response_text"]
+
+        # Token events must arrive strictly before the "response" stage
+        # event -- that's the entire point (see module docstring above).
+        response_stage_index = events.index(("stage", "response"))
+        assert all(events.index(e) < response_stage_index for e in [("token", t) for t in token_events])
     finally:
         live_server.should_exit = True
         server_thread.join(timeout=5)

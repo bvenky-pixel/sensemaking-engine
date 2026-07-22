@@ -77,6 +77,23 @@
   let sending = $state(false);
   let brief = $state(null);
   let tier2 = $state([]);
+  // Streamed Response text (2026-07-22, backlog #233, see
+  // engine/decisions.md "Stream Response text token-by-token") --
+  // accumulates raw response_text fragments as openStageStream's onToken
+  // callback delivers them. Rendered as a provisional last message
+  // (see displayMessages below) while `sending` is still true; cleared
+  // the instant the REAL response is appended so there's never a tick
+  // where both the provisional and the real message are visible at once.
+  let streamingText = $state('');
+  // Only shows the provisional streaming bubble once there's something
+  // to show -- before the first token arrives, the existing stageLabel
+  // ("Sitting with it for a moment.", etc.) is still the only signal,
+  // unchanged from before #233.
+  let displayMessages = $derived(
+    sending && streamingText
+      ? [...messages, { role: 'assistant', content: streamingText, created_at: '', options: [] }]
+      : messages,
+  );
   let deepeningClarityNote = $state('');
   // Incremented once per real backend stage-completion event during a
   // turn (see AmbientPresence.svelte, engine/decisions.md "Major
@@ -178,15 +195,26 @@
     messages = [...messages, { role: 'user', content, created_at: '' }];
     sending = true;
     stageLabel = INITIAL_STAGE_LABEL;
+    streamingText = '';
     // Opened synchronously, in the same call as the POST below -- see
     // AmbientPresence.svelte's own docstring for why this can't live
     // inside that component (Svelte's re-render happens on a later
     // microtask than this function's own next line, which would risk
-    // missing the "interpretation" stage's event on every turn).
-    const closeStream = openStageStream(sessionId, (stage) => {
-      pulseCount += 1;
-      if (STAGE_LABELS[stage]) stageLabel = STAGE_LABELS[stage];
-    });
+    // missing the "interpretation" stage's event on every turn). Third
+    // argument (2026-07-22, backlog #233, see engine/decisions.md
+    // "Stream Response text token-by-token"): each raw response_text
+    // fragment just gets appended -- displayMessages above turns the
+    // running total into a provisional last message.
+    const closeStream = openStageStream(
+      sessionId,
+      (stage) => {
+        pulseCount += 1;
+        if (STAGE_LABELS[stage]) stageLabel = STAGE_LABELS[stage];
+      },
+      (delta) => {
+        streamingText += delta;
+      },
+    );
     try {
       const result = await sendMessage(sessionId, content);
       const text = result.response_text || honestFailureMessage(result.failed_stage);
@@ -195,6 +223,13 @@
       // message never gets buttons attached to it.
       const options = result.response_text ? result.options || [] : [];
       messages = [...messages, { role: 'assistant', content: text, created_at: '', options }];
+      // Cleared HERE, not just in `finally` below -- displayMessages'
+      // own condition is `sending && streamingText`, and `sending` is
+      // still true for the rest of this try block (refreshBrief/
+      // refreshUnderstanding are still pending), so leaving
+      // streamingText set until `finally` would render the real message
+      // above AND the stale provisional bubble at once for one tick.
+      streamingText = '';
       if (result.response_text) {
         await refreshBrief();
       }
@@ -218,6 +253,7 @@
     } finally {
       sending = false;
       stageLabel = '';
+      streamingText = '';
       closeStream();
     }
   }
@@ -440,7 +476,7 @@
     </div>
   {/if}
 
-  <Transcript {messages} disabled={sending} onOptionSelect={handleSend} />
+  <Transcript messages={displayMessages} disabled={sending} onOptionSelect={handleSend} />
   {#if loaded && messages.length === 0}
     <div class="opening-hero" in:fade={{ duration: 320 }}>
       <BreathingOrb />

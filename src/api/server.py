@@ -376,7 +376,11 @@ async def stream_stages(
     """Server-Sent Events -- one `{"stage": "<internal_id>"}` event per
     pipeline stage that finishes during the turn this session's next
     POST /messages runs (see src/orchestrator/engine.py's on_stage_complete,
-    engine/decisions.md "Major update" Part 5). Payload is deliberately
+    engine/decisions.md "Major update" Part 5), PLUS (2026-07-22, backlog
+    #233, see engine/decisions.md "Stream Response text token-by-token")
+    zero or more `{"token": "<fragment>"}` events carrying Response's own
+    `response_text` as it's generated, once the "planner" stage event has
+    already fired and before "response" fires. Payload is deliberately
     minimal -- no elapsed_ms, no ordinal/total -- a total stage count
     can't be known upfront (a turn can fail after 1 stage or complete
     after 4), and anything enabling "n of estimated total" would be a
@@ -402,13 +406,23 @@ async def stream_stages(
         try:
             while True:
                 try:
-                    stage = await asyncio.wait_for(stage_queue.get(), timeout=10)
+                    item = await asyncio.wait_for(stage_queue.get(), timeout=10)
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                if stage is None:  # sentinel from send_message: turn finished
+                if item is None:  # sentinel from send_message: turn finished
                     break
-                yield f"data: {json.dumps({'stage': stage})}\n\n"
+                # Two event shapes share this queue (2026-07-22, backlog
+                # #233, see engine/decisions.md "Stream Response text
+                # token-by-token"): ("stage", name) -- unchanged wire
+                # format, {"stage": name} -- and ("token", delta), a new
+                # {"token": delta} event for Response's own streamed
+                # text specifically. openStageStream (frontend/src/lib/
+                # api.js) ignores any event shape it doesn't recognize,
+                # so adding this second kind can't break anything already
+                # listening for stage events alone.
+                kind, payload = item
+                yield f"data: {json.dumps({kind: payload})}\n\n"
         finally:
             # Only remove if it's still this connection's own queue --
             # a second stream open (e.g. a page reload) may already have
@@ -506,7 +520,22 @@ def send_message(
     def _push(stage: Optional[str]) -> None:
         if stream_entry is not None:
             stage_queue, loop = stream_entry
-            loop.call_soon_threadsafe(stage_queue.put_nowait, stage)
+            item = None if stage is None else ("stage", stage)
+            loop.call_soon_threadsafe(stage_queue.put_nowait, item)
+
+    # Streamed Response tokens (2026-07-22, backlog #233, see
+    # engine/decisions.md "Stream Response text token-by-token") -- same
+    # queue, same thread-safety requirement as _push above, just a
+    # differently-shaped item so stream_stages' _events() generator can
+    # tell the two apart. Never pushes the None sentinel -- only _push(None)
+    # (called once, at the very end of this whole function) closes the
+    # stream, so a token arriving after the turn has already finished
+    # (shouldn't happen, but see run_response_generator's own single-
+    # attempt-only streaming guard) can't reopen a closed connection.
+    def _push_token(delta: str) -> None:
+        if stream_entry is not None:
+            stage_queue, loop = stream_entry
+            loop.call_soon_threadsafe(stage_queue.put_nowait, ("token", delta))
 
     # Retrieval v1 (see src/retrieval/engine.py, engine/decisions.md
     # "Retrieval") -- Learning/Insight Engine already compute these
@@ -565,6 +594,14 @@ def send_message(
         on_stage_complete=_push, mode=db.get_session_mode(session_id),
         retrieved_context=retrieved_context, pom=pom, insights=insights,
         run_tier2=False,
+        # Only actually stream Response's tokens when someone's
+        # listening (2026-07-22, backlog #233) -- stream_entry is None
+        # whenever the frontend never opened GET /stream before this
+        # POST, which is a real, common case (any script/test/API
+        # client that just wants the final response), not just a test
+        # artifact. Requesting OpenRouter's streaming mode with nothing
+        # consuming the tokens would be pure overhead for zero benefit.
+        on_response_token=_push_token if stream_entry is not None else None,
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 

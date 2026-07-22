@@ -12552,3 +12552,96 @@ layer existed (backlog #174-183), and likely hasn't actually exercised
 a real conversation since ownership checks were added; its own most
 recent run should be checked and, if broken, fixed separately -- out of
 scope for #235 itself, flagged here rather than silently fixed.
+
+## Stream Response text token-by-token (2026-07-22, backlog #233)
+
+Last item on the latency backlog. The north-star doc framed this as
+needing a real architectural decision because Response's provider call
+uses `response_format: json_object` (`response_text` is one field
+alongside `confidence`/`options`, not a standalone free-text
+completion) -- streaming naively would mean showing a person raw,
+partial JSON.
+
+**The decision**: don't touch the request/schema at all. Keep asking
+for the exact same structured object, but switch that ONE call to
+OpenRouter's SSE streaming mode (`stream: true`,
+`stream_options.include_usage: true` so cost/token instrumentation
+still works) and run the growing raw text through a small incremental
+extractor (`src/response/streaming.py::ResponseTextStreamExtractor`)
+that picks the `response_text` STRING VALUE out of the not-yet-valid
+JSON as it arrives -- scanning for the literal `"response_text"` key
+substring wherever it appears (not dependent on field order, though
+Response's own schema puts it first in practice), handling the value's
+own JSON escaping (`\"`, `\\`, `\n`) so an escaped quote inside the
+text doesn't look like the closing quote. Once the full response
+finishes, `run_response_generator` does the EXACT same
+`json.loads` + Pydantic validation it always has on the complete
+accumulated text -- streaming is purely a perception layer bolted onto
+the existing call, not a new code path the real parsed `Response`
+object depends on being correct.
+
+**Threading, end to end**: `call_openrouter`/`call_provider` gain an
+optional `on_delta` (only added to the OpenRouter payload/request when
+actually given -- every existing caller's request looks byte-identical
+to before). `run_response_generator` gains `on_token`, wrapping a fresh
+`ResponseTextStreamExtractor` per call attempt. `run_turn` gains
+`on_response_token`, threaded ONLY to Response (Interpretation/Judgment/
+Planner/Tier2 stay fully synchronous -- Response is the only stage a
+person actually reads) -- and only to the FIRST attempt: `_with_bounded_retry`
+(backlog #250) can call Response twice if the first raises
+`ResponseGeneratorError`, and a retry's tokens would otherwise land on
+top of whatever partial text the failed first attempt already streamed.
+`src/api/server.py::send_message` only passes a real callback when
+`stream_entry is not None` (someone actually opened
+`GET /sessions/{id}/stream` first) -- requesting OpenRouter's streaming
+mode with nobody consuming the tokens would be pure overhead. The
+existing SSE queue (`_stage_queues`) now carries two event shapes,
+`("stage", name)` (unchanged wire format) and `("token", delta)` (new
+`{"token": "..."}` event) -- `openStageStream` (frontend/src/lib/api.js)
+gets an optional third `onToken` argument, defaulting to a no-op so its
+one other caller (AmbientPresence.svelte) is unaffected.
+
+**Frontend**: `Journey.svelte` accumulates deltas into `streamingText`
+and renders it as a provisional last assistant message (via a
+`displayMessages` derived value) only once `sending` is true AND
+there's actual text -- before the first token, the existing stage-label
+text is still the only signal, unchanged. Cleared the instant the REAL
+response is appended (not just in the `finally` block) so there's never
+a render tick showing both the provisional bubble and the real message
+at once.
+
+**Compatibility discipline**: every new kwarg (`on_delta`, `on_token`,
+the `stream` request flag) is only ever ADDED to a call's arguments
+when actually streaming -- never passed as an explicit `None`. This is
+why dozens of existing tests across four files kept passing unmodified
+once this was right: every mock/test double written before #233 (fixed
+signatures, no `**kwargs`) still sees byte-identical calls unless a
+test explicitly opens a stream.
+
+Verified: 18 new backend tests (`tests/test_response_streaming.py` --
+the extractor directly, including a random-chunk-boundary property
+check; `tests/test_llm_providers_streaming.py` -- the real SSE parsing
+against fake `requests.post` streaming responses shaped like
+OpenRouter's own docs; `tests/test_response_engine_streaming.py`;
+plus one `test_orchestrator.py` case for the retry-doesn't-double-stream
+guard, and one live-uvicorn-thread `test_api_server.py` case confirming
+real `{"token": ...}` SSE events arrive before the `"response"` stage
+event) -- full `pytest` 597/597. 2 new frontend tests
+(`Journey.test.js`) covering the growing provisional bubble and its
+clean replacement by the real message with no duplicate. Full `npm
+test` 123/123, `npm run build` clean.
+
+**Not yet live-verified**: a new script/workflow
+(`scripts/verify_response_streaming.py`, `.github/workflows/response-streaming-verify.yml`)
+is written and locally sanity-checked (fails cleanly on the expected
+missing-`OPENROUTER_API_KEY` error, same as every other local check
+this session), designed to open `GET /stream` before POSTing and assert
+real `{"token": ...}` events arrive, concatenate to exactly the final
+`response_text`, and all precede the `"response"` stage event -- the
+one thing no mocked test above can confirm: that OpenRouter's actual
+streaming response shape matches what `_consume_openrouter_stream`
+assumes. Dispatching it requires the same one-time workflow-file-only
+push to `main` #235's verification workflow needed (GitHub won't
+dispatch a `workflow_dispatch` workflow via the API until its file
+exists on the default branch) -- not done yet this round, pending
+confirmation.

@@ -123,18 +123,25 @@ export async function getUnderstanding(sessionId) {
 
 // Major update (2026-07-11, see engine/decisions.md): one Server-Sent
 // Event per pipeline stage that finishes during this session's next
-// sendMessage call (see src/api/server.py's GET /sessions/{id}/stream).
-// EventSource is the browser's own SSE client -- it already ignores `:
-// keepalive` comment lines per the SSE spec, no parsing needed here for
-// those. Returns a plain close function rather than the EventSource
-// itself, matching this file's own "thin fetch wrapper" pattern: callers
-// (AmbientPresence.svelte) never need the underlying object.
-export function openStageStream(sessionId, onStage) {
+// sendMessage call (see src/api/server.py's GET /sessions/{id}/stream),
+// PLUS (2026-07-22, backlog #233, see engine/decisions.md "Stream
+// Response text token-by-token") an optional third parameter, onToken,
+// invoked once per raw text fragment of the Response's own
+// response_text as it's generated. EventSource is the browser's own SSE
+// client -- it already ignores `: keepalive` comment lines per the SSE
+// spec, no parsing needed here for those. Returns a plain close function
+// rather than the EventSource itself, matching this file's own "thin
+// fetch wrapper" pattern: callers (AmbientPresence.svelte, Journey.svelte)
+// never need the underlying object. onToken defaults to a no-op so every
+// existing caller (AmbientPresence.svelte, which only wants stage
+// events) is unaffected.
+export function openStageStream(sessionId, onStage, onToken = () => {}) {
   const source = new EventSource(`/sessions/${sessionId}/stream`);
   source.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       if (data.stage) onStage(data.stage);
+      else if (typeof data.token === 'string') onToken(data.token);
     } catch {
       // Malformed/unexpected payload -- never let a stream event break
       // the actual conversation turn, which doesn't depend on this.
