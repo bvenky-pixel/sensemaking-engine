@@ -205,6 +205,62 @@ describe('Settings', () => {
   });
 });
 
+// Appearance: accent color picker (2026-07-21, direct founder
+// instruction, see engine/decisions.md "Accent color picker") --
+// accentTheme.js itself is plain localStorage + a <html> attribute
+// (same untested-directly precedent as motionPreference.js, its own
+// established sibling), so this file covers it through the real
+// Settings UI rather than a separate unit-test file for the module.
+describe('Settings: accent color picker', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getPrivacySettings.mockResolvedValue({
+      cross_session_learning_enabled: true,
+      reflection_prompt_enabled: false,
+    });
+    authState.checked = true;
+    authState.authenticated = true;
+    authState.email = 'person@example.com';
+    localStorage.removeItem('confidant:accent-theme');
+    document.documentElement.removeAttribute('data-accent-theme');
+  });
+
+  it('defaults to Coral selected and no data-accent-theme attribute', async () => {
+    const { getByRole } = render(Settings, { props: {} });
+
+    await waitFor(() => {
+      expect(getByRole('radio', { name: 'Coral (default)' }).getAttribute('aria-checked')).toBe('true');
+    });
+    expect(getByRole('radio', { name: 'Periwinkle' }).getAttribute('aria-checked')).toBe('false');
+    expect(document.documentElement.getAttribute('data-accent-theme')).toBeNull();
+  });
+
+  it('selecting a color persists it and sets the data-accent-theme attribute immediately', async () => {
+    const { getByRole } = render(Settings, { props: {} });
+
+    const sage = await waitFor(() => getByRole('radio', { name: 'Sage' }));
+    await fireEvent.click(sage);
+
+    expect(sage.getAttribute('aria-checked')).toBe('true');
+    expect(document.documentElement.getAttribute('data-accent-theme')).toBe('sage');
+    expect(localStorage.getItem('confidant:accent-theme')).toBe('sage');
+  });
+
+  it('selecting Coral after a different color clears the attribute and storage', async () => {
+    localStorage.setItem('confidant:accent-theme', 'gold');
+    const { getByRole } = render(Settings, { props: {} });
+
+    const coral = await waitFor(() => getByRole('radio', { name: 'Coral (default)' }));
+    expect(coral.getAttribute('aria-checked')).toBe('false');
+
+    await fireEvent.click(coral);
+
+    expect(coral.getAttribute('aria-checked')).toBe('true');
+    expect(document.documentElement.getAttribute('data-accent-theme')).toBeNull();
+    expect(localStorage.getItem('confidant:accent-theme')).toBeNull();
+  });
+});
+
 // Auth, the low-friction way (2026-07-18, see frontend/decisions.md
 // "Auth, the low-friction way") -- direct founder brief: the whole
 // screen, not just the two backend-persisted controls, needs a login.

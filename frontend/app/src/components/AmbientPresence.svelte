@@ -165,13 +165,18 @@
     opacity: 0.18;
   }
 
-  /* The core -- a warm gradient orb rather than a flat dot. */
+  /* The core -- a warm gradient orb rather than a flat dot.
+     color-mix(), not a fixed peach hex (2026-07-21, see
+     engine/decisions.md "Accent color picker") -- same reasoning as
+     BreathingOrb.svelte's identical change: this orb needs to relight
+     with whichever accent theme is chosen, not stay orange underneath
+     a re-tinted glow around it. */
   .breath {
     position: relative;
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #FFC2A8, var(--accent) 70%);
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white 55%), var(--accent) 70%);
     opacity: 0.75;
   }
 

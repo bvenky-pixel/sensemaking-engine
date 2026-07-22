@@ -12204,3 +12204,99 @@ Verified: 117 frontend tests unaffected (no test asserted exact pixel
 sizes, only presence/interaction, so no test file needed updating this
 round), `npm run build` clean, full `pytest` 576 passed (no Python
 touched).
+
+## Accent color picker (2026-07-21, direct founder instruction)
+
+Direct ask: "add an option in settings where users can choose and
+change the color of the orb and as a result the whole UI. Default
+remains the current color."
+
+**Mechanism reuses the app's own existing pattern rather than inventing
+a new one.** `src/lib/motionPreference.js`'s Reduce Motion toggle
+already established the shape for an app-level visual preference in
+this codebase: plain `localStorage` (no user-preference field exists
+server-side -- see `src/api/db.py`'s own "single-user simplification"
+note, unchanged), applied by toggling a `<html>` attribute that
+`tokens.css` reacts to, read once at startup (`main.js`) and re-applied
+immediately after the Settings control changes. New
+`src/lib/accentTheme.js` follows the identical shape --
+`data-accent-theme` alongside the existing `data-reduce-motion`.
+
+**Five choices, not an open picker -- reuses colors this app already
+has.** `modeTints.js` already names four supporting accent tones
+(`--accent-2` periwinkle, `--accent-3` sage, `--accent-4` lavender,
+`--accent-5` gold) used to color-code the six Counseling modes. Rather
+than inventing new hex values needing their own light/dark pair
+defined from scratch, the picker's four non-default options simply
+repoint `--accent` at one of these via `:root[data-accent-theme='X']
+{ --accent: var(--accent-N); }` -- one rule per theme, correct in both
+light and dark mode automatically (the referenced variable already
+resolves to its own correct value at point of use, and the attribute
+selector's specificity always beats the dark-mode media query's plain
+`:root`, regardless of source order). "Coral" (the default) is simply
+the absence of the attribute, since that's `--accent`'s own base
+definition already -- no rule needed. New `--accent-default` token (a
+fixed, never-overridden reference to the same coral hex) exists solely
+so the Settings picker's own "Coral" swatch preview keeps showing the
+true default color even while a different theme is active and
+`--accent` itself points elsewhere.
+
+**"As a result the whole UI," taken literally -- three places that
+were hardcoded to coral specifically needed to become theme-aware too,
+not just the generic `--accent`-driven surfaces (buttons, links, focus
+rings) that already worked for free:**
+- `--shadow-glow` (the glow under `.btn-primary` and the orb) was a
+  fixed `rgba(255, 122, 89, ...)` -- switched to
+  `color-mix(in srgb, var(--accent) 35%, transparent)` (45% in dark
+  mode, matching the original alpha values) so the glow relights to
+  match whichever accent is chosen, instead of a re-tinted button
+  glowing orange underneath itself.
+- `BreathingOrb.svelte`/`AmbientPresence.svelte`'s own core gradient
+  highlight was a fixed peach hex (`#FFD4BE`/`#FFC2A8`) blending into
+  `var(--accent)` -- since the orb is literally the feature's named
+  subject ("the color of the orb"), leaving this fixed would mean the
+  orb's edge changes color but its own center stays orange regardless
+  of theme. Switched to
+  `color-mix(in srgb, var(--accent) 45%, white 55%)`, a light tint
+  computed FROM the chosen accent rather than a fixed color.
+- The page-level ambient background wash's first (larger, primary)
+  radial-gradient stop was also a fixed coral rgba -- same color-mix
+  treatment. The second (smaller, corner) stop stays a fixed
+  periwinkle regardless of theme, deliberately -- a permanent secondary
+  highlight, not part of what the picker controls; letting both stops
+  follow the same theme would occasionally produce a monochrome wash
+  (e.g. choosing "periwinkle" would otherwise duplicate the existing
+  fixed blue corner).
+
+**UI**: new "Appearance" section in Settings, between Privacy and
+Account -- five circular swatch buttons (`role="radiogroup"`), the
+selected one marked with a ring (`box-shadow`, not a checkmark glyph --
+a fixed-color checkmark would have contrast problems against at least
+one of the five hues, a ring reads clearly against all of them). Gated
+behind the same sign-in requirement as the rest of Settings, for
+consistency with Reduce Motion (also plain-localStorage, also
+gated) -- a person shouldn't find some Settings controls behind login
+and others not for reasons they can't see, even though this specific
+preference isn't itself sensitive.
+
+**Verification note**: Settings requires real magic-link login, which
+isn't practically exercisable end-to-end in this sandbox. The picker's
+own click-handling logic (persist + apply + re-render selected state)
+is covered by three new Vitest cases in `Settings.test.js` (default
+selection, selecting a theme, returning to Coral clears storage) using
+a directly-set `authState`, the same pattern every other signed-in
+Settings test in that file already uses. What those component tests
+can't catch -- whether the CSS itself (new `color-mix()` usage, the
+attribute-selector cascade/specificity argument above) actually
+resolves correctly in a real browser -- was verified separately with
+Playwright against the running app: toggled `data-accent-theme`
+directly (the same DOM effect the picker itself produces) across all
+five themes, confirmed via `getComputedStyle` that `--accent`/
+`--accent-ink`/the orb's gradient/TabBar's center button all update
+correctly, confirmed dark mode + a theme combine correctly
+(`prefers-color-scheme: dark` emulated alongside `data-accent-theme`),
+and visually confirmed gold's dark-ink override keeps the "+" glyph
+readable against its pale background.
+
+Verified: 120 frontend tests (3 new), `npm run build` clean, full
+`pytest` 576 passed (no Python touched).

@@ -166,7 +166,12 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #FFD4BE, var(--accent) 70%);
+    /* color-mix(), not a fixed peach hex (2026-07-21, see
+       engine/decisions.md "Accent color picker") -- the orb IS the
+       accent color picker's main subject ("the color of the orb"), so
+       this highlight needs to relight with whichever accent is chosen
+       too, not stay orange underneath a re-tinted glow around it. */
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white 55%), var(--accent) 70%);
     opacity: 0.85;
   }
 
