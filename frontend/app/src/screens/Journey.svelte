@@ -77,6 +77,11 @@
   let sending = $state(false);
   let brief = $state(null);
   let tier2 = $state([]);
+  // Understanding panel collapsed by default (2026-07-22, direct founder
+  // feedback, screen overhaul round) -- see the template's own comment
+  // on the toggle for why this reverses backlog #236's earlier
+  // always-visible placement.
+  let understandingExpanded = $state(false);
   // Streamed Response text (2026-07-22, backlog #233, see
   // engine/decisions.md "Stream Response text token-by-token") --
   // accumulates raw response_text fragments as openStageStream's onToken
@@ -495,21 +500,15 @@
     </div>
   {/if}
 
-  <!-- Clarity Brief during the wait, not after (2026-07-22, backlog
-       #236, see engine/specs/latency-northstar-v1.md's own "Frontend-
-       only mitigations" #1): moved from below the Composer to right
-       after the orb -- zero backend change, since `brief` is already
-       fully computed from the END of the PREVIOUS turn the moment this
-       screen mounts (refreshBrief() at onMount, and again after every
-       completed send). It used to sit below the (disabled-while-
-       sending) Composer, easy to miss during the exact moment -- a
-       ~40-50s wait per the north-star doc's own measured baseline --
-       when it's the one thing actually worth reading instead of
-       watching the orb animate. Rendered in the same position whether
-       `sending` is true or not, not conditionally moved, so there's no
-       layout jump the instant a send starts or finishes. -->
-  <Understanding {brief} {tier2} {deepeningClarityNote} />
-
+  <!-- Composer sits directly under the transcript/orb now (2026-07-22,
+       direct founder feedback, screen overhaul round) -- this reverses
+       backlog #236's "Clarity Brief during the wait" placement, which
+       put the brief between the latest response and the reply box.
+       Direct founder complaint: the brief had grown long/intimidating
+       after a few rounds, and having to scroll past it just to reply
+       felt disorienting -- reply should stay adjacent to what you just
+       read. The Understanding panel moves below the Composer instead,
+       collapsed by default (see the toggle below). -->
   {#if responseLimitReached}
     <div class="limit-gate card" in:fade={{ duration: 220 }}>
       <LoginGate
@@ -544,6 +543,24 @@
       </div>
     {/if}
     <Composer disabled={sending} onSend={handleSend} />
+  {/if}
+
+  <!-- Understanding panel, collapsed by default (see comment above) --
+       only rendered (not just hidden) once expanded, so a person who
+       never opens it never pays for Understanding's own render cost. -->
+  {#if brief || tier2?.length}
+    <button
+      type="button"
+      class="understanding-toggle"
+      aria-expanded={understandingExpanded}
+      onclick={() => (understandingExpanded = !understandingExpanded)}
+    >
+      <span>{understandingExpanded ? 'Hide' : 'Show'} what we understand so far</span>
+      <span class="chevron" aria-hidden="true">{understandingExpanded ? '▾' : '▸'}</span>
+    </button>
+    {#if understandingExpanded}
+      <Understanding {brief} {tier2} {deepeningClarityNote} />
+    {/if}
   {/if}
   {/if}
 </div>
@@ -700,6 +717,23 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-soft);
     text-align: left;
+  }
+
+  /* Understanding panel toggle (see script/template comments) -- quiet,
+     text-button styling matching .menu-trigger's own restraint: this is
+     a secondary affordance, not something competing with the Composer
+     or the transcript above it for attention. */
+  .understanding-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+    color: var(--ink-muted);
+    font-size: 14px;
+  }
+
+  .understanding-toggle .chevron {
+    font-size: 11px;
   }
 
   /* The orb stays (2026-07-18, see frontend/decisions.md "The orb

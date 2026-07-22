@@ -2,11 +2,19 @@
   // Renders the real Clarity Brief endpoint's content directly -- no
   // raw backend vocabulary (no "confidence", "Judgment", "epistemic
   // tier") anywhere here, per frontend-philosophy-v1.md and
-  // trust-and-privacy-ux-v1.md. Realizes three of v4's five moments:
-  // Growing understanding (the brief itself), Named uncertainty
-  // (remainingUnknowns), and Quiet discovery (secondaryIssues /
-  // stagnationNotes -- both already held back by Judgment unless
-  // genuinely significant, so nothing further to filter here).
+  // trust-and-privacy-ux-v1.md. Realizes two of v4's five moments:
+  // Growing understanding (the brief itself) and Named uncertainty
+  // (remainingUnknowns).
+  //
+  // Direct founder feedback (2026-07-22, screen overhaul round): the
+  // panel had unlabeled prose below every card -- secondary_issues and
+  // stagnation_notes, rendered as bare .aside paragraphs with no
+  // ui-label heading, the only unframed content here -- reading as
+  // exposed raw judgment analysis rather than a deliberate part of the
+  // experience. Backend still computes and serves both fields
+  // (ClarityBriefResponse, GET /clarity-brief) -- this component simply
+  // no longer surfaces them; no card treatment was judged worth giving
+  // this content either, so it's dropped rather than reframed.
   //
   // Frontend redesign increment 1 (see frontend/decisions.md, and
   // interaction-model-v4.md's "Novelty is not the goal" guardrail,
@@ -136,12 +144,6 @@
       </section>
     {/if}
 
-    {#each brief?.secondary_issues ?? [] as aside}
-      <p class="voice aside">{aside}</p>
-    {/each}
-    {#each brief?.stagnation_notes ?? [] as aside}
-      <p class="voice aside">{aside}</p>
-    {/each}
   </div>
 {/if}
 
@@ -240,9 +242,5 @@
     padding: var(--space-2) var(--space-3);
     background: color-mix(in srgb, var(--accent-2) 10%, transparent);
     border-radius: var(--radius-sm);
-  }
-
-  .aside {
-    color: var(--ink-muted);
   }
 </style>

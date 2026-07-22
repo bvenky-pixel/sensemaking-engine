@@ -522,18 +522,19 @@ describe('Journey proximity login nudge', () => {
   });
 });
 
-// Clarity Brief during the wait, not after (2026-07-22, backlog #236,
-// see engine/decisions.md "Clarity Brief during the wait" and
-// engine/specs/latency-northstar-v1.md's own "Frontend-only
-// mitigations" #1) -- Understanding moved from below the Composer to
-// right after the orb-companion, so it's the thing a person sees during
-// a long `sending` wait instead of only after. jsdom doesn't do real
-// layout, so this can't check pixel position (that's what the earlier
-// live Playwright verification round covered) -- it checks DOM SOURCE
-// order instead, via compareDocumentPosition, which is what actually
-// determines visual order for this normal-flow, non-absolutely-
-// positioned markup.
-describe('Journey: Clarity Brief position during the wait', () => {
+// Composer adjacent to the transcript, Understanding collapsed by
+// default (2026-07-22, direct founder feedback, screen overhaul round)
+// -- this REVERSES backlog #236's earlier "Clarity Brief during the
+// wait" placement (Understanding right after the orb, ahead of the
+// Composer): the founder's direct complaint was that the brief had
+// grown long/intimidating after a few rounds of conversation, and
+// having to scroll past it just to reply felt disorienting. jsdom
+// doesn't do real layout, so this can't check pixel position (that's
+// what a live Playwright verification round covers) -- it checks DOM
+// SOURCE order instead, via compareDocumentPosition, which is what
+// actually determines visual order for this normal-flow, non-
+// absolutely-positioned markup.
+describe('Journey: Composer adjacent to transcript, Understanding collapsed by default', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getMessages.mockResolvedValue([{ role: 'user', content: 'I keep putting off a hard conversation.', created_at: '' }]);
@@ -558,33 +559,31 @@ describe('Journey: Clarity Brief position during the wait', () => {
     authState.email = 'person@example.com';
   });
 
-  it('renders the Clarity Brief before the Composer in DOM order while a turn is sending', async () => {
-    // Never resolves within the test -- holds `sending` at true so the
-    // in-flight layout (the exact moment this backlog item is about)
-    // is what gets asserted against, not the settled-afterward one.
-    api.sendMessage.mockReturnValue(new Promise(() => {}));
-
-    const { getByText, getByPlaceholderText, container } = render(Journey, {
+  it('renders the Composer before the Understanding toggle, with brief content hidden until expanded', async () => {
+    const { getByText, getByPlaceholderText, queryByText, container } = render(Journey, {
       props: { sessionId: 's1', onBack: vi.fn() },
     });
 
-    await waitFor(() => getByText(/Weighing whether to raise a workload concern/));
+    await waitFor(() => getByText('I keep putting off a hard conversation.'));
 
-    const composer = getByPlaceholderText("What's on your mind?");
-    await fireEvent.input(composer, { target: { value: 'And I know putting it off only makes it worse.' } });
-    await fireEvent.click(getByText('Share this'));
+    // Collapsed by default -- the brief's own content isn't in the DOM yet.
+    expect(queryByText(/Weighing whether to raise a workload concern/)).toBeNull();
 
-    await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
-
-    const understandingRegion = container.querySelector('[aria-label="What we understand so far"]');
+    const toggle = await waitFor(() => getByText('Show what we understand so far'));
     const composerTextarea = container.querySelector('textarea');
-    expect(understandingRegion).toBeTruthy();
     expect(composerTextarea).toBeTruthy();
-    // DOCUMENT_POSITION_FOLLOWING on composerTextarea (relative to
-    // understandingRegion) means understandingRegion comes first in
-    // source order -- i.e. Composer, not Understanding.
-    const position = understandingRegion.compareDocumentPosition(composerTextarea);
+
+    // DOCUMENT_POSITION_FOLLOWING on the toggle (relative to the
+    // composer textarea) means the toggle comes AFTER the composer in
+    // source order -- i.e. Composer, then Understanding, reversed from
+    // backlog #236's earlier ordering.
+    const position = composerTextarea.compareDocumentPosition(toggle);
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await fireEvent.click(toggle);
+
+    await waitFor(() => getByText(/Weighing whether to raise a workload concern/));
+    expect(getByText('Hide what we understand so far')).toBeTruthy();
   });
 });
 
