@@ -33,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.state_inspector import render
+from src.executor.engine import build_clarity_brief, diff_clarity_briefs
 from src.instrumentation.usage import UsageTracker, is_tracking_enabled, print_turn_summary
 from src.interpretation.debug import analyze_interpretation
 from src.orchestrator.engine import run_turn
@@ -66,6 +67,15 @@ TRANSCRIPT = [
 def main() -> int:
     state = WorldState()
     failures = 0
+    # Clarity Brief v2 (2026-07-22, see engine/decisions.md and
+    # clarity-brief-specification-v1.md) live-dispatch verification --
+    # this script previously never called build_clarity_brief at all.
+    # `previous_brief` tracks what diff_clarity_briefs compares THIS
+    # turn's brief against, the same "brief as of the last time this was
+    # built" role sessions.previous_brief_json plays in the real API
+    # (src/api/server.py::get_clarity_brief) -- None on turn 1, same as
+    # a session's first completed turn there.
+    previous_brief = None
     tracker = UsageTracker()  # inert unless CONFIDANT_TRACK_USAGE is set
     # Repetition report (2026-07-22, direct founder feedback: conversations
     # felt "repetitive... asked the same questions again and again") --
@@ -177,6 +187,25 @@ def main() -> int:
                 print(f"  - {option.label}: {option.description}")
         else:
             print("[options] (none)")
+
+        # Clarity Brief v2 (see module docstring above for why this is
+        # here) -- built from THIS turn's real Judgment/Planner output,
+        # not a fixture, so the four new sections (known_facts,
+        # competing_priorities, contradictions, emerging_patterns) and
+        # the re-sourced `situation` get judged against real model
+        # output for the first time.
+        brief = build_clarity_brief(state, result.judgment, result.planner, last_user_message=message)
+        what_changed = diff_clarity_briefs(previous_brief, brief)
+        previous_brief = brief
+
+        print("\n--- CLARITY BRIEF ---")
+        print(brief.model_dump())
+        print("\n--- WHAT CHANGED (server-side diff vs. previous turn's brief) ---")
+        if what_changed:
+            for change in what_changed:
+                print(f"    - {change}")
+        else:
+            print("    (none)")
 
         turn_summaries.append({
             "turn": i,
