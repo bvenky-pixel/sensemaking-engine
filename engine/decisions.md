@@ -13039,3 +13039,63 @@ changes, same "ship the fix, verify against real conversation data
 before declaring it calibrated" discipline as every other prompt round
 in this codebase; worth including in the next live dispatch alongside
 whatever else needs a fresh multi-turn run.
+
+## Repeated-question filter: generic difficulty-question shape (2026-07-22)
+
+Direct follow-up, same day: after the founder deployed and manually
+re-tested against production, a second real transcript showed the exact
+pattern the anti-templating fix above was meant to help with, in a
+different shape -- "What's been the hardest part about it lately?"
+recurred, reworded, three times across seven turns ("...the hardest
+part of this situation for you right now?", "...the hardest part of
+adjusting to this new dynamic?"), even though the grounding sentence's
+OWN opening construction now varied turn to turn (confirming that half
+of the prior fix worked) and even though `apply_repeated_question_filter`
+already existed specifically to catch this class of repeat.
+
+Computed directly against these exact strings: `_question_overlap`
+scores these pairs at 0.556-0.667 -- below
+`REPEATED_QUESTION_OVERLAP_THRESHOLD` (0.7), so the existing filter let
+every one of them through. First attempt: lower the threshold to 0.55.
+This immediately broke an existing, intentional test case --
+`test_genuinely_different_question_is_kept`'s own sibling pair, "What
+steps has the user taken to move to the Product team?" vs. "What is
+preventing the user from moving to the Product team?", scores 0.6
+overlap purely from sharing the narrow topic's own vocabulary ("Product
+team," "user," "move/moving") despite asking genuinely different
+things (progress made vs. current obstacle). Plain word-overlap cannot
+safely distinguish "the same generic question reworded" from "two
+different questions sharing a subject" at any single global threshold --
+a narrow topic's own shared nouns can push overlap just as high as a
+genuine repeat. Reverted the threshold to 0.7.
+
+Fix instead: a second, narrower, orthogonal mechanical check,
+`_is_generic_difficulty_question` (`src/planner/engine.py`) -- a regex
+recognizing the specific "what's the hardest/toughest/most
+difficult/most challenging part" shape, independent of subject matter.
+`apply_repeated_question_filter` now also drops a new question matching
+this shape whenever a PRIOR seen question already matched it, regardless
+of word-overlap score. Deliberately narrow (this one recognizable
+scaffolding shape, not a general meta-question detector) rather than a
+broad heuristic that risks new false positives the way the threshold
+change did.
+
+Tests: `tests/test_planner_engine.py` gains 4 new tests -- the real
+observed repeat is caught (`test_generic_difficulty_question_repeat_is_
+caught_below_the_overlap_threshold`), the first occurrence of the shape
+is never itself dropped, the topically-similar-but-different "Product
+team" pair from the failed threshold attempt is preserved as an
+explicit regression guard, and direct positive/negative matching checks
+for `_is_generic_difficulty_question` itself. Full `pytest` 643/643.
+
+Not yet re-verified live -- same status as the anti-templating fix
+above. Also worth naming as a still-open, deeper question this
+mechanical fix does not address: in this same transcript, Judgment/
+Planner never meaningfully shifted `conversational_strategy` or
+`primary_problem` across seven turns, because the user's own answers
+stayed emotionally descriptive ("the uncertainty," "goals and raise")
+rather than introducing new factual threads for Judgment to track as
+distinct Unknowns/Goals -- the mechanical filter now stops the same
+QUESTION from recurring, but doesn't itself make Planner choose a
+genuinely different STRATEGY when a conversation stays this abstract.
+Worth watching for in the next live dispatch, not fixed this round.

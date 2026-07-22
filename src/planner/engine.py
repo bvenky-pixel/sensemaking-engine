@@ -207,6 +207,46 @@ def _question_overlap(a: str, b: str) -> float:
 
 REPEATED_QUESTION_OVERLAP_THRESHOLD = 0.7
 
+# Second-round live-observed gap (2026-07-22, direct founder bug report
+# from manual production testing, after the round above had already
+# shipped): a fresh transcript showed "What's been the hardest part
+# about it lately?" recur, reworded, three times across seven turns
+# ("...the hardest part of this situation for you right now?", "...the
+# hardest part of adjusting to this new dynamic?"). Computed directly
+# against these real strings, _question_overlap scores these pairs at
+# 0.556-0.667 -- BELOW REPEATED_QUESTION_OVERLAP_THRESHOLD, so the
+# existing filter let all of them through.
+#
+# The fix is deliberately NOT a lower threshold: an initial attempt at
+# 0.55 also caught "What steps has the user taken to move to the
+# Product team?" vs. "What is preventing the user from moving to the
+# Product team?" as a false-positive duplicate (0.6 overlap) -- two
+# genuinely different questions that happen to share a narrow topic's
+# vocabulary (test_genuinely_different_question_is_kept's own sibling
+# case). Plain word-overlap cannot safely distinguish "the same generic
+# question reworded" from "two different questions sharing a subject"
+# at any single global threshold, because a narrow topic's own shared
+# nouns can push overlap just as high as a genuine repeat.
+#
+# Instead: a second, narrower, orthogonal check specifically for a
+# recognizable GENERIC scaffolding shape -- "what's the
+# hardest/toughest/most difficult part," independent of subject matter
+# -- since this exact shape is what recurred live, and it carries no
+# topic-specific content that could produce a legitimate reason to ask
+# it twice with different wording. Deliberately narrow (this one
+# pattern, not a general meta-question detector) rather than broad and
+# risky.
+_GENERIC_DIFFICULTY_QUESTION_RE = re.compile(
+    r"\b(hardest|toughest|most difficult|most challenging)\b.{0,40}\bpart\b"
+    r"|\bpart\b.{0,40}\b(hardest|toughest|most difficult|most challenging)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_difficulty_question(text: str) -> bool:
+    return bool(_GENERIC_DIFFICULTY_QUESTION_RE.search(text))
+
+
 # How many of the most recently-produced questions stay eligible to
 # match against -- unbounded growth would make every turn's filtering
 # slower for no real benefit, and a question asked many turns ago is no
@@ -221,7 +261,14 @@ def apply_repeated_question_filter(
     """
     Drops any question from planner.questions_to_explore that's a near-
     duplicate (see REPEATED_QUESTION_OVERLAP_THRESHOLD) of a question
-    already produced in a recent prior turn (state.recent_planner_questions).
+    already produced in a recent prior turn (state.recent_planner_questions),
+    OR that matches the same generic difficulty-question shape (see
+    _GENERIC_DIFFICULTY_QUESTION_RE) as one already produced -- this
+    second check exists because that one recognizable shape ("what's the
+    hardest/toughest part") recurred, reworded, in a real conversation at
+    a word-overlap score below what a globally safe threshold can catch
+    (see that regex's own comment for why a lower global threshold isn't
+    the fix).
 
     Returns (filtered_planner, updated_recent_questions) -- this function
     does NOT mutate WorldState itself, matching run_planner's own pure-
@@ -230,9 +277,11 @@ def apply_repeated_question_filter(
     state.recent_planner_questions.
     """
     seen = state.recent_planner_questions
+    seen_has_generic_difficulty_question = any(_is_generic_difficulty_question(q) for q in seen)
     kept = [
         q for q in planner.questions_to_explore
         if not any(_question_overlap(q, prior) >= REPEATED_QUESTION_OVERLAP_THRESHOLD for prior in seen)
+        and not (seen_has_generic_difficulty_question and _is_generic_difficulty_question(q))
     ]
     filtered_planner = planner.model_copy(update={"questions_to_explore": kept})
     updated_recent = (seen + kept)[-RECENT_QUESTIONS_WINDOW:]
