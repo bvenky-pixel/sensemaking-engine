@@ -23,7 +23,6 @@ vi.mock('../lib/api.js', async (importOriginal) => {
     getMessages: vi.fn(),
     sendMessage: vi.fn(),
     getClarityBrief: vi.fn(),
-    getUnderstanding: vi.fn(),
     openStageStream: vi.fn(),
     deleteSession: vi.fn(),
     getBookmark: vi.fn(),
@@ -43,7 +42,6 @@ describe('Journey overflow menu', () => {
     vi.clearAllMocks();
     api.getMessages.mockResolvedValue([]);
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -97,8 +95,8 @@ describe('Journey overflow menu', () => {
     api.getBookmark.mockResolvedValue({ bookmarked: true });
     const { getByLabelText, getByText } = render(Journey, { props: { sessionId: 's1', onBack: vi.fn() } });
 
-    // getBookmark resolves after getMessages/getClarityBrief/getUnderstanding
-    // in onMount, so the menu trigger itself (rendered unconditionally,
+    // getBookmark resolves after getMessages/getClarityBrief in onMount,
+    // so the menu trigger itself (rendered unconditionally,
     // not gated behind `loaded`) can exist in the DOM before `bookmarked`
     // has actually loaded -- wait for the real signal, not just the
     // trigger's presence.
@@ -167,7 +165,6 @@ describe('Journey-close reflection question', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getMessages.mockResolvedValue([{ role: 'user', content: 'I want to move teams.', created_at: '' }]);
     api.openStageStream.mockReturnValue(vi.fn());
@@ -270,7 +267,6 @@ describe('Journey: only populated after a real message is shared', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -320,7 +316,6 @@ describe('Journey: response limit reached', () => {
     vi.clearAllMocks();
     api.getMessages.mockResolvedValue([{ role: 'user', content: 'Already said something.', created_at: '' }]);
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -379,7 +374,6 @@ describe('Journey overflow menu: signed out', () => {
     vi.clearAllMocks();
     api.getMessages.mockResolvedValue([]);
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -439,7 +433,6 @@ describe('Journey proximity login nudge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -547,7 +540,6 @@ describe('Journey: Composer adjacent to transcript, Understanding collapsed by d
       secondary_issues: [],
       stagnation_notes: [],
     });
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,
@@ -567,7 +559,7 @@ describe('Journey: Composer adjacent to transcript, Understanding collapsed by d
     await waitFor(() => getByText('I keep putting off a hard conversation.'));
 
     // Collapsed by default -- the brief's own content isn't in the DOM yet.
-    expect(queryByText(/Weighing whether to raise a workload concern/)).toBeNull();
+    expect(queryByText(/The delay itself is adding stress/)).toBeNull();
 
     const toggle = await waitFor(() => getByText('Show what we understand so far'));
     const composerTextarea = container.querySelector('textarea');
@@ -582,7 +574,9 @@ describe('Journey: Composer adjacent to transcript, Understanding collapsed by d
 
     await fireEvent.click(toggle);
 
-    await waitFor(() => getByText(/Weighing whether to raise a workload concern/));
+    // key_insights ("What matters here"), not situation ("Where things
+    // stand" -- removed entirely, 2026-07-22, direct founder redirect).
+    await waitFor(() => getByText(/The delay itself is adding stress/));
     expect(getByText('Hide what we understand so far')).toBeTruthy();
   });
 });
@@ -597,7 +591,6 @@ describe('Journey: streamed response text preview', () => {
     vi.clearAllMocks();
     api.getMessages.mockResolvedValue([]);
     api.getClarityBrief.mockResolvedValue(null);
-    api.getUnderstanding.mockResolvedValue({ tier1: [], tier2: [] });
     api.getBookmark.mockResolvedValue({ bookmarked: false });
     api.getPrivacySettings.mockResolvedValue({
       cross_session_learning_enabled: true,

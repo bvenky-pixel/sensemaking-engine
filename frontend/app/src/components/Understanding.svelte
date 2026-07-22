@@ -108,10 +108,24 @@
   // intelligence concern") and can be a real, multi-item list, not a
   // single generic sentence -- rendered as its own small list inside
   // the callout rather than one flat sentence.
-  let { brief, tier2 = [], whatChanged = [] } = $props();
+  //
+  // Frontend v2 (2026-07-22, direct founder product-direction redirect,
+  // see engine/decisions.md): "where things stand is just an overall
+  // assessment of the situation and does not add much value... putting
+  // it together is not as valuable as it looks like we are literally
+  // putting together my words... what matters here is valuable and
+  // insightful... I don't really care about the rest." Both the
+  // "Where things stand" card (situation/current_direction) and the
+  // "Putting it together" card (tier2) are removed entirely -- not
+  // demoted, not collapsed. `tier2` is no longer accepted as a prop;
+  // Journey.svelte has stopped fetching it (see that file's own
+  // comments). Backend still computes situation_assessment/
+  // current_direction/Tier 2 (no engine change here), this is a pure
+  // presentation-layer removal.
+  let { brief, whatChanged = [] } = $props();
 </script>
 
-{#if brief || tier2?.length}
+{#if brief}
   <div class="understanding-region" aria-label="What we understand so far">
     <div class="orb-signature" aria-hidden="true"></div>
 
@@ -123,18 +137,6 @@
           {/each}
         </ul>
       </div>
-    {/if}
-
-    {#if brief?.situation || brief?.current_direction}
-      <section class="card card-settled" aria-label="Where things stand" transition:fade={{ duration: 320 }}>
-        <p class="ui-label">Where things stand</p>
-        {#if brief.situation}
-          <p>{brief.situation}</p>
-        {/if}
-        {#if brief.current_direction}
-          <p class="voice">{brief.current_direction}</p>
-        {/if}
-      </section>
     {/if}
 
     {#if brief?.key_insights?.length}
@@ -154,17 +156,6 @@
         <ul>
           {#each brief.known_facts as fact}
             <li>{fact}</li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-
-    {#if tier2?.length}
-      <section class="card card-settled card-secondary" aria-label="Putting it together" transition:fade={{ duration: 320 }}>
-        <p class="ui-label">Putting it together</p>
-        <ul>
-          {#each tier2 as statement}
-            <li>{statement.text}</li>
           {/each}
         </ul>
       </section>

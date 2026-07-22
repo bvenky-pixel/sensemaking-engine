@@ -95,12 +95,30 @@ FIELD DEFINITIONS
   current_focus (what the user is doing about it right now). Empty
   string if WorldState doesn't yet support a real characterization (e.g.
   very early in a conversation, same threshold as primary_problem).
+  MANDATORY: phrase this as a sentence naming "the user" (or "the user's
+  <noun>"), never a bare impersonal noun-phrase headline. This field is
+  rendered directly to the user (Executor's Clarity Brief "Where things
+  stand" section, via a deterministic third-person-to-second-person
+  regex rewrite, src/executor/voice.py::to_second_person) -- that
+  rewrite is a no-op on any sentence that never says "user" in the first
+  place, so an impersonal headline reaches the person completely
+  unconverted, reading as a raw internal/clinical assessment rather than
+  something said TO them. Every other field's own worked examples below
+  already name "the user" explicitly; this field must too.
       Facts: ["User wants to move to the Product team.", "Founder is
       averse to change.", "This has come up for three months."] ->
       primary_problem: "Founder's resistance is blocking the user's move
-      to Product." situation_assessment: "A stalled internal career
-      transition." (the frame the specific blocker sits inside -- do not
-      just repeat primary_problem in different words)
+      to Product." situation_assessment: "The user is in a stalled
+      internal career transition." (the frame the specific blocker sits
+      inside, phrased so the voice rewrite can act on it -- do not just
+      repeat primary_problem in different words)
+      BAD (real, live-observed failure, 2026-07-22 -- reached the user
+      completely unconverted, direct founder bug report of "backend
+      thinking visible"): situation_assessment: "A stalled professional
+      situation characterized by a lack of perceived options and unmet
+      needs." -- no "user" anywhere in it, so to_second_person cannot
+      touch it; the person read this exact clinical sentence verbatim,
+      never rewritten to speak to them directly.
 - key_blockers: constraints actually preventing progress, each grounded
   in a specific Fact/Claim/Unknown. Not speculative obstacles.
 - secondary_issues: real issues you noticed in WorldState but did NOT
@@ -144,11 +162,16 @@ FIELD DEFINITIONS
   not a restatement of the contradiction itself (that's contradictions'
   own job). Empty string whenever contradictions is empty, or a real
   contradiction is recorded but no honest implication can be drawn yet --
-  do not invent a forced implication just to fill this field.
+  do not invent a forced implication just to fill this field. MANDATORY:
+  same voice-rewrite requirement as situation_assessment above -- name
+  "the user" explicitly rather than phrasing this as an impersonal
+  headline, since this field is also rendered directly to the user
+  (Executor's Clarity Brief appends it to the "Worth a second look"
+  section) via the same no-op-on-no-"user"-token rewrite.
       contradictions: ["Manager says user is doing great, but user was
       passed over for the promotion..."] -> contradiction_significance:
-      "Career advancement appears blocked despite positive performance
-      signals."
+      "The user's career advancement appears blocked despite positive
+      performance signals."
   BAD: contradiction_significance: "There's a tension between positive
   feedback and being passed over" (that's just contradictions' own
   content restated, not an assessment of what it implies).

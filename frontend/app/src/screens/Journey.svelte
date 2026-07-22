@@ -5,7 +5,6 @@
     getMessages,
     sendMessage,
     getClarityBrief,
-    getUnderstanding,
     openStageStream,
     deleteSession,
     getBookmark,
@@ -75,7 +74,6 @@
   let loaded = $state(false);
   let sending = $state(false);
   let brief = $state(null);
-  let tier2 = $state([]);
   // Understanding panel collapsed by default (2026-07-22, direct founder
   // feedback, screen overhaul round) -- see the template's own comment
   // on the toggle for why this reverses backlog #236's earlier
@@ -158,16 +156,6 @@
     }
   }
 
-  // GET /understanding never 404s (unlike Clarity Brief above) -- Tier 1
-  // computes unconditionally every turn, but this component only renders
-  // tier2 (see Understanding.svelte's own docstring for why tier1 isn't
-  // surfaced here yet), which is often still empty (computed only
-  // conditionally -- see src/understanding/tier2_engine.py).
-  async function refreshUnderstanding() {
-    const next = await getUnderstanding(sessionId);
-    tier2 = next?.tier2 ?? [];
-  }
-
   // Wrapped in try/catch (2026-07-18, see frontend/decisions.md "Return
   // to the same Journey after magic-link verify") -- the return-session
   // path from a just-verified magic link is the first way an id that
@@ -181,7 +169,6 @@
       messages = await getMessages(sessionId);
       loaded = true;
       await refreshBrief();
-      await refreshUnderstanding();
       const bookmark = await getBookmark(sessionId);
       bookmarked = bookmark.bookmarked;
       // Journey-close reflection question (2026-07-19, backlog #207) --
@@ -233,19 +220,14 @@
       messages = [...messages, { role: 'assistant', content: text, created_at: '', options }];
       // Cleared HERE, not just in `finally` below -- displayMessages'
       // own condition is `sending && streamingText`, and `sending` is
-      // still true for the rest of this try block (refreshBrief/
-      // refreshUnderstanding are still pending), so leaving
-      // streamingText set until `finally` would render the real message
-      // above AND the stale provisional bubble at once for one tick.
+      // still true for the rest of this try block (refreshBrief is
+      // still pending), so leaving streamingText set until `finally`
+      // would render the real message above AND the stale provisional
+      // bubble at once for one tick.
       streamingText = '';
       if (result.response_text) {
         await refreshBrief();
       }
-      // Unlike refreshBrief above, not gated behind response_text --
-      // Tier 2 (src/understanding/tier2_engine.py) runs before Planner/
-      // Response in the pipeline, so it can have updated even on a turn
-      // where Response Generator itself failed.
-      await refreshUnderstanding();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401 && err.detail === 'response_limit_reached') {
         // Roll back the optimistic user message above -- it was never
@@ -551,7 +533,7 @@
   <!-- Understanding panel, collapsed by default (see comment above) --
        only rendered (not just hidden) once expanded, so a person who
        never opens it never pays for Understanding's own render cost. -->
-  {#if brief || tier2?.length}
+  {#if brief}
     <button
       type="button"
       class="understanding-toggle"
@@ -562,7 +544,7 @@
       <span class="chevron" aria-hidden="true">{understandingExpanded ? '▾' : '▸'}</span>
     </button>
     {#if understandingExpanded}
-      <Understanding {brief} {tier2} {whatChanged} />
+      <Understanding {brief} {whatChanged} />
     {/if}
   {/if}
   {/if}

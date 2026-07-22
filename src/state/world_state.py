@@ -407,6 +407,34 @@ class WorldState(BaseModel):
     # below, same treatment as `understanding`.
     recent_planner_questions: List[str] = Field(default_factory=list)
 
+    # Added 2026-07-22 (second live regression on the SAME conversation
+    # shape: the founder's own report reads "same issues again reverting
+    # back to asking about hardest part when better questions exist,"
+    # after the `recent_planner_questions`/generic-difficulty-question
+    # filter above had already shipped). Root cause: that filter only
+    # ever operated on Planner's OWN candidate list
+    # (`planner.questions_to_explore`) -- but Response Generator is not
+    # required to lift a candidate verbatim (`src/response/prompt.py`'s
+    # own STRUCTURE rule says "phrase it so it reads naturally on its
+    # own"), and `recent_planner_questions` is itself excluded from every
+    # prompt (see PROMPT_EXCLUDED_FIELDS below) -- so Response had no way
+    # to know it had already asked a "what's been the hardest part"
+    # question three turns running; it isn't disobeying a rule, it
+    # simply never sees its own recent output. This field is the fix:
+    # the literal question SENTENCE actually extracted from each turn's
+    # real `Response.response_text` (see
+    # src/response/engine.py::extract_asked_question), which is what the
+    # user actually read, not an upstream approximation of it -- and,
+    # unlike `recent_planner_questions`, this one IS deliberately passed
+    # to Response Generator (see src/response/prompt.py::build_messages'
+    # `recent_questions` parameter) precisely so it can see its own
+    # recent phrasing and avoid repeating it. Still excluded from the
+    # bulk `model_dump_json` prompt payload below (passed as its own
+    # explicit parameter instead, kept short) for the same reason
+    # `recent_planner_questions` is -- pure bookkeeping, not something to
+    # reason over via the full WorldState dump.
+    recent_response_questions: List[str] = Field(default_factory=list)
+
     # Added 2026-07-12 (see engine/decisions.md "Understanding layer --
     # Journey-scoped identity"): the stable, human-readable layer
     # rendered from this WorldState -- see src/understanding/. An empty
@@ -488,5 +516,5 @@ class WorldState(BaseModel):
 # call, rather than three independently-maintained copies of the same set.
 PROMPT_EXCLUDED_FIELDS = {
     "understanding", "assumption_items", "inference_items", "emotional_signal_items",
-    "recent_planner_questions",
+    "recent_planner_questions", "recent_response_questions",
 }

@@ -25,6 +25,7 @@ the full discussion):
 from __future__ import annotations
 
 import json
+import re
 from typing import Callable, List, Optional
 
 from pydantic import ValidationError
@@ -43,6 +44,39 @@ from src.response.streaming import ResponseTextStreamExtractor
 from src.state.world_state import PROMPT_EXCLUDED_FIELDS, WorldState
 
 TEMPERATURE = 0.7  # higher than Judgment/Planner's 0.15: this is expression, not assessment
+
+# Bookkeeping window for state.recent_response_questions (see that
+# field's own docstring, src/state/world_state.py) -- kept small
+# deliberately: this exists purely so Response can recognize "did I
+# just ask something in this same shape a turn or two ago," not to
+# reconstruct deep conversation history. A handful of recent turns is
+# enough signal for that; more would just add prompt noise.
+RECENT_RESPONSE_QUESTIONS_WINDOW = 5
+
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def extract_asked_question(response_text: str) -> Optional[str]:
+    """
+    Extracts the trailing question sentence from a Response's own
+    `response_text` -- the STRUCTURE rule in src/response/prompt.py
+    guarantees exactly one "?" in the whole text (or zero, under a "no
+    direct questions" constraint). Returns None when there's no "?" to
+    find, which is the correct, common case for that constraint.
+
+    This exists to give Response Generator real memory of what it
+    ACTUALLY said in recent turns (see WorldState.recent_response_questions's
+    own docstring for the live regression this was built to fix):
+    Planner's own `recent_planner_questions` tracks its CANDIDATE list,
+    which Response is never required to reproduce verbatim, and
+    Response never even sees that field. Reading the real emitted text
+    is the only way to know what the user actually read.
+    """
+    sentences = _SENTENCE_END_RE.split(response_text.strip())
+    for sentence in reversed(sentences):
+        if "?" in sentence:
+            return sentence.strip()
+    return None
 
 
 class ResponseGeneratorError(Exception):
@@ -115,6 +149,7 @@ def run_response_generator(
     system_prompt, messages = build_messages(
         world_state_json, judgment_json, planner_json,
         response_mode_focus_note(mode, state.turn_count, pom, relevant_insight),
+        recent_questions=state.recent_response_questions[-RECENT_RESPONSE_QUESTIONS_WINDOW:],
     )
     schema = Response.model_json_schema()
     tracker = tracker or default_tracker

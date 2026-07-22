@@ -400,12 +400,14 @@ def test_diff_clarity_briefs_reports_new_competing_priority():
     ]
 
 
-def test_diff_clarity_briefs_reports_new_emerging_pattern():
+def test_diff_clarity_briefs_does_not_report_new_emerging_patterns():
+    """emerging_patterns deliberately does NOT feed "what changed"
+    (2026-07-22, direct founder redirect: "putting it together is not
+    as valuable... we are literally putting together my words") -- same
+    reason the frontend no longer renders a "Putting it together" card."""
     previous = _brief()
     current = _brief(emerging_patterns=["A pattern connecting two goals."])
-    assert diff_clarity_briefs(previous, current) == [
-        "A new pattern emerged: A pattern connecting two goals."
-    ]
+    assert diff_clarity_briefs(previous, current) == []
 
 
 def test_diff_clarity_briefs_ignores_mere_reordering():

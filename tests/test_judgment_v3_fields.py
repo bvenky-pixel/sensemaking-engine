@@ -79,3 +79,19 @@ def test_prompt_forbids_decision_readiness_from_recommending_an_option():
 
 def test_prompt_places_new_fields_in_second_assessment_layer():
     assert "SECOND layer built on top of those first-layer" in SYSTEM_PROMPT
+
+
+def test_prompt_requires_situation_assessment_to_name_the_user_for_voice_rewrite():
+    """Regression test for a real, live-observed leak (2026-07-22, direct
+    founder bug report: "backend thinking visible"): situation_assessment's
+    own worked example used to be an impersonal headline ("A stalled
+    internal career transition") with no "user" token, so
+    src/executor/voice.py::to_second_person -- a no-op on text that never
+    says "user" -- left it completely unconverted when shown to the
+    person in the Clarity Brief."""
+    assert "MANDATORY: phrase this as a sentence naming \"the user\"" in SYSTEM_PROMPT
+    assert "The user is in a stalled\n      internal career transition." in SYSTEM_PROMPT
+
+
+def test_prompt_requires_contradiction_significance_to_name_the_user_too():
+    assert "same voice-rewrite requirement as situation_assessment above" in SYSTEM_PROMPT

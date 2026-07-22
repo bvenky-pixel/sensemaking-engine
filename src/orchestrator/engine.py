@@ -75,7 +75,12 @@ from src.planner.engine import (
     strip_leaked_ids,
 )
 from src.pom.schema import PersonalOperatingModel
-from src.response.engine import ResponseGeneratorError, run_response_generator
+from src.response.engine import (
+    RECENT_RESPONSE_QUESTIONS_WINDOW,
+    ResponseGeneratorError,
+    extract_asked_question,
+    run_response_generator,
+)
 from src.response.schema import Response
 from src.state.builder import apply_judgment_resolutions, apply_knowledge_corrections, update_state
 from src.state.world_state import WorldState
@@ -370,6 +375,25 @@ def run_turn(
             behavioral_events=behavioral_events,
         )
     _notify("response")
+
+    # Response-level repeated-question mechanical backstop (2026-07-22,
+    # see src/response/engine.py::extract_asked_question and
+    # WorldState.recent_response_questions's own docstrings for the live
+    # regression this fixes): the Planner-level filter above only ever
+    # sees Planner's OWN candidate list, but Response is free to phrase
+    # its actual closing question however it likes -- so the real,
+    # user-facing repeat has to be tracked from Response's own output,
+    # not Planner's. Written back here, after Response succeeds, so
+    # NEXT turn's run_response_generator (which reads
+    # state.recent_response_questions directly) can see it.
+    asked_question = extract_asked_question(response.response_text)
+    if asked_question:
+        updated_recent_response_questions = (
+            state.recent_response_questions + [asked_question]
+        )[-RECENT_RESPONSE_QUESTIONS_WINDOW:]
+        state = state.model_copy(
+            update={"recent_response_questions": updated_recent_response_questions}
+        )
 
     return TurnResult(
         state=state, interpretation=interp, judgment=judgment, planner=plan, response=response,

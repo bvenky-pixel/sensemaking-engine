@@ -38,14 +38,18 @@ describe('Understanding', () => {
     expect(container.textContent.trim()).toBe('');
   });
 
-  // Added 2026-07-15 (see engine/decisions.md "Frontend UX pass"): this
-  // card previously had no visible heading (only an aria-label), which
-  // looked like a stray paragraph next to every other labeled card.
-  it('renders a visible heading for the "Where things stand" card', () => {
-    const { getByText } = render(Understanding, {
+  // Frontend v2 (2026-07-22, direct founder redirect: "where things
+  // stand is just an overall assessment of the situation and does not
+  // add much value... I don't really care about the rest") -- the
+  // "Where things stand" card (situation/current_direction) is removed
+  // entirely, not just relabeled.
+  it('never renders a "Where things stand" card even when situation/current_direction are set', () => {
+    const { queryByText } = render(Understanding, {
       props: { brief, whatChanged: [] },
     });
-    expect(getByText('Where things stand')).toBeTruthy();
+    expect(queryByText('Where things stand')).toBeNull();
+    expect(queryByText(brief.situation)).toBeNull();
+    expect(queryByText(brief.current_direction)).toBeNull();
   });
 
   // Major update (2026-07-22, see engine/decisions.md and
@@ -146,40 +150,18 @@ describe('Understanding', () => {
     expect(queryByText('Worth a second look')).toBeNull();
   });
 
-  // Added 2026-07-15 (see engine/decisions.md "Tier 2 design"/
-  // "implementation"/frontend wiring).
-  it('renders tier2 synthesis statements in their own card', () => {
+  // Frontend v2 (2026-07-22, direct founder redirect: "putting it
+  // together is not as valuable as it looks like we are literally
+  // putting together my words") -- the tier2-sourced "Putting it
+  // together" card, and the `tier2` prop itself, are removed entirely.
+  it('never renders a "Putting it together" card even when tier2 content is passed', () => {
     const tier2 = [
       { id: 'tier2:1', tier: 2, kind: 'synthesis', text: 'Your decision may hinge on an unexamined assumption.', grounding_item_ids: ['a', 'b'] },
     ];
-    const { getByText } = render(Understanding, {
+    const { queryByText } = render(Understanding, {
       props: { brief, tier2, whatChanged: [] },
     });
-    expect(getByText('Putting it together')).toBeTruthy();
-    expect(getByText('Your decision may hinge on an unexamined assumption.')).toBeTruthy();
-  });
-
-  it('omits the tier2 card entirely when the list is empty', () => {
-    const { queryByText } = render(Understanding, {
-      props: { brief, tier2: [], whatChanged: [] },
-    });
     expect(queryByText('Putting it together')).toBeNull();
-  });
-
-  it('renders tier2 content even when there is no clarity brief yet', () => {
-    const tier2 = [
-      { id: 'tier2:1', tier: 2, kind: 'synthesis', text: 'A real synthesis statement.', grounding_item_ids: ['a', 'b'] },
-    ];
-    const { getByText } = render(Understanding, {
-      props: { brief: null, tier2, whatChanged: [] },
-    });
-    expect(getByText('A real synthesis statement.')).toBeTruthy();
-  });
-
-  it('renders nothing when there is no brief and no tier2 content', () => {
-    const { container } = render(Understanding, {
-      props: { brief: null, tier2: [], whatChanged: [] },
-    });
-    expect(container.textContent.trim()).toBe('');
+    expect(queryByText('Your decision may hinge on an unexamined assumption.')).toBeNull();
   });
 });

@@ -289,9 +289,13 @@ def diff_clarity_briefs(previous: Optional[ClarityBrief], current: ClarityBrief)
     for p in new_priorities:
         changes.append(f"A new competing priority emerged: {p}")
 
-    new_patterns = [p for p in current.emerging_patterns if p not in previous.emerging_patterns]
-    for p in new_patterns:
-        changes.append(f"A new pattern emerged: {p}")
+    # emerging_patterns (Tier 2 synthesis) deliberately does NOT feed
+    # "what changed" (2026-07-22, direct founder product-direction
+    # redirect, see engine/decisions.md): "putting it together is not as
+    # valuable... we are literally putting together my words" -- the
+    # frontend no longer renders a "Putting it together" card for the
+    # same reason, and resurfacing the same content through this diff
+    # would just reintroduce it through a side door.
 
     return changes
 

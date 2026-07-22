@@ -13228,3 +13228,185 @@ immediately per the founder's own established pattern this session
 ("dispatch and deploy everything we've done so far I will test
 myself"), to be tested against real production traffic rather than a
 synthetic re-run.
+
+## 2026-07-22 -- Response v4 ("ask, don't think") + Clarity Brief section removal: a product-direction pivot, not another bug fix
+
+Grounding data: the founder tested the redeployed fixes above against a
+fresh conversation and reported, across two messages, a mix of a real
+regression and a deliberate product redirect:
+
+> "same issues again reverting back to asking about hardest part when
+> better questions exist" ... "id leaks, backend thinking visible,
+> grammar breaks"
+
+followed by:
+
+> "we need to rethink how the journey front end works... the responses
+> right now are not valuable, the role of the response is to ask the
+> still unclear questions and not think... where things stand is just
+> an overall assessment of the situation and does not add much value...
+> what matters here is valuable and insightful... putting it together
+> is not as valuable as it looks like we are literally putting together
+> my words... the role of the engine should be to get as many what's
+> uncertain questions answered and move understanding to what matters
+> here I don't really care about the rest."
+
+Two follow-up questions (`AskUserQuestion`) resolved the only genuine
+ambiguities before any code changed: (1) remove "Where things stand"
+and "Putting it together" from the Clarity Brief entirely (not demote/
+collapse), and (2) keep a minimal one-line acknowledgment before
+Response's question (not drop sentence 1 entirely).
+
+### Regression: repeated "hardest part" question, root cause #2
+
+The generic-difficulty-question mechanical filter shipped earlier this
+session (`apply_repeated_question_filter`, `_is_generic_difficulty_
+question`) only operates on **Planner's own candidate list**
+(`questions_to_explore`). The live transcript showed the SAME generic
+shape recur three more times regardless -- once even acknowledging
+"you've mentioned feeling stuck a few times now" in the same breath as
+asking it again. Root cause: Response Generator is never required to
+reuse Planner's wording verbatim (its own STRUCTURE rule says "phrase
+it so it reads naturally on its own"), and `state.recent_planner_
+questions` -- the ONLY memory of prior questions anywhere in this
+system -- is itself in `PROMPT_EXCLUDED_FIELDS`, so Response never sees
+it. Response wasn't disobeying a rule; it had no way to know it was
+repeating itself, because it has zero memory of its own prior output.
+
+Fix: a genuinely new mechanism, not a stronger version of the existing
+one.
+- `src/response/engine.py::extract_asked_question` -- pulls the real
+  trailing question SENTENCE out of each turn's actual `response_text`
+  (regex split on sentence boundaries, take the one containing "?").
+- New `WorldState.recent_response_questions` field (distinct from
+  `recent_planner_questions` -- tracks what Response ACTUALLY said, not
+  Planner's candidate list), written back by `src/orchestrator/engine.py::
+  run_turn` right after Response succeeds each turn.
+- `run_response_generator` now reads `state.recent_response_questions`
+  itself and threads the last `RECENT_RESPONSE_QUESTIONS_WINDOW` (5) of
+  them into `build_messages` as an explicit "Questions you already asked
+  in recent prior turns" block -- deliberately still excluded from the
+  bulk WorldState JSON dump (kept short, single purpose).
+- New GOVERNING LAW 6 in `src/response/prompt.py`: never repeat a
+  recently-asked question OR another instance of the same generic
+  scaffolding shape, with the real observed failure as a worked BAD
+  example and the actual test restated ("does this sentence assert
+  something a reader could NOT already get").
+
+Tests: `tests/test_response_repeated_questions.py` (new, 6 tests:
+`extract_asked_question`'s three shapes, threading into the prompt,
+omission when empty, window trimming), `tests/test_orchestrator.py`
+(+2: `recent_response_questions` gets written from Response's real
+output, and stays empty when Response asks no question),
+`tests/test_response_prompt.py` (+3 for the new law).
+
+### Product pivot: Response v4 -- "ask, don't think"
+
+Root cause (of the founder's OWN stated framing, not a bug): v3's
+sentence 1 ("the single most relevant thing to acknowledge or reflect
+right now") had drifted into full analytical readings of the
+situation -- e.g. "The mismatch in working styles and lack of
+communication with your new boss seem to be weighing heavily on you,
+especially with the financial pressure you're feeling." That IS
+"thinking," not listening, exactly the founder's complaint. v3's
+sentence 2 treated `questions_to_explore`/`priority_topics`/
+`resolution_blocker` as equally valid sources, with no explicit priority
+on resolving open uncertainty.
+
+Fix, `src/response/prompt.py` STRUCTURE section rewritten (v4):
+- Sentence 1: a SHORT, non-analytical acknowledgment only -- explicitly
+  forbidden from characterizing, interpreting, or naming a dynamic/
+  pattern. A bare "Okay."/"That makes sense." is preferred over
+  inventing an interpretive observation just to fill the sentence.
+- Sentence 2: MUST be sourced from the highest-priority
+  `Judgment.open_unknowns`/`Planner.questions_to_explore` entry --
+  `priority_topics`/`resolution_blocker` are now a fallback ONLY when
+  both are empty, not a peer option.
+- New checklist item 5: "did you default to a generic exploratory
+  question because nothing specific came to mind?"
+- All worked examples rewritten off the old "It sounds like..." full-
+  reflection style onto the new minimal-acknowledgment style.
+
+Tests: `tests/test_response_prompt.py` (+3 for v4's core rules; 2
+existing anti-templating tests updated for the new example text).
+
+### Frontend: "Where things stand" and "Putting it together" removed entirely
+
+Per the founder's explicit choice (not demoted/collapsed):
+- `Understanding.svelte`: both `<section>` blocks deleted outright; the
+  `tier2` prop is gone from this component entirely (`brief` is now the
+  sole gate, replacing `{#if brief || tier2?.length}`).
+- `Journey.svelte`: `getUnderstanding` fetch, `tier2` state, and
+  `refreshUnderstanding()` all removed (existed ONLY to feed the now-
+  deleted card) -- both call sites (initial `onMount`, post-send)
+  dropped along with it. `<Understanding {brief} {whatChanged} />`, no
+  `tier2`.
+- `src/executor/engine.py::diff_clarity_briefs`: the "A new pattern
+  emerged: ..." block (sourced from `emerging_patterns`/Tier 2) removed
+  -- otherwise the same devalued content would resurface through the
+  "what changed" callout's side door even with its own card gone.
+
+Deliberately NOT touched (out of scope -- the founder's own framing was
+"the front end," and ripping these out is a separate, larger cost/
+latency decision nobody asked for this round): `situation_assessment`/
+`current_direction`/`emerging_patterns` stay on the `ClarityBrief`
+schema and keep getting computed; Tier 2 synthesis
+(`src/understanding/tier2_engine.py`) keeps running every turn it's
+due; `GET /sessions/{id}/understanding` and `api.js`'s `getUnderstanding`
+wrapper stay in place as a real, valid (if currently unused) endpoint.
+Worth a future call once there's a reason to look at compute cost
+specifically -- not decided here.
+
+While in `src/judgment/prompt.py` for an unrelated but adjacent bug (see
+next section), also confirmed the "Where things stand" removal makes
+`situation_assessment`'s own voice-rewrite fix lower-stakes than it
+looked initially (nothing renders `situation`/`current_direction` to a
+person anymore) -- kept the fix anyway since it's a real correctness
+improvement independent of this round's UI change, and
+`contradiction_significance` (below) is still rendered live in "Worth a
+second look."
+
+### Also fixed, surfaced by the same message: "backend thinking visible" / "grammar breaks"
+
+Root cause: `src/executor/voice.py::to_second_person` is explicitly a
+no-op on any string that never says "user" -- but `situation_
+assessment`'s OWN worked example in `src/judgment/prompt.py` taught the
+model to write an impersonal noun-phrase headline ("A stalled internal
+career transition," no "user" anywhere), and `contradiction_
+significance`'s example had the same shape ("Career advancement appears
+blocked despite positive performance signals."). The live Brief showed
+exactly this: "A stalled professional situation characterized by a lack
+of perceived options and unmet needs." reached the person completely
+unconverted -- raw clinical/analytical phrasing, never rewritten to
+speak to them, which reads as exposed internal reasoning ("backend
+thinking") rather than a genuine reflection.
+
+Fix: added a MANDATORY rule to both fields' definitions requiring the
+sentence to explicitly name "the user" (not an impersonal headline) so
+the voice rewrite can actually act on it, and rewrote both worked
+examples to comply ("The user is in a stalled internal career
+transition." / "The user's career advancement appears blocked despite
+positive performance signals."). Same "prompt-only, no mechanical
+backstop" reasoning as the desired_outcome feelings-assertion fix
+earlier this session -- whether a sentence names the user is check-
+able by the model at generation time; retrofitting a mechanical
+rewrite for "any noun phrase describing a situation" isn't a tractable
+regex the way id-leak stripping is.
+
+Not separately investigated this round: the founder's "id leaks" note
+(no leaked-id string actually appears anywhere in the pasted transcript
+this time -- plausibly the prior round's fix hadn't finished
+propagating through the deploy yet when this test ran) and a literal
+duplicate rendering of one user message in the same transcript (a
+possible frontend double-send/double-render bug, not reproduced or
+diagnosed here). Both worth a fresh look on the NEXT live test, now that
+this round's deploy has actually landed.
+
+Full `pytest`: 673/673 passed (658 prior + 6 repeated-question-memory +
+3 orchestrator-threading... adjusted count: +2 orchestrator, +3 v4
+STRUCTURE, +2 situation_assessment/contradiction_significance voice
+tests, +1 diff_clarity_briefs test rewritten in place). Full frontend
+`vitest`: 123/123 passed (Understanding.test.js and Journey.test.js
+both updated for the section removal; one Journey.test.js assertion
+that depended on `situation` text switched to `key_insights` text,
+since that's the content that actually still renders).

@@ -118,6 +118,47 @@ def test_run_turn_full_success_populates_every_field(monkeypatch):
     assert any(g.content == "Move to the Product team." for g in result.state.goals)
 
 
+def test_run_turn_records_responses_own_question_for_next_turns_memory(monkeypatch):
+    """Regression test for the second live "hardest part" repeat
+    (2026-07-22, see src/response/engine.py::extract_asked_question and
+    WorldState.recent_response_questions's own docstrings): run_turn must
+    persist the ACTUAL question Response asked -- not just Planner's
+    candidate list -- so the next turn's run_response_generator can see
+    it and avoid repeating the same shape in its own words."""
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    response = Response(
+        response_text="It's been a hard stretch. What's been the hardest part of this for you lately?",
+        confidence=0.4,
+    )
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: response,
+    )
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert result.state.recent_response_questions == [
+        "What's been the hardest part of this for you lately?"
+    ]
+
+
+def test_run_turn_does_not_add_a_question_when_response_asks_none(monkeypatch):
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    response = Response(response_text="It sounds like this has been a hard stretch.", confidence=0.4)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: response,
+    )
+
+    result = run_turn("I want to move teams.", WorldState())
+
+    assert result.state.recent_response_questions == []
+
+
 def test_run_turn_threads_mode_to_planner_and_response(monkeypatch):
     """Counseling modes (see engine/decisions.md, src/orchestrator/modes.py):
     run_turn's own `mode` parameter must reach both run_planner and
