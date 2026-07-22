@@ -191,6 +191,20 @@ class Judgment(BaseModel):
     # transcription-compliance rationale (Judgment already has the
     # ground truth in front of it, the risk is forgetting to copy it
     # into the structured field).
+    # v2.1 (added 2026-07-22, see engine/decisions.md and
+    # engine/specs/clarity-brief-specification-v1.md section 5):
+    # genuinely distinct from BOTH contradictions above (a factual
+    # conflict -- two things that cannot both be true) and
+    # secondary_issues (a real but lower-priority issue on its own).
+    # This is tension BETWEEN two things that are both true and both
+    # matter -- two active Goals pulling in different directions, or a
+    # Goal and a Decision in tension. Must name both sides, same
+    # grounding discipline as contradictions/risks. No boolean-gate here,
+    # same reasoning as secondary_issues/stagnation_notes -- brand new
+    # field, no evidence yet of a transcription-compliance failure to
+    # gate against.
+    competing_priorities: List[str] = Field(default_factory=list)
+
     has_knowledge_correction: bool
     knowledge_correction_target: str  # exact WorldState facts/claims text; "" if has_knowledge_correction is False
     knowledge_correction_kind: Literal["", "retracted", "superseded"]

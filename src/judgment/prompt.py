@@ -152,6 +152,21 @@ FIELD DEFINITIONS
   BAD: contradiction_significance: "There's a tension between positive
   feedback and being passed over" (that's just contradictions' own
   content restated, not an assessment of what it implies).
+- competing_priorities: tension BETWEEN two things that are both TRUE
+  and both MATTER -- not a contradiction (both sides here CAN be true at
+  once) and not a lone secondary issue (this is specifically about two
+  things pulling against each other). Typically two active Goals in
+  tension, or a Goal and a Decision in tension. Name BOTH sides
+  explicitly and ground each in specific WorldState content, same
+  discipline as contradictions/risks. Empty list is the common, correct
+  answer whenever WorldState shows no such tension yet.
+      Goals: ["Move to the Product team.", "Protect the current team
+      relationship with Sarah."] -> competing_priorities: ["Pushing
+      harder for the Product team move risks straining the relationship
+      with Sarah that the user also wants to protect."]
+  BAD: competing_priorities: ["The user has two goals."] (doesn't name
+  what the actual tension between them is -- just restates that two
+  goals exist)
 - has_knowledge_correction: MANDATORY. Answer this FIRST, before writing
   knowledge_correction_target, knowledge_correction_kind,
   knowledge_correction_corrected_content, or knowledge_corrections.
