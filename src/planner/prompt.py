@@ -160,6 +160,31 @@ FIELD DEFINITIONS
   would reduce uncertainty. These are NOT necessarily questions asked
   directly to the user; they are what YOU, the Planner, believe still
   needs resolving.
+      MANDATORY: when a specific, concrete entry already exists in
+      Judgment.open_unknowns that materially affects primary_goal or an
+      active_decision, and it is NOT excluded by the stagnation-notes
+      rule immediately below, put THAT entry here close to verbatim --
+      do not reword a concrete, answerable question ("Who is responsible
+      for acknowledging contributions?") into a vaguer internal note
+      ("clarify how contributions get recognized"). Response Generator's
+      own instructions have it lift the most load-bearing entry from
+      THIS list nearly as written into the actual question the user
+      reads -- a vague paraphrase here is what turns into a generic,
+      recycled question there (e.g. a repeated "what's been the hardest
+      part" instead of the specific unresolved question WorldState
+      already names). Only invent a genuinely NEW internal note (not
+      already one of Judgment's open_unknowns) when no existing
+      open_unknown covers the gap you've identified.
+      Judgment.open_unknowns: ["Who is responsible for acknowledging
+      contributions?", "What does acknowledgement look like to you?"] ->
+      questions_to_explore: ["Who is responsible for acknowledging
+      contributions?"] (quoted close to verbatim, not generalized into
+      "explore what recognition means to the user")
+      BAD: questions_to_explore: ["Understand what's driving the
+      motivation gap"] when Judgment.open_unknowns already names a
+      specific, answerable question that gap traces back to -- this
+      throws away a concrete question in favor of a vaguer one that
+      Response then has no choice but to further generalize.
       MANDATORY: do not include a question that targets the same
       open_unknown or blocker a Judgment.stagnation_notes entry just
       flagged as stuck for multiple turns -- putting it back in this

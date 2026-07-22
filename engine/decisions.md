@@ -12981,3 +12981,61 @@ smoke-check, an unrelated pre-existing wiring gap in the test harness
 setup, not this change) -- noted explicitly rather than silently
 skipped, since this is the one verification step short of this
 round's usual full end-to-end visual check.
+
+## Direct question sourcing / anti-templating fix (2026-07-22)
+
+Direct founder bug report from manual production testing (a real
+conversation transcript, pasted verbatim) against the deployed app:
+across five consecutive turns, Response's grounding sentence opened with
+"It sounds like..." every single time, and the closing question stayed a
+near-identical "What's been the hardest part..." variant each turn --
+even as the person volunteered increasingly specific new information
+(bosses changing, salary concerns, finding common ground, lacking
+direction from leadership). Meanwhile the founder's own dump of accrued
+`Unknown` items showed 15 concrete, specific, never-asked questions
+("Who is responsible for acknowledging contributions?", "What does
+acknowledgement look like to you?", ...) sitting unused. Two separate,
+real root causes, both prompt-only fixes:
+
+**Root cause 1 -- generic questions instead of direct ones.**
+`src/planner/prompt.py`'s `questions_to_explore` field was documented
+only as "internal planning questions... NOT necessarily asked directly"
+-- with no guidance for when a concrete, already-known
+`Judgment.open_unknown` should just be surfaced as-is rather than
+reworded into a vaguer internal note. `src/response/prompt.py`'s own
+STRUCTURE rule has Response lift the load-bearing entry from THIS list
+nearly verbatim into the actual question the user reads -- so a vague
+paraphrase in Planner's output became a generic, recycled question in
+Response's, instead of the specific unresolved question WorldState
+already named. Fix: new MANDATORY instruction -- when a concrete
+open_unknown materially affects primary_goal/an active_decision and
+isn't excluded by the existing stagnation-notes rule, quote it close to
+verbatim in `questions_to_explore` rather than generalizing it, with a
+worked GOOD/BAD example pair.
+
+**Root cause 2 -- repetitive "It sounds like" mirroring reading as
+inauthentic.** Every one of `src/response/prompt.py`'s three worked
+examples opened the grounding sentence with the literal phrase "It
+sounds like" -- a strong anchoring signal toward that one construction,
+and the prompt's existing "vary your wording" instruction (STRUCTURE
+checklist item 3) only applied to the solution-gesture rewrite case, not
+to sentence 1's own opening. Fix: added an explicit anti-templating rule
+("Sentence 1's OWN construction must vary turn to turn"), a second
+worked GOOD example using a different construction ("You've mentioned
+Sarah a few times..."), an explicit note that "It sounds like" in the
+existing example is ONE valid opening not the house style, and a new
+checklist item 4 ("Does sentence 1 open with the exact same
+construction you used recently?").
+
+Tests: new `tests/test_planner_prompt.py` (3 tests) and
+`tests/test_response_prompt.py` (4 tests), plain prompt-presence checks
+matching this codebase's established style for Judgment's own
+`SYSTEM_PROMPT` (`test_judgment_v3_fields.py`) -- neither Planner's nor
+Response's prompt had this kind of dedicated test file before this
+round. Full `pytest` 638/638.
+
+Not yet live-dispatch verified against a real model -- prompt-only
+changes, same "ship the fix, verify against real conversation data
+before declaring it calibrated" discipline as every other prompt round
+in this codebase; worth including in the next live dispatch alongside
+whatever else needs a fresh multi-turn run.
