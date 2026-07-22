@@ -85,11 +85,20 @@
     text-align: center;
   }
 
-  /* BreathingOrb's own `compact` variant zeroes its own margin (see
-     that component's docstring) -- a small explicit gap here instead,
-     tighter than the full-size hero's old var(--space-3). */
+  /* BreathingOrb's own `compact` variant zeroes its own margin entirely
+     (see that component's docstring), including the horizontal `auto`
+     the base (non-compact) rule relies on to center a fixed-width block
+     box -- `.hero`'s own `text-align: center` above only centers inline
+     content, never a block box, so without this the orb sits flush left
+     inside `body`'s own centered 60ch column. Invisible on mobile (that
+     column fills the whole viewport there, so there's no room to the
+     side for the misalignment to show); visible on desktop, where the
+     column is narrower than the viewport (2026-07-22, direct founder
+     report: "the orb is left aligned in the + screen for desktop").
+     `margin: 0 auto` restores horizontal centering while keeping the
+     smaller bottom gap this rule already wanted. */
   .hero :global(.hero-orb) {
-    margin-bottom: var(--space-1);
+    margin: 0 auto var(--space-1);
   }
 
   /* The mode cards themselves stay left-aligned (label/description read
