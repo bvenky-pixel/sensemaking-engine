@@ -90,12 +90,16 @@ explicitly, not assume already works this way.
 | Decision-making tendencies (e.g. "delays until >80% confidence") | Learning | Same -- new category, same mechanism. |
 | Repeated tradeoff patterns, RAW form (e.g. "Autonomy > Compensation") | Learning | New category -- each individual tradeoff comparison is itself a Learning-shaped pattern. |
 | Repeated tradeoff patterns, SYNTHESIZED form (e.g. "autonomy is your strongest recurring decision criterion") | Insight Engine, reading Learning's own stored patterns as input | **New dependency.** Insight Engine's `Theme` generation must be extended to accept Learning's patterns as an input source, not just raw session content. |
+| Recurring relationship patterns, locus-of-control shape (e.g. "often assumes responsibility for outcomes outside your control") | Learning | **New category**, added per `product-risks-and-design-principles-v1.md`'s Risk 3 audit. Distinct from "recurring avoidance patterns" above (conflict avoidance is about what a person steers away from; this is about how a person attributes causation for outcomes) -- same `MIN_EVIDENCE`-gated mechanism, just a different label the existing detection can produce. |
+| Recurring growth patterns (e.g. "action creates confidence for you more reliably than preparation") | Learning, but requires a NEW input source | **New category, real gap.** Unlike every other row in this table, this pattern shape can't be evidenced from session content alone -- it requires correlating a person's own reported change against WHAT KIND OF ACTIVITY preceded it (reflection vs. an attempted experiment). That activity record doesn't exist as structured data until `programs-specification-v1.md`'s `program_experiments` table ships. Not buildable until Programs has real experiment-outcome data to read -- explicitly sequenced AFTER Programs, not alongside the other four rows above. |
 
-**What this means for the build**: three new Learning pattern
+**What this means for the build**: five new Learning pattern
 categories (additive, same evidence-gating as every existing category --
-no new mechanism), plus one real architecture change (Insight Engine
-gains a new input path: Learning's own stored patterns, in addition to
-whatever it reads today), plus a new SYNTHESIS step in Insight Engine
+no new mechanism for four of them; the fifth, growth patterns, additionally
+needs Program experiment history as a new input once that exists), plus
+one real architecture change (Insight Engine gains a new input path:
+Learning's own stored patterns, in addition to whatever it reads today),
+plus a new SYNTHESIS step in Insight Engine
 specifically for connecting multiple same-shaped Learning patterns
 (e.g. multiple "X > Y" tradeoff patterns) into one higher-level claim --
 this synthesis step is conceptually close to what Tier 2

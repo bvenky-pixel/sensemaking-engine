@@ -314,6 +314,28 @@ Open Questions
    LLM call is more "alive," but costs money on every Program-linked
    Journey close; a manual field is free but adds friction. Needs a
    product call, not an engineering default.
+6. **Should "Program" be user-visible language at all**, added per
+   `product-risks-and-design-principles-v1.md`'s Risk 2 audit. This spec
+   and the founder's own memo use "Decision Program," "Confidence
+   Program" as if that's literal UI copy, but this codebase has an
+   existing, deliberate discipline of never surfacing its own
+   architectural nouns to users (confirmed: no screen renders "Tier 1,"
+   "POM," "Learning Engine," etc. -- see that document's audit). Plans
+   may be better served showing only named instances ("Career Move,"
+   "Speaking Up at Work") with "Program"/"Program Type" staying internal
+   vocabulary the same way "WorldState" never appears in the UI --
+   rather than assuming the memo's own naming is meant to be user-facing
+   verbatim. Needs an explicit product call, same as Open Question 3.
+7. **Should stages render as a labeled, numbered sequence** ("Stage 2 of
+   6") or prose-only, matching the Clarity Brief spec's own decided
+   "no progress bars" principle? The natural default for a "training
+   plan" UI is a numbered stage tracker, which is precisely the kind of
+   dashboard chrome this product has otherwise avoided everywhere else
+   (Understanding, the Brief, `BehavioralPatterns.svelte`'s plain
+   "Noticed {n} times" instead of a counter widget). Recommend prose
+   only, consistent with every other surface in this product, but
+   flagging this explicitly since a numbered tracker is what most
+   "Plans"-style UIs default to without a deliberate decision against it.
 
 ---
 

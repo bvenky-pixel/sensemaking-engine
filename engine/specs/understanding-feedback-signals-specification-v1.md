@@ -180,7 +180,15 @@ Rollout
    the mechanical proxies (e.g. does a low "did this increase clarity"
    score correlate with a high repetition rate?) -- the first real test
    of whether the mechanical proxies are honest stand-ins for the
-   explicit signal.
+   explicit signal. Within this same report, track question 3 ("Did
+   Confidant surface anything important?") as its own named rate, not
+   just one of three equally-weighted rows -- per
+   `product-risks-and-design-principles-v1.md`'s Risk 3, a Yes answer
+   here is this product's closest available signal for a "signature
+   insight" moment, and a Journey answered Yes becomes a labeled
+   candidate for qualitative review of what specifically produced that
+   feeling. This is a reporting/labeling change only, not a new
+   question or a new instrument.
 4. Only after Priority 4 ships `success_criterion`: add the richer
    cross-reference described above (per-Journey `success_criterion`
    sequence alongside that Journey's own End Survey answers).
