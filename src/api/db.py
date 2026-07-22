@@ -223,7 +223,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     bookmarked INTEGER NOT NULL DEFAULT 0,
-    mode TEXT
+    mode TEXT,
+    previous_brief_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -433,6 +434,16 @@ def init_db(db_path: Optional[Path] = None) -> None:
         # feature existed" already means.
         try:
             conn.execute("ALTER TABLE magic_links ADD COLUMN return_session_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+        # Same pattern for `previous_brief_json` (server-side Clarity
+        # Brief diffing, see engine/decisions.md and
+        # clarity-brief-specification-v1.md "Decided" section) -- a
+        # session from before this feature has none, which is exactly
+        # what NULL -> diff_clarity_briefs(None, current) == [] already
+        # means (nothing to have changed FROM yet).
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN previous_brief_json TEXT")
         except sqlite3.OperationalError:
             pass
         # privacy_settings made per-account (2026-07-19, see
@@ -754,6 +765,32 @@ def get_session_mode(session_id: str) -> Optional[str]:
     with _connect() as conn:
         row = conn.execute("SELECT mode FROM sessions WHERE id = ?", (session_id,)).fetchone()
     return row[0] if row else None
+
+
+def get_previous_brief_json(session_id: str) -> Optional[str]:
+    """The Clarity Brief as of the last time GET /clarity-brief was
+    called for this session -- see src/executor/engine.py::diff_clarity_briefs
+    and clarity-brief-specification-v1.md's "Decided" section. None for a
+    session that has never had a brief built yet, or one from before this
+    feature existed -- both correctly mean "nothing to diff against."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT previous_brief_json FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+    return row[0] if row else None
+
+
+def save_previous_brief_json(session_id: str, brief_json: str) -> None:
+    """Overwrites the stored "previous brief" with the one just built and
+    returned to the client -- the next call diffs against THIS one, not
+    an older one. Deliberately does not touch `updated_at`: unlike
+    save_turn_result/save_tier2_result, this runs from a GET endpoint, and
+    a read should not reorder list_sessions' recency ordering."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET previous_brief_json = ? WHERE id = ?",
+            (brief_json, session_id),
+        )
 
 
 def session_exists(session_id: str) -> bool:

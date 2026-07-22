@@ -1526,6 +1526,66 @@ def test_clarity_brief_suppresses_situation_when_it_echoes_the_last_message(clie
     assert res.json()["situation"] == ""
 
 
+def test_clarity_brief_what_changed_is_empty_on_first_call(client, monkeypatch):
+    """Server-side diffing (2026-07-22, see engine/decisions.md and
+    clarity-brief-specification-v1.md "Decided" section) -- a session's
+    first completed turn has no previously-persisted brief to diff
+    against, so what_changed is [] on the FIRST call to this endpoint,
+    not an error or a degenerate diff."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    judgment = dict(_MINIMAL_JUDGMENT)
+    judgment["contradictions"] = ["Manager says great, but passed over."]
+    monkeypatch.setattr("src.judgment.engine.call_provider", _always_returns(judgment))
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
+
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "Some opening message."})
+
+    res = client.get(f"/sessions/{session_id}/clarity-brief")
+    assert res.status_code == 200
+    assert res.json()["what_changed"] == []
+
+
+def test_clarity_brief_what_changed_reflects_diff_since_last_fetch(client, monkeypatch):
+    """The core server-side diffing behavior: a second GET, after a
+    second turn changed what Judgment reports, reflects the diff against
+    whatever was returned on the PREVIOUS GET call -- not a frontend JS
+    diff (supersedes frontend/app/src/lib/deepeningClarity.js's own
+    count-based logic)."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    first_judgment = dict(_MINIMAL_JUDGMENT)
+    first_judgment["open_unknowns"] = ["Why hasn't it moved forward?"]
+    second_judgment = dict(_MINIMAL_JUDGMENT)
+    second_judgment["open_unknowns"] = []  # resolved
+    second_judgment["competing_priorities"] = ["Autonomy vs. protecting the relationship."]
+    monkeypatch.setattr(
+        "src.judgment.engine.call_provider", _always_returns([first_judgment, second_judgment])
+    )
+    monkeypatch.setattr("src.planner.engine.call_provider", _always_returns(_MINIMAL_PLANNER))
+
+    session_id = client.post("/sessions").json()["id"]
+    client.post(f"/sessions/{session_id}/messages", json={"content": "First message."})
+    # First GET persists this turn's brief as `previous_brief_json` for
+    # the next call -- its own what_changed is [] (covered by the
+    # dedicated test above), not asserted again here.
+    client.get(f"/sessions/{session_id}/clarity-brief")
+
+    client.post(f"/sessions/{session_id}/messages", json={"content": "Second message."})
+    res = client.get(f"/sessions/{session_id}/clarity-brief")
+
+    assert res.status_code == 200
+    assert res.json()["what_changed"] == [
+        "This has been resolved: Why hasn't it moved forward?",
+        "A new competing priority emerged: Autonomy vs. protecting the relationship.",
+    ]
+
+
 def test_understanding_empty_before_any_turn(client):
     """Unlike /clarity-brief, this never 404s -- an empty tier1/tier2
     list before any turn has completed is a valid, correct response."""

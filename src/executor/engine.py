@@ -151,7 +151,7 @@ new judgment call, per the module's own "never reasons" claim above):
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import List, Optional
 
 from src.executor.schema import ClarityBrief
 from src.executor.voice import to_second_person
@@ -237,6 +237,63 @@ def build_clarity_brief(
         contradictions=contradictions,
         emerging_patterns=[to_second_person(item.text) for item in state.understanding.tier2],
     )
+
+
+def diff_clarity_briefs(previous: Optional[ClarityBrief], current: ClarityBrief) -> List[str]:
+    """
+    "What changed recently" (section 8, clarity-brief-specification-v1.md).
+    Decided (founder/CPO, 2026-07-22): server-side, not a frontend concern
+    -- "This is not a presentation concern; it's a product intelligence
+    concern." Called from the same call site build_clarity_brief already
+    runs from (src/api/server.py::get_clarity_brief), against
+    `sessions.previous_brief_json` (the brief as of the last time this
+    endpoint was called, persisted by that same call site) -- so any
+    future client (mobile app, a future API consumer) gets identical
+    "what changed" content, not a reimplementation of
+    frontend/app/src/lib/deepeningClarity.js's own count-based JS diff
+    (which this supersedes).
+
+    A mechanical SET DIFF over the already-decided content in `current`
+    vs. `previous` -- no new judgment call, same "reorganizing already-
+    decided content" discipline as build_clarity_brief itself. Compared
+    by membership, not position, so a reordering alone (e.g. Judgment
+    listing the same two contradictions in a different sequence) is
+    never reported as a change.
+
+    `previous=None` (no prior brief exists yet -- a session's first
+    completed turn) returns [] unconditionally: there is nothing to have
+    changed FROM yet, not an empty-but-real diff.
+    """
+    if previous is None:
+        return []
+
+    changes: List[str] = []
+
+    new_contradictions = [c for c in current.contradictions if c not in previous.contradictions]
+    for c in new_contradictions:
+        changes.append(f"A new contradiction surfaced: {c}")
+
+    resolved_decisions = [d for d in previous.decisions if d not in current.decisions]
+    for d in resolved_decisions:
+        changes.append(f"No longer weighing this: {d}")
+
+    resolved_unknowns = [
+        u for u in previous.remaining_unknowns if u not in current.remaining_unknowns
+    ]
+    for u in resolved_unknowns:
+        changes.append(f"This has been resolved: {u}")
+
+    new_priorities = [
+        p for p in current.competing_priorities if p not in previous.competing_priorities
+    ]
+    for p in new_priorities:
+        changes.append(f"A new competing priority emerged: {p}")
+
+    new_patterns = [p for p in current.emerging_patterns if p not in previous.emerging_patterns]
+    for p in new_patterns:
+        changes.append(f"A new pattern emerged: {p}")
+
+    return changes
 
 
 def render_clarity_brief(brief: ClarityBrief) -> str:

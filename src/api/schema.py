@@ -182,6 +182,17 @@ class ClarityBriefResponse(BaseModel):
     secondary_issues: List[str] = []
     stagnation_notes: List[str] = []
 
+    # Added 2026-07-22 (see engine/decisions.md and
+    # clarity-brief-specification-v1.md "Decided" section, section 8
+    # "What changed recently") -- src/executor/engine.py::diff_clarity_briefs
+    # against `sessions.previous_brief_json`, computed server-side in
+    # src/api/server.py's endpoint (NOT a frontend JS diff -- this
+    # supersedes frontend/app/src/lib/deepeningClarity.js's own count-based
+    # diff). Empty list is correct and common: a session's first completed
+    # turn has nothing to have changed FROM yet, same as every other
+    # sparse-by-default section in this response.
+    what_changed: List[str] = []
+
 
 class UnderstandingStatementOut(BaseModel):
     """One row from GET /sessions/{id}/understanding -- see

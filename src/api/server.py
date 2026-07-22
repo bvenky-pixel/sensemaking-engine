@@ -64,7 +64,8 @@ from src.api.schema import (
     UnderstandingStatementOut,
     VerifyMagicLinkRequest,
 )
-from src.executor.engine import build_clarity_brief, render_clarity_brief
+from src.executor.engine import build_clarity_brief, diff_clarity_briefs, render_clarity_brief
+from src.executor.schema import ClarityBrief
 from src.executor.voice import to_second_person
 from src.insight.schema import Insight
 from src.instrumentation.usage import UsageTracker, is_tracking_enabled
@@ -684,6 +685,23 @@ def get_clarity_brief(
     last_user_message = next((m.content for m in reversed(messages) if m.role == "user"), "")
     brief = build_clarity_brief(state, judgment, planner, last_user_message=last_user_message)
 
+    # "What changed recently" (2026-07-22, see engine/decisions.md and
+    # clarity-brief-specification-v1.md "Decided" section) -- server-side,
+    # against the brief as of the LAST time this endpoint was called for
+    # this session, not a frontend JS diff. previous=None (no prior brief
+    # persisted yet, e.g. this session's first completed turn) correctly
+    # makes diff_clarity_briefs return [] -- nothing to have changed FROM
+    # yet. This GET endpoint deliberately DOES have one side effect (the
+    # save_previous_brief_json call below) -- a "mark as seen" cursor,
+    # same category of thing as a read-tracking timestamp, not a REST
+    # purity violation worth avoiding here.
+    previous_brief_json = db.get_previous_brief_json(session_id)
+    previous_brief = (
+        ClarityBrief.model_validate_json(previous_brief_json) if previous_brief_json else None
+    )
+    what_changed = diff_clarity_briefs(previous_brief, brief)
+    db.save_previous_brief_json(session_id, brief.model_dump_json())
+
     # secondary_issues/stagnation_notes bypass build_clarity_brief's
     # mapping (they're not part of Executor's documented template -- see
     # ClarityBriefResponse's own docstring), but they're just as
@@ -696,6 +714,12 @@ def get_clarity_brief(
         rendered_markdown=render_clarity_brief(brief),
         secondary_issues=[to_second_person(s) for s in judgment.secondary_issues],
         stagnation_notes=[to_second_person(s) for s in judgment.stagnation_notes],
+        # Not re-run through to_second_person here: diff_clarity_briefs
+        # builds these strings from `brief`'s own fields, which already
+        # went through the voice rewrite inside build_clarity_brief --
+        # re-applying it to the assembled sentence ("A new contradiction
+        # surfaced: You...") would be redundant, not a second real rewrite.
+        what_changed=what_changed,
     )
 
 

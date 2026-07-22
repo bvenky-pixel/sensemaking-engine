@@ -12836,3 +12836,100 @@ law (Planner's GOVERNING LAWS, item 6) PLUS a mechanical backstop
 `apply_repeated_question_filter` so a leaked id's own characters can't
 skew that filter's word-overlap comparison. 3 new unit tests. Full
 `pytest` 609/609.
+
+## Clarity Brief v2 -- Priority 1 implementation (2026-07-22)
+
+Founder/CPO product-direction memo ("Make Understanding Visible, Not
+Just Better") plus a follow-up "Product Risks & Design Principles"
+memo produced five new spec docs in `engine/specs/` this round
+(`clarity-brief-specification-v1.md`, `insight-generation-specification-v1.md`,
+`understanding-feedback-signals-specification-v1.md`,
+`counseling-modes-frameworks-specification-v1.md`,
+`programs-specification-v1.md`, `product-risks-and-design-principles-v1.md`),
+each grounded against actual running code before any implementation.
+This entry logs the first real implementation against that set:
+Priority 1 (Clarity Brief), Rollout steps 1-2 plus the "what changed"
+server-side diffing item from that spec's own "Decided" section.
+
+**Step 1 -- `Judgment.competing_priorities`** (`src/judgment/schema.py`,
+`src/judgment/prompt.py`): new `List[str]` field, no boolean-gate (same
+"no gate without evidence of a transcription-compliance failure"
+discipline as `secondary_issues`/`stagnation_notes`). Distinct from
+`contradictions` (a factual conflict -- two things that cannot both be
+true) and `secondary_issues` (a real but lower-priority issue alone):
+this is tension BETWEEN two things that are both true and both matter
+(e.g. two active Goals pulling in different directions). New
+`tests/test_judgment_competing_priorities.py`, matching
+`test_judgment_v3_fields.py`'s own style for a single-field addition.
+
+**Step 2 -- `build_clarity_brief`'s mapping** (`src/executor/schema.py`,
+`src/executor/engine.py`): four new sections, all additive --
+`known_facts` (new Executor-level template: `WorldState.facts` filtered
+to `status="active"`, capped to the 5 most-recently-updated via
+`Provenance.last_updated` -- deliberately NOT a Judgment field, per
+Judgment's own "produces conclusions, not memory" governing law, same
+reasoning `decisions` already follows), `competing_priorities` (direct
+map from the new Judgment field), `contradictions` (direct map from
+`Judgment.contradictions`, with `contradiction_significance` appended as
+the final entry when non-empty), `emerging_patterns` (`WorldState.
+understanding.tier2` statements' own `.text` -- a reframe of the
+existing "Putting it together" content, not a new build). Also
+re-sources `situation` (same field/section) from
+`Judgment.situation_assessment`, falling back to `primary_problem`,
+replacing `WorldState.surface_complaint` -- situation_assessment is
+Judgment's own synthesized frame, never a copy of raw WorldState
+content, so this is a real improvement over echoing the last message,
+not just a rename. The existing echo-suppression check
+(`_SITUATION_ECHO_THRESHOLD`) still runs defensively against whichever
+text ends up in `situation`. `tests/test_executor.py` rewritten to
+match (contradictions was previously, deliberately, NEVER mapped at
+all -- confirmed by that file's own prior regression test -- so this is
+the single highest-leverage change in the whole rollout: real backend
+capability, already computed every turn, already grounded, previously
+invisible).
+
+**"What changed recently" -- server-side diffing** (the spec's own
+"Decided" item, founder's explicit framing: "This is not a presentation
+concern; it's a product intelligence concern"): new
+`src/executor/engine.py::diff_clarity_briefs(previous, current) ->
+List[str]`, a mechanical SET DIFF over `ClarityBrief`'s own already-
+decided content -- no new judgment call, same discipline as
+`build_clarity_brief` itself. Reports new contradictions, resolved
+decisions/unknowns (present in `previous` but not `current`), and new
+competing priorities/emerging patterns; compared by membership, not
+position, so mere reordering is never reported as a change.
+`previous=None` (a session's first completed turn) returns `[]`
+unconditionally.
+
+Persisted via a new `sessions.previous_brief_json` column (same
+`ALTER TABLE` migration pattern as `mode`/`bookmarked`), read/written by
+new `db.get_previous_brief_json`/`db.save_previous_brief_json`. Called
+from the same call site `build_clarity_brief` already runs from
+(`GET /sessions/{id}/clarity-brief` in `src/api/server.py`) -- per the
+spec's own explicit instruction, this makes "what changed" available
+identically to any future client, superseding
+`frontend/app/src/lib/deepeningClarity.js`'s own frontend-only,
+count-based diff (that file is unchanged this round; retiring it is
+scoped to the frontend rollout step, not this one). This GET endpoint
+now has one deliberate side effect -- persisting the just-built brief as
+the new `previous_brief_json` cursor for the next call -- a "mark as
+seen" cursor, the same category of thing as a read-tracking timestamp,
+not a REST purity concern worth avoiding here. New field
+`ClarityBriefResponse.what_changed: List[str] = []`.
+
+Tests: `tests/test_executor.py` gains 10 new `diff_clarity_briefs` unit
+tests (empty-when-no-previous, each of the four change kinds
+individually, reordering-is-not-a-change, no-change-returns-empty,
+multiple-kinds-combined). `tests/test_api_server.py` gains two new
+end-to-end tests (`what_changed` is `[]` on a session's first call;
+a second GET after a second turn reflects the diff against whatever the
+first GET returned). Full `pytest` 631/631.
+
+Still open from this rollout: `ClarityBriefResponse`/`Understanding.svelte`
+only expose the original five fields plus `what_changed` -- the four
+new Brief sections (`known_facts`, `competing_priorities`,
+`contradictions`, `emerging_patterns`) exist in `ClarityBrief` and
+`build_clarity_brief` but don't yet reach the API response or the
+frontend; that's Rollout step 3, tracked separately. Live-dispatch
+verification against the 11-turn walkthrough transcript (Rollout step
+4) also still pending.

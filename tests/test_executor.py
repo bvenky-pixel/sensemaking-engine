@@ -28,7 +28,7 @@ takes precedence when populated.
 
 from __future__ import annotations
 
-from src.executor.engine import build_clarity_brief, render_clarity_brief
+from src.executor.engine import build_clarity_brief, diff_clarity_briefs, render_clarity_brief
 from src.executor.schema import ClarityBrief
 from src.executor.voice import to_second_person
 from src.judgment.schema import Judgment
@@ -344,3 +344,96 @@ def test_render_clarity_brief_shows_none_for_empty_sections_not_a_blank_gap():
     # remaining_unknowns, competing_priorities, contradictions, decisions,
     # emerging_patterns)
     assert rendered.count("(none)") == 9
+
+
+def _brief(**overrides) -> ClarityBrief:
+    defaults = dict(
+        situation="",
+        key_insights=[],
+        current_direction="",
+        remaining_unknowns=[],
+        decisions=[],
+        known_facts=[],
+        competing_priorities=[],
+        contradictions=[],
+        emerging_patterns=[],
+    )
+    defaults.update(overrides)
+    return ClarityBrief(**defaults)
+
+
+def test_diff_clarity_briefs_returns_empty_list_when_no_previous_brief():
+    """A session's first completed turn has nothing to have changed FROM
+    yet -- previous=None is a real, common case, not a degenerate one."""
+    assert diff_clarity_briefs(None, _brief(contradictions=["X vs. Y."])) == []
+
+
+def test_diff_clarity_briefs_reports_new_contradiction():
+    previous = _brief()
+    current = _brief(contradictions=["Manager says great, but passed over."])
+    assert diff_clarity_briefs(previous, current) == [
+        "A new contradiction surfaced: Manager says great, but passed over."
+    ]
+
+
+def test_diff_clarity_briefs_reports_resolved_decision():
+    previous = _brief(decisions=["You're weighing House as an option."])
+    current = _brief(decisions=[])
+    assert diff_clarity_briefs(previous, current) == [
+        "No longer weighing this: You're weighing House as an option."
+    ]
+
+
+def test_diff_clarity_briefs_reports_resolved_unknown():
+    previous = _brief(remaining_unknowns=["Why hasn't it moved forward?"])
+    current = _brief(remaining_unknowns=[])
+    assert diff_clarity_briefs(previous, current) == [
+        "This has been resolved: Why hasn't it moved forward?"
+    ]
+
+
+def test_diff_clarity_briefs_reports_new_competing_priority():
+    previous = _brief()
+    current = _brief(competing_priorities=["Autonomy vs. protecting the relationship."])
+    assert diff_clarity_briefs(previous, current) == [
+        "A new competing priority emerged: Autonomy vs. protecting the relationship."
+    ]
+
+
+def test_diff_clarity_briefs_reports_new_emerging_pattern():
+    previous = _brief()
+    current = _brief(emerging_patterns=["A pattern connecting two goals."])
+    assert diff_clarity_briefs(previous, current) == [
+        "A new pattern emerged: A pattern connecting two goals."
+    ]
+
+
+def test_diff_clarity_briefs_ignores_mere_reordering():
+    """Compared by membership, not position -- Judgment listing the same
+    content in a different order is never reported as a change."""
+    previous = _brief(contradictions=["A vs. B.", "C vs. D."])
+    current = _brief(contradictions=["C vs. D.", "A vs. B."])
+    assert diff_clarity_briefs(previous, current) == []
+
+
+def test_diff_clarity_briefs_returns_empty_list_when_nothing_changed():
+    previous = _brief(situation="x", key_insights=["y"], decisions=["z"])
+    current = _brief(situation="x", key_insights=["y"], decisions=["z"])
+    assert diff_clarity_briefs(previous, current) == []
+
+
+def test_diff_clarity_briefs_combines_multiple_kinds_of_change_in_one_call():
+    previous = _brief(
+        remaining_unknowns=["Q1?"],
+        decisions=["You're weighing House as an option."],
+    )
+    current = _brief(
+        contradictions=["New contradiction."],
+        competing_priorities=["New tension."],
+    )
+    assert diff_clarity_briefs(previous, current) == [
+        "A new contradiction surfaced: New contradiction.",
+        "No longer weighing this: You're weighing House as an option.",
+        "This has been resolved: Q1?",
+        "A new competing priority emerged: New tension.",
+    ]
