@@ -12441,3 +12441,74 @@ Comfortably inside the North Star's 15-20s target on conversation
 average, though individual turns still vary with how much reasoning a
 given turn requires. No production quality re-validation was run in
 this check (see previous entry's caveat -- still open).
+
+## Tier2 moved off the critical path (2026-07-22, backlog #235)
+
+Scoped #235 (whether the sequential stage count can shrink) before
+touching anything -- see the scoping conversation itself for the full
+boundary-by-boundary analysis. Findings, briefly: Interpretation->Judgment
+has no real merge case (Judgment never reads Interpretation directly,
+confirmed via #239's own prior finding). Judgment->Planner is a real,
+deep dependency (Planner's prompt reads a dozen+ specific Judgment
+fields) and is the one the north-star doc itself names as the actual
+merge candidate -- but merging two separately-calibrated stages (Judgment
+v2 eval, Planner's #222 round) into one schema is a real prompt/schema
+redesign with real quality risk, not something to do inside this pass.
+
+The one clean, low-risk finding: Judgment->Tier2 isn't a real data
+dependency at all. `update_tier2` only ever reads WorldState (never
+Judgment's output), and neither Planner nor Response reads Tier2's
+output either -- it only feeds the frontend's Clarity Brief
+(Understanding.svelte), which already tolerates reading whatever the
+PREVIOUS turn computed for a full turn, per backlog #236's own
+reasoning. It ran before Planner in `src/orchestrator/engine.py` purely
+so it would still get a chance to update WorldState even if Planner/
+Response failed later -- not because anything downstream needed its
+result first. So its LLM call (4-14s observed live) was sitting in the
+user's critical path for no reason connected to data flow.
+
+**The fix**: `run_turn` (`src/orchestrator/engine.py`) gets a new
+`run_tier2: bool = True` parameter. Default True preserves every
+existing caller unchanged (conversation_runner.py,
+scripts/run_worldstate_walkthrough.py, tests) -- Tier2 still runs
+inline, synchronously, exactly as before. `src/api/server.py::send_message`
+is the one caller that passes `run_tier2=False`, then schedules a new
+`_run_tier2_in_background` via FastAPI's `BackgroundTasks` -- which only
+runs AFTER the HTTP response has already been sent to the person waiting
+on it. The background function reloads WorldState fresh from the DB
+(rather than closing over pre-response state, since `save_turn_result`
+has already committed by the time it fires), computes Tier2 with its own
+`UsageTracker` (the request's own tracker has already been drained to
+the DB by the time this fires, so recording usage needs a second,
+independent write), and persists via a new narrow `db.save_tier2_result`
+(world_state_json only, mirroring the existing
+`save_world_state_for_backfill` pattern, so it can't clobber `debug_json`
+-- which still reflects the TurnResult as of the response actually
+sent). A `KeyError` from `db.load_state` (session deleted between the
+response returning and the background task firing) is caught and
+treated as nothing to update; `update_tier2` itself already catches its
+own LLM-call failures per its existing module docstring, so this is the
+only new failure mode introduced.
+
+**What this deliberately doesn't do**: it doesn't merge Judgment and
+Planner (the north-star doc's actual scoping target) -- that stays a
+separate, bigger effort requiring its own calibration campaign before
+implementation, not bundled into this pass. It also doesn't introduce
+real parallelism anywhere in the four-LLM-call chain itself
+(Interpretation/Judgment/Planner/Response stay exactly as sequential as
+`run_turn`'s own docstring always said) -- only Tier2, which was never
+actually part of that dependency chain, moved.
+
+Verified: two new tests (`tests/test_orchestrator.py::
+test_run_turn_skips_update_tier2_when_run_tier2_is_false`,
+`tests/test_api_server.py::test_send_message_defers_tier2_to_a_background_task`
+-- the latter spies on both the orchestrator's own `update_tier2`
+reference (asserts it's never called) and `src.api.server`'s copy
+(asserts it's called exactly once), relying on FastAPI's TestClient
+running BackgroundTasks synchronously before returning control, so this
+is a real assertion, not a timing-dependent one). Full `pytest` 578/578
+(576 + 2 new). No live-dispatch re-verification run yet -- the existing
+worldstate-walkthrough script calls `run_turn` directly with the
+unchanged `run_tier2=True` default, so it can't exercise this path;
+would need a small script/curl-based check against the actual HTTP
+endpoint to confirm the background timing live, not done this round.

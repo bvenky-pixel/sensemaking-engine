@@ -339,6 +339,33 @@ def test_run_turn_calls_update_tier2_after_corrections_before_planner(monkeypatc
     assert result.failed_stage is None
 
 
+def test_run_turn_skips_update_tier2_when_run_tier2_is_false(monkeypatch):
+    """Direct regression test for backlog #235 (see engine/decisions.md
+    "Tier2 moved off the critical path"): src/api/server.py passes
+    run_tier2=False and computes Tier2 itself afterward, off the
+    response path -- run_turn must not call update_tier2 at all in that
+    case, and `state` must come back with whatever Tier2 the state
+    already carried untouched (not cleared, not recomputed)."""
+    monkeypatch.setattr("src.orchestrator.engine.run_interpretation", lambda message, tracker=None: _INTERP)
+    monkeypatch.setattr("src.orchestrator.engine.run_judgment", lambda state, tracker=None, retrieved_context="": _JUDGMENT)
+    monkeypatch.setattr("src.orchestrator.engine.run_planner", lambda state, judgment, tracker=None, mode=None: _PLANNER)
+    monkeypatch.setattr(
+        "src.orchestrator.engine.run_response_generator",
+        lambda state, judgment, planner, tracker=None, mode=None, pom=None, insights=None: _RESPONSE,
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        "src.orchestrator.engine.update_tier2",
+        lambda state, tracker=None: calls.append(state) or state,
+    )
+
+    result = run_turn("I want to move teams.", WorldState(), run_tier2=False)
+
+    assert calls == []
+    assert result.failed_stage is None
+
+
 def test_run_turn_interpretation_failure_leaves_state_genuinely_unchanged(monkeypatch):
     def _raise(message, tracker=None):
         raise InterpretationError("all providers failed")

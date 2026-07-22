@@ -99,6 +99,7 @@ def run_turn(
     retrieved_context: str = "",
     pom: Optional[PersonalOperatingModel] = None,
     insights: Optional[List[Insight]] = None,
+    run_tier2: bool = True,
 ) -> TurnResult:
     """
     Runs one turn through the fixed pipeline: Interpretation ->
@@ -174,6 +175,23 @@ def run_turn(
     callback") -- Orchestrator threads it ONLY to run_response_generator,
     same as `pom` above; every other stage is unaffected. Default None
     is a true no-op for every existing caller.
+
+    run_tier2: whether this call should compute Tier2 itself (2026-07-22,
+    backlog #235, see engine/decisions.md "Tier2 moved off the
+    critical path"). Default True preserves every existing caller's
+    behavior unchanged (conversation_runner.py, scripts/run_worldstate_
+    walkthrough.py, tests). src/api/server.py is the one caller that
+    passes False: Tier2 has no data dependency on Planner/Response (it
+    only ever reads WorldState, confirmed via
+    src/understanding/tier2_engine.py's own module docstring) and
+    nothing downstream of it -- Planner, Response -- reads its output
+    either, so there was never a real reason for its LLM call (4-14s
+    observed live) to block the user's response. When False, `state` is
+    returned with whatever Tier2 the PREVIOUS turn already computed
+    still in place (exactly the staleness the frontend's Clarity Brief
+    already tolerates for one whole turn by design, see backlog #236) --
+    the caller is expected to invoke update_tier2 itself afterward,
+    off the response path.
     """
     tracker = tracker or default_tracker
     behavioral_events = []
@@ -262,7 +280,8 @@ def run_turn(
     # (already fully updated by the corrections above) -- it doesn't
     # need Planner/Response to have run, so it still gets a chance to
     # update even on a turn where one of those two later fails.
-    state = update_tier2(state, tracker=tracker)
+    if run_tier2:
+        state = update_tier2(state, tracker=tracker)
 
     try:
         plan = _with_bounded_retry(

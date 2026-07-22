@@ -610,6 +610,38 @@ def test_send_message_returns_response_text(client, monkeypatch):
     assert body["failed_stage"] is None
 
 
+def test_send_message_defers_tier2_to_a_background_task(client, monkeypatch):
+    """Direct regression test for backlog #235 (see engine/decisions.md
+    "Tier2 moved off the critical path"): the orchestrator's own Tier2
+    call (src.orchestrator.engine.update_tier2) must NOT fire as part of
+    run_turn anymore, and src.api.server's own copy (used by the
+    background task) must fire exactly once instead. TestClient runs
+    FastAPI's BackgroundTasks synchronously before returning control to
+    the test, so asserting the spy ran once here is a real, not a timing-
+    dependent, assertion."""
+    monkeypatch.setattr(
+        "src.interpretation.engine.call_provider",
+        _always_returns(_minimal_interp("User wants to move to the Product team.")),
+    )
+    orchestrator_calls = []
+    monkeypatch.setattr(
+        "src.orchestrator.engine.update_tier2",
+        lambda state, tracker=None: orchestrator_calls.append(state) or state,
+    )
+    background_calls = []
+    monkeypatch.setattr(
+        "src.api.server.update_tier2",
+        lambda state, tracker=None: background_calls.append(state) or state,
+    )
+    session_id = client.post("/sessions").json()["id"]
+
+    res = client.post(f"/sessions/{session_id}/messages", json={"content": "I want to move teams."})
+
+    assert res.status_code == 200
+    assert orchestrator_calls == []
+    assert len(background_calls) == 1
+
+
 def test_send_message_returns_options_when_response_generator_provides_them(client, monkeypatch):
     """Response v3 -- real choice buttons (see engine/decisions.md):
     options flows straight through from Response into the API layer."""

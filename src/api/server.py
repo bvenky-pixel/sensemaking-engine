@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -77,6 +77,7 @@ from src.planner.schema import Planner
 from src.pom.schema import PersonalOperatingModel
 from src.retrieval.engine import build_retrieved_context
 from src.state.world_state import WorldState
+from src.understanding.tier2_engine import update_tier2
 
 # Real frontend (see frontend/decisions.md "Build the real Confidant
 # frontend") -- Svelte + Vite, built via `npm run build` in
@@ -420,9 +421,50 @@ async def stream_stages(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
+def _run_tier2_in_background(session_id: str) -> None:
+    """Backlog #235 (2026-07-22, see engine/decisions.md "Tier2 moved off
+    the critical path"): Tier2 has no data dependency on Planner/Response
+    -- it only ever reads WorldState -- and nothing downstream reads its
+    output synchronously either (Understanding.svelte's Clarity Brief
+    already tolerates reading whatever the PREVIOUS turn computed, per
+    backlog #236), so there was never a real reason for its LLM call
+    (4-14s observed live) to sit in the critical path of the response the
+    user is waiting on. Scheduled via FastAPI's BackgroundTasks, which
+    only runs after the HTTP response has already been sent -- so this
+    reloads state fresh from the DB rather than closing over the
+    pre-response `state`/`result.state`, since send_message's own
+    save_turn_result has already committed by the time this runs.
+
+    Own UsageTracker, not the request's `tracker`: by the time this
+    fires, send_message's own tracker-recording loop has already run and
+    returned, so anything appended to that tracker afterward would never
+    reach the DB -- this records its own usage independently instead.
+
+    update_tier2 itself already catches its own failures and returns
+    state unchanged (see its own docstring) -- the only realistic failure
+    mode here is the session having been deleted between the response
+    being sent and this task firing (e.g. the user deletes the Journey
+    immediately after their last message); db.load_state raises KeyError
+    in that case, which is caught and treated as "nothing to update."
+    """
+    try:
+        state = db.load_state(session_id)
+    except KeyError:
+        return
+    tier2_tracker = UsageTracker()
+    state = update_tier2(state, tracker=tier2_tracker)
+    db.save_tier2_result(session_id, state)
+    if is_tracking_enabled():
+        for usage in tier2_tracker.records:
+            db.record_llm_usage(session_id, usage)
+        for attempt in tier2_tracker.outcomes:
+            db.record_llm_attempt(session_id, attempt)
+
+
 @app.post("/sessions/{session_id}/messages", response_model=SendMessageResponse)
 def send_message(
-    session_id: str, body: SendMessageRequest, identity: Identity = Depends(resolve_identity)
+    session_id: str, body: SendMessageRequest, background_tasks: BackgroundTasks,
+    identity: Identity = Depends(resolve_identity)
 ) -> SendMessageResponse:
     _require_owned_session(session_id, identity)
 
@@ -522,12 +564,17 @@ def send_message(
         body.content, state, tracker=tracker, session_id=session_id,
         on_stage_complete=_push, mode=db.get_session_mode(session_id),
         retrieved_context=retrieved_context, pom=pom, insights=insights,
+        run_tier2=False,
     )
     _push(None)  # sentinel: closes the GET /stream connection above
 
     db.append_message(session_id, "user", body.content)
     db.save_turn_result(session_id, result)
     db.save_events(session_id, result.behavioral_events)
+
+    # Backlog #235: Tier2 runs after this request returns, not before --
+    # see _run_tier2_in_background's own docstring above.
+    background_tasks.add_task(_run_tier2_in_background, session_id)
 
     # Production observability (2026-07-19, backlog #230, see
     # engine/decisions.md "Production observability beyond opt-in

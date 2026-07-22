@@ -981,6 +981,26 @@ def save_world_state_for_backfill(session_id: str, state: WorldState) -> None:
         )
 
 
+def save_tier2_result(session_id: str, state: WorldState) -> None:
+    """Writes world_state_json only -- used by src/api/server.py's
+    background Tier2 task (2026-07-22, backlog #235, see
+    engine/decisions.md "Tier2 moved off the critical path"). Tier2 now
+    runs AFTER send_message has already returned the response and called
+    save_turn_result once, so this is a second, later write against the
+    same row -- deliberately narrow (world_state_json only, same
+    shape as save_world_state_for_backfill above) so it can't clobber
+    debug_json, which still reflects the TurnResult as of the response
+    that was actually sent. Does bump `updated_at` (unlike the backfill
+    write): a Tier2 recompute is a real, if invisible-to-the-conversation,
+    update to this session worth reflecting in recency ordering, same as
+    any other turn."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET world_state_json = ?, updated_at = ? WHERE id = ?",
+            (state.model_dump_json(), _now(), session_id),
+        )
+
+
 def load_debug(session_id: str) -> Optional[dict]:
     with _connect() as conn:
         row = conn.execute(
