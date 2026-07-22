@@ -12802,7 +12802,37 @@ reworded near-duplicate dropping, a genuinely different question being
 kept, and the window cap evicting the oldest entry. Full `pytest`
 606/606.
 
-Not yet re-dispatched against a live model at the time of this entry --
-next step is a second live walkthrough run to confirm the mechanical
-filter actually eliminates the observed repeats (the "Sarah's reasons"
-question recurring 6/11 times) end to end, not just at the unit level.
+**Re-dispatched to confirm** (run `29915935529`, same branch/model):
+11/11 turns succeeded this time. The verbatim repeat is gone -- "What
+are Sarah's potential reasons for not giving a clear explanation?"
+appeared exactly once (turn 2) across all 11 turns, versus 6 of 11 in
+the pre-fix run. `conversational_strategy` now genuinely diversifies
+once stagnation fires: `ask exploratory questions` -> `summarize
+understanding` (turn 4) -> `ask exploratory questions` (5) -> `explore
+trade-offs` (6) -> ... -> `challenge assumptions` (8) -> `explore trade-
+offs` (9), rather than oscillating between exactly two strategies on the
+same stuck thread. Three turns (4, 8, 10) had `questions_to_explore`
+filtered down to empty entirely, forcing Response to draw its question
+from `priority_topics`/`resolution_blocker` instead -- and in every one
+of those turns the resulting `response_text` reads as a genuine
+progression (turn 6: "what steps to position yourself once the freeze
+lifts"; turn 7: "what external opportunities"; turn 9: "how might her
+leadership influence [the decision]" -- responding to turn 8's new
+information about Sarah's promotion) rather than a repeat. Confirmed
+fixed, not just unit-tested.
+
+**Fresh finding from this same run**: turn 2's `questions_to_explore`
+contained a raw WorldState item id verbatim -- `"What are Sarah's
+potential reasons for not giving a clear explanation? (id:
+51eef282-70f4-45db-97fa-58270a357492)"`. The anti-id-leak law added
+earlier this round (see "Backend bugs" above) only covered Tier2,
+Judgment, and Response's prompts -- Planner's own prompt never got the
+matching instruction, so this exact gap was still open on the one layer
+whose free-text fields Response reads and can carry through to the user
+largely as-is. Fixed the same way as the repetition gap: a prompt-level
+law (Planner's GOVERNING LAWS, item 6) PLUS a mechanical backstop
+(`src/planner/engine.py::strip_leaked_ids`, a regex stripping a `"(id:
+<uuid>)"`-shaped suffix from every free-text field), applied before
+`apply_repeated_question_filter` so a leaked id's own characters can't
+skew that filter's word-overlap comparison. 3 new unit tests. Full
+`pytest` 609/609.

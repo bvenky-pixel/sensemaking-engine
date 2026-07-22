@@ -68,7 +68,12 @@ from src.instrumentation.usage import UsageTracker, default_tracker
 from src.interpretation.engine import InterpretationError, run_interpretation
 from src.judgment.engine import JudgmentError, recommend_phase_transition, run_judgment
 from src.orchestrator.schema import TurnResult
-from src.planner.engine import PlannerError, apply_repeated_question_filter, run_planner
+from src.planner.engine import (
+    PlannerError,
+    apply_repeated_question_filter,
+    run_planner,
+    strip_leaked_ids,
+)
 from src.pom.schema import PersonalOperatingModel
 from src.response.engine import ResponseGeneratorError, run_response_generator
 from src.response.schema import Response
@@ -307,6 +312,12 @@ def run_turn(
             behavioral_events=behavioral_events,
         )
     _notify("planner")
+
+    # Leaked-id mechanical backstop (2026-07-22, see
+    # src/planner/engine.py::strip_leaked_ids's own docstring) -- applied
+    # BEFORE the repeated-question filter below, so a leaked id's own
+    # characters never skew that filter's word-overlap comparison.
+    plan = strip_leaked_ids(plan)
 
     # Repeated-question mechanical backstop (2026-07-22, see
     # src/planner/engine.py::apply_repeated_question_filter's own

@@ -128,6 +128,40 @@ def run_planner(
     raise PlannerError("All configured LLM providers failed: " + "; ".join(failures))
 
 
+# Leaked-id mechanical backstop (2026-07-22): a live 11-turn walkthrough
+# dispatch (the same run that validated the repeated-question filter
+# below) caught Planner echoing a raw WorldState item id back into
+# questions_to_explore verbatim -- e.g. "...explanation? (id:
+# 51eef282-70f4-45db-97fa-58270a357492)" -- despite src/planner/prompt.py's
+# own explicit law against it (added the same round as the analogous
+# Tier2/Judgment/Response guards, see engine/decisions.md). Same "prompt
+# alone isn't enough" lesson as the repeated-question filter below,
+# applied here to the id-leak case specifically -- real, live-observed,
+# not a hypothetical.
+_LEAKED_ID_RE = re.compile(
+    r"\s*\(\s*id:\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\s*\)"
+)
+
+
+def _strip_leaked_id(text: str) -> str:
+    return _LEAKED_ID_RE.sub("", text).strip()
+
+
+def strip_leaked_ids(planner: Planner) -> Planner:
+    """Strips a "(id: <uuid>)"-shaped suffix from every free-text field
+    Response might carry through toward the user largely as-is."""
+    return planner.model_copy(update={
+        "primary_objective": _strip_leaked_id(planner.primary_objective),
+        "rationale": _strip_leaked_id(planner.rationale),
+        "resolution_blocker": _strip_leaked_id(planner.resolution_blocker),
+        "priority_topics": [_strip_leaked_id(t) for t in planner.priority_topics],
+        "questions_to_explore": [_strip_leaked_id(q) for q in planner.questions_to_explore],
+        "assumptions_to_test": [_strip_leaked_id(a) for a in planner.assumptions_to_test],
+        "planning_constraints": [_strip_leaked_id(c) for c in planner.planning_constraints],
+        "desired_outcome": _strip_leaked_id(planner.desired_outcome),
+    })
+
+
 # Repeated-question mechanical backstop (2026-07-22, direct founder
 # feedback: conversations felt "repetitive... asked the same questions
 # again and again" -- see engine/decisions.md). The prompt-only mandatory

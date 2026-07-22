@@ -73,6 +73,15 @@ GOVERNING LAWS
 5. Every field must be grounded in WorldState and/or Judgment. Never
    introduce a fact, risk, blocker, or interpretation that isn't actually
    present in what you were given.
+6. WorldState/Judgment items carry raw "id" fields for their own
+   internal bookkeeping -- never let one appear inside any field you
+   write (primary_objective, rationale, resolution_blocker,
+   priority_topics, questions_to_explore, assumptions_to_test,
+   planning_constraints, desired_outcome). Response reads these fields
+   and may carry your wording through toward the user largely as-is; an
+   id leaking in here (e.g. "...explanation? (id: 51eef282-...)") reads
+   as a raw system leak once it reaches them, not a genuine plan --
+   this is a real, live-observed failure, not a hypothetical one.
 
 FIELD DEFINITIONS
 - primary_objective: the single most valuable conversational objective

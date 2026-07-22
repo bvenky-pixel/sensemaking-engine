@@ -15,6 +15,7 @@ from src.planner.engine import (
     REPEATED_QUESTION_OVERLAP_THRESHOLD,
     RECENT_QUESTIONS_WINDOW,
     apply_repeated_question_filter,
+    strip_leaked_ids,
 )
 from src.planner.schema import Planner
 from src.state.world_state import WorldState
@@ -97,3 +98,55 @@ def test_recent_questions_window_is_capped():
 
 def test_threshold_is_a_real_fraction():
     assert 0.0 < REPEATED_QUESTION_OVERLAP_THRESHOLD <= 1.0
+
+
+def test_strip_leaked_ids_removes_a_real_observed_leak():
+    """Regression test for a real, live-observed leak (2026-07-22): a
+    live 11-turn walkthrough dispatch showed Planner echoing a raw
+    WorldState item id back into questions_to_explore verbatim, despite
+    src/planner/prompt.py's own explicit law against it."""
+    planner = _planner([
+        "What are Sarah's potential reasons for not giving a clear explanation? "
+        "(id: 51eef282-70f4-45db-97fa-58270a357492)",
+        "Has the user asked for a clear reason directly? (id: 2037e579-7562-42b6-a0f1-9ce6c8e384a4)",
+    ])
+
+    cleaned = strip_leaked_ids(planner)
+
+    assert cleaned.questions_to_explore == [
+        "What are Sarah's potential reasons for not giving a clear explanation?",
+        "Has the user asked for a clear reason directly?",
+    ]
+
+
+def test_strip_leaked_ids_is_a_noop_when_nothing_leaked():
+    planner = _planner(["What is the nature of the freeze?"])
+
+    cleaned = strip_leaked_ids(planner)
+
+    assert cleaned.questions_to_explore == planner.questions_to_explore
+
+
+def test_strip_leaked_ids_covers_every_free_text_field():
+    planner = Planner(
+        primary_objective="clarify uncertainty (id: 8875d786-f352-4953-a586-2ceb465645f5)",
+        rationale="Judgment identifies open unknowns. (id: 8875d786-f352-4953-a586-2ceb465645f5)",
+        conversational_strategy="ask exploratory questions",
+        resolution_blocker="missing information (id: 8875d786-f352-4953-a586-2ceb465645f5)",
+        priority_topics=["Topic one (id: 8875d786-f352-4953-a586-2ceb465645f5)"],
+        assumptions_to_test=["Assumes X (id: 8875d786-f352-4953-a586-2ceb465645f5)"],
+        planning_constraints=["Preserve user agency (id: 8875d786-f352-4953-a586-2ceb465645f5)"],
+        desired_outcome="User gains clarity. (id: 8875d786-f352-4953-a586-2ceb465645f5)",
+        temporal_horizon="immediate",
+        confidence=0.35,
+    )
+
+    cleaned = strip_leaked_ids(planner)
+
+    assert "id:" not in cleaned.primary_objective
+    assert "id:" not in cleaned.rationale
+    assert "id:" not in cleaned.resolution_blocker
+    assert "id:" not in cleaned.priority_topics[0]
+    assert "id:" not in cleaned.assumptions_to_test[0]
+    assert "id:" not in cleaned.planning_constraints[0]
+    assert "id:" not in cleaned.desired_outcome
